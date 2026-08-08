@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 순환 전치(CP) — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>03 / 순환 전치</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">03 · cyclic prefix</p>
+  <h1>메아리가 다음 글자를<br><em>덮치지 못하게</em> 하는 법</h1>
+  <p class="lead">전파는 한 번 쏘면 여러 갈래로 갈라져 시간차를 두고 도착합니다. 5G가 이 문제를 푸는 방식은 놀랄 만큼 단순합니다. 글자 앞에 버려도 되는 자리를 하나 만들어 두는 것.</p>
+</header>
+
+<section class="wrap">
+  <h2>문제 — 늦게 온 소리가 다음 소리를 망친다</h2>
+  <p>터널에서 "가, 나, 다"를 또박또박 외친다고 해봅시다. 소리는 상대에게 곧장 가는 것 하나, 벽에 부딪혔다 늦게 가는 것 하나로 갈라집니다. 늦게 도착한 "가"의 꼬리가 이미 도착한 "나"의 머리와 겹치면 말이 뭉개집니다.</p>
+  <p>전파도 똑같습니다. 건물이나 산에 반사된 신호가 수십에서 수백 나노초 늦게 도착해 <strong>다음 데이터의 앞부분을 오염</strong>시킵니다. 아래에서 반사파를 직접 늦춰 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t1 d1">
+      <title id="t1">직접파와 반사파, 그리고 수신기가 읽는 구간</title>
+      <desc id="d1">직접 도착한 신호 아래에 반사파가 지연되어 그려지고, 지연이 CP 길이를 넘으면 수신 구간이 오염된다.</desc>
+      <text class="rowlab" x="0" y="26">직접 도착한 신호</text>
+      <g id="rowDirect"></g>
+      <text class="rowlab" x="0" y="126">반사되어 늦게 온 신호</text>
+      <g id="rowEcho" style="transition:transform .18s ease-out"></g>
+      <text class="rowlab" x="0" y="226">수신기가 실제로 읽는 구간</text>
+      <g id="rowWindow"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="delay">반사파 지연</label>
+    <input type="range" id="delay" min="0" max="6" step="0.05" value="1.2" aria-describedby="readout">
+    <span class="readout" id="readout"></span>
+  </div>
+
+  <div class="verdict" id="verdict">
+    <span class="tag" id="vtag"></span>
+    <span class="why" id="vwhy"></span>
+  </div>
+  <p class="caption">시간 축은 30 kHz 부반송파 간격(CP 2.344 μs, 심볼 35.68 μs)을 실제 비율로 그린 것입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>해법 — 앞에 버릴 자리를 붙인다</h2>
+  <p>CP는 각 글자 앞에 붙이는 <strong>완충 지대</strong>입니다. 늦게 온 메아리가 어딘가에 착지해야 한다면, 진짜 데이터가 아니라 버려도 되는 자리에 착지하게 만드는 겁니다.</p>
+  <p>수신기는 이 완충 구간을 읽지도 않고 그냥 버립니다. 오염이 전부 거기 갇혀 있으니 뒤에 남은 구간은 깨끗합니다. 조건은 하나, <strong>메아리 지연이 완충 지대보다 짧을 것</strong>. 위 슬라이더의 경계선이 바로 그 조건입니다.</p>
+  <p>부반송파 간격이 넓어지면 글자 하나가 짧아지고 완충 지대도 같이 짧아집니다. 지금 설정한 지연에서 어느 뉴머롤로지가 버티는지 보세요.</p>
+  <ul class="cards" id="scsList"></ul>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.211 §5.3.1 · Tc = 1/(480000 × 4096) ≈ 0.509 ns, κ = 64<br>
+      일반 심볼 CP = 144·κ·2<sup>−μ</sup>·Tc · 각 0.5 ms 첫 심볼만 16κ·Tc = 0.521 μs 추가</caption>
+    <thead>
+      <tr><th class="num">μ</th><th class="num">SCS</th><th class="num">Tu</th>
+          <th class="num">일반 CP</th><th class="num">첫 심볼 CP</th><th class="num">커버 지연확산</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">15 kHz</td><td class="num">66.67 μs</td><td class="num">4.688 μs</td><td class="num">5.208 μs</td><td class="num">~1,406 m</td></tr>
+      <tr><td class="num">1</td><td class="num">30 kHz</td><td class="num">33.33 μs</td><td class="num">2.344 μs</td><td class="num">2.865 μs</td><td class="num">~703 m</td></tr>
+      <tr><td class="num">2</td><td class="num">60 kHz</td><td class="num">16.67 μs</td><td class="num">1.172 μs</td><td class="num">1.693 μs</td><td class="num">~352 m</td></tr>
+      <tr><td class="num">3</td><td class="num">120 kHz</td><td class="num">8.33 μs</td><td class="num">0.586 μs</td><td class="num">1.107 μs</td><td class="num">~176 m</td></tr>
+      <tr><td class="num">4</td><td class="num">240 kHz</td><td class="num">4.17 μs</td><td class="num">0.293 μs</td><td class="num">0.814 μs</td><td class="num">~88 m</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>왜 첫 심볼만 더 긴가.</strong> 2048 + 144 샘플로 심볼을 만들면 0.5 ms에 딱 맞아떨어지지 않고 자투리가 남습니다.
+    그 잔여분을 첫 심볼에 몰아준 것입니다. 15 kHz로 검산하면 5.208 + 6 × 4.688 + 7 × 66.67 = 정확히 500 μs.
+  </div>
+</section>
+
+<section class="invert">
+  <div class="wrap">
+    <h2>왜 하필 "뒷부분을 복사"할까</h2>
+    <div class="split">
+      <div>
+        <p>완충 지대를 무음으로 비워두면 파형이 뚝 끊깁니다. 그 급격한 계단은 주파수 영역에서 사방으로 번져 옆 채널을 오염시킵니다. 꼬리를 복사해 붙이면 파형이 매끄럽게 이어집니다.</p>
+        <p>더 중요한 건 이겁니다. 뒷부분을 앞에 붙이면 신호가 <strong>고리 모양</strong>이 됩니다. 어디서부터 잘라 읽든 같은 내용이 순서만 돌아간 형태죠. 회전목마의 목마 배치는 그대로인데 출발 위치만 달라지는 것과 같습니다.</p>
+        <p>늦게 도착한 신호는 없어진 것도, 새로 생긴 것도 없습니다. 그냥 고리가 조금 <strong>돌아가 있을</strong> 뿐입니다.</p>
+      </div>
+      <div class="stage">
+        <svg viewBox="0 0 300 300" role="img" aria-labelledby="t2 d2">
+          <title id="t2">순환 이동</title>
+          <desc id="d2">고리 위에 놓인 12개의 조각이 지연만큼 회전하지만 순서와 구성은 그대로다.</desc>
+          <circle cx="150" cy="150" r="104" fill="none" stroke="var(--dark-rule)" stroke-width="1"/>
+          <g id="ring"></g>
+          <path d="M150 22 l-9 -15 h18 z" fill="var(--alert)"/>
+          <text x="150" y="285" text-anchor="middle" class="celllab" fill="var(--dark-ink-soft)">읽기 시작점 · <tspan id="rotOut">0°</tspan> 회전</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>그래서 보정이 나눗셈 한 번으로 끝난다</h2>
+  <p>5G는 데이터를 수천 개의 얇은 주파수에 나눠 싣습니다. 하나하나는 <strong>순수한 음(音)</strong>이라고 보면 됩니다. 순수한 음은 늦게 도착해도 여전히 같은 음입니다. 도(C)를 0.1초 늦게 들어도 여전히 도(C)죠. 달라지는 건 세기와 박자뿐입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 190" role="img" aria-labelledby="t3 d3">
+      <title id="t3">지연된 순수 음</title>
+      <desc id="d3">같은 주파수의 파형이 지연만큼 옆으로 밀려 있을 뿐 모양은 동일하다.</desc>
+      <text class="rowlab" x="0" y="20">직접파</text>
+      <text class="rowlab" x="0" y="118">반사파 — 같은 파형, 밀려 있을 뿐</text>
+      <line x1="0" y1="60" x2="1100" y2="60" stroke="var(--hair)"/>
+      <line x1="0" y1="158" x2="1100" y2="158" stroke="var(--hair)"/>
+      <path id="waveA" fill="none" stroke="var(--dl)" stroke-width="2.5"/>
+      <path id="waveB" fill="none" stroke="var(--alert)" stroke-width="2.5"/>
+    </svg>
+  </div>
+
+  <p>그래서 수신기가 할 일은 부반송파마다 "세기가 0.7배로 줄고 박자가 30도 밀렸구나" 하나만 알아내 되돌리는 것입니다. <strong>곱셈 하나, 나눗셈 하나.</strong> 이게 "위상 회전으로 등화된다"는 말의 뜻입니다.</p>
+  <p>CP가 없으면 이 깔끔함이 무너집니다. 반사파가 잘린 조각으로 들어와 음이 음답지 않게 되고, 수신기는 채널 전체를 시간축에서 복잡하게 역산해야 합니다. 계산량이 수십 배로 뛰고, 그건 곧 휴대폰 배터리와 칩 단가입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>공짜는 아니다</h2>
+  <p>CP 구간은 중복 데이터라 전송 용량이 그만큼 날아갑니다. 100 Mbps 낼 수 있는 자원에서 약 7 Mbps를 안정성 보험료로 내는 셈입니다. 업계는 이 거래를 20년 넘게 아주 남는 장사로 여기고 있습니다.</p>
+  <div class="stats">
+    <div><span class="n">6.6%</span><span class="t">일반 CP가 가져가는 전송 자원 · 144/(2048+144)</span></div>
+    <div><span class="n">20%</span><span class="t">확장 CP(60 kHz)의 비용. 대신 1.25 km까지 버팁니다</span></div>
+    <div><span class="n">×1</span><span class="t">부반송파당 필요한 보정 연산. CP가 없다면 수십 배</span></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>CP는 심볼 뒷부분의 복사본이다. 지연된 메아리를 버릴 구간에 가두는 것이 목적이다.</li>
+    <li>지연이 CP를 넘는 순간 데이터가 깨진다. 이 경계가 셀 반경과 SCS 선택을 동시에 묶는다.</li>
+    <li>꼬리를 복사한 덕에 신호가 순환 구조가 되고, 등화가 부반송파당 곱셈 하나로 줄어든다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../02-tdd-pattern/index.html">← 02 TDD 슬롯 패턴</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  /* 30 kHz 기준. CP = 2.344 μs, Tu = 33.333 μs (TS 38.211 §5.3.1) */
+  var PX=10, CP=2.344, TU=33.333, SYM=CP+TU, N=3, X0=8;
+  var ns='http://www.w3.org/2000/svg';
+
+  function cell(g,i,top,h,bg,fg,label){
+    var x=X0+i*SYM*PX;
+    var c=document.createElementNS(ns,'rect');
+    c.setAttribute('x',x); c.setAttribute('y',top);
+    c.setAttribute('width',CP*PX); c.setAttribute('height',h);
+    c.setAttribute('fill','var(--gp-bg)'); c.setAttribute('stroke','var(--gp)');
+    c.setAttribute('stroke-width','0.75'); g.appendChild(c);
+    var b=document.createElementNS(ns,'rect');
+    b.setAttribute('x',x+CP*PX); b.setAttribute('y',top);
+    b.setAttribute('width',TU*PX); b.setAttribute('height',h);
+    b.setAttribute('fill',bg); b.setAttribute('stroke',fg);
+    b.setAttribute('stroke-width','0.75'); g.appendChild(b);
+    var t=document.createElementNS(ns,'text');
+    t.setAttribute('x',x+CP*PX+TU*PX/2); t.setAttribute('y',top+h/2+4);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('class','celllab');
+    t.setAttribute('fill',fg); t.textContent=label; g.appendChild(t);
+  }
+
+  var labels=['데이터 1','데이터 2','데이터 3'];
+  var d=document.getElementById('rowDirect'), e=document.getElementById('rowEcho');
+  for(var i=0;i<N;i++){
+    cell(d,i,40,44,'var(--dl-bg)','var(--dl)',labels[i]);
+    cell(e,i,140,44,'var(--alert-bg)','var(--alert)',labels[i]);
+  }
+
+  var win=document.getElementById('rowWindow');
+  var wx=X0+SYM*PX+CP*PX, ww=TU*PX;
+  var wrect=document.createElementNS(ns,'rect');
+  wrect.setAttribute('x',wx); wrect.setAttribute('y',240);
+  wrect.setAttribute('width',ww); wrect.setAttribute('height',34);
+  wrect.setAttribute('fill','#fff'); wrect.setAttribute('stroke','var(--ink)');
+  wrect.setAttribute('stroke-width','1.25'); win.appendChild(wrect);
+  var dirt=document.createElementNS(ns,'rect');
+  dirt.setAttribute('x',wx); dirt.setAttribute('y',240);
+  dirt.setAttribute('width',0); dirt.setAttribute('height',34);
+  dirt.setAttribute('fill','var(--alert)'); dirt.setAttribute('opacity','0.55');
+  win.appendChild(dirt);
+  var wtxt=document.createElementNS(ns,'text');
+  wtxt.setAttribute('x',wx+ww/2); wtxt.setAttribute('y',262);
+  wtxt.setAttribute('text-anchor','middle'); wtxt.setAttribute('class','celllab');
+  wtxt.setAttribute('fill','var(--ink)'); wtxt.textContent='데이터 2 — 여기만 읽는다';
+  win.appendChild(wtxt);
+
+  var ring=document.getElementById('ring');
+  for(var k=0;k<12;k++){
+    var a=(k/12)*Math.PI*2-Math.PI/2;
+    var cx=150+Math.cos(a)*104, cy=150+Math.sin(a)*104;
+    var dot=document.createElementNS(ns,'circle');
+    dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r',15);
+    dot.setAttribute('fill', k<3 ? 'var(--alert)' : 'var(--dark-line)');
+    dot.setAttribute('stroke', k<3 ? 'var(--alert)' : 'var(--dark-edge)');
+    ring.appendChild(dot);
+    var tx=document.createElementNS(ns,'text');
+    tx.setAttribute('x',cx); tx.setAttribute('y',cy+4);
+    tx.setAttribute('text-anchor','middle'); tx.setAttribute('class','celllab');
+    tx.setAttribute('fill','var(--dark-ink)'); tx.textContent=k+1; ring.appendChild(tx);
+  }
+
+  var SCS=[
+    {n:'15 kHz',cp:4.688},{n:'30 kHz',cp:2.344},{n:'60 kHz',cp:1.172},
+    {n:'120 kHz',cp:0.586},{n:'240 kHz',cp:0.293}
+  ];
+  var list=document.getElementById('scsList');
+  SCS.forEach(function(s){
+    var li=document.createElement('li');
+    li.innerHTML='<span class="k">'+s.n+'</span><span class="v">완충 '+s.cp.toFixed(3)+' μs · '+Math.round(s.cp*300)+' m</span><span class="s"></span>';
+    s.el=li; s.sel=li.querySelector('.s'); list.appendChild(li);
+  });
+
+  function wave(id,shift,mid){
+    var p='',period=190;
+    for(var x=0;x<=1100;x+=4){
+      var y=mid-Math.sin(((x-shift)/period)*Math.PI*2)*30;
+      p+=(x===0?'M':'L')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+    }
+    document.getElementById(id).setAttribute('d',p);
+  }
+  wave('waveA',0,60);
+
+  var slider=document.getElementById('delay'), readout=document.getElementById('readout');
+  var vbox=document.getElementById('verdict'), vtag=document.getElementById('vtag'), vwhy=document.getElementById('vwhy');
+  var rotOut=document.getElementById('rotOut');
+
+  function render(){
+    var us=parseFloat(slider.value), px=us*PX;
+    e.style.transform='translateX('+px.toFixed(1)+'px)';
+    var spill=Math.max(0,px-CP*PX);
+    dirt.setAttribute('width',Math.min(spill,ww).toFixed(1));
+    readout.textContent=us.toFixed(2)+' μs  ·  '+Math.round(us*300)+' m 우회';
+
+    var ok=us<=CP;
+    vbox.className='verdict '+(ok?'ok':'bad');
+    vtag.textContent=ok?'깨끗함':'데이터 손상';
+    vwhy.textContent=ok
+      ? '메아리가 완충 지대 안에 착지했습니다. 수신기는 그 구간을 버리고 뒤만 읽으면 됩니다.'
+      : '메아리가 완충 지대를 '+(us-CP).toFixed(2)+' μs 넘어섰습니다. 앞 데이터의 꼬리가 읽는 구간을 침범합니다.';
+
+    SCS.forEach(function(s){
+      var alive=us<=s.cp;
+      s.el.classList.toggle('dead',!alive);
+      s.sel.textContent=alive?'버팀':'깨짐';
+    });
+
+    var deg=(us/TU)*360;
+    ring.setAttribute('transform','rotate('+deg.toFixed(1)+' 150 150)');
+    rotOut.textContent=deg.toFixed(0)+'°';
+    wave('waveB',px*3,158);
+  }
+  slider.addEventListener('input',render);
+  render();
+})();
+</script>
+</body>
+</html>

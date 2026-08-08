@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 TDD 슬롯 패턴 DDDSU — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>02 / TDD 패턴</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">02 · tdd slot pattern</p>
+  <h1>규격에 없는 이름이<br><em>업계 표준</em>이 되기까지</h1>
+  <p class="lead">3GPP 규격서를 아무리 뒤져도 "DDDSU"라는 단어는 나오지 않습니다. 그런데 전 세계 3.5 GHz 기지국의 대다수가 이 패턴으로 돌아갑니다. 규격이 준 것은 이름이 아니라 빈칸이었습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>TDD는 시간을 나눠 쓴다</h2>
+  <p>FDD는 상향과 하향에 서로 다른 주파수를 씁니다. TDD는 같은 주파수를 <strong>시간으로 번갈아</strong> 씁니다. 3.5 GHz처럼 넓은 대역을 한 덩어리로 받은 곳에서는 TDD가 거의 필연입니다. 짝이 되는 대역을 따로 확보할 필요가 없으니까요.</p>
+  <p>대신 문제가 하나 생깁니다. <strong>언제 내려보내고 언제 올려받을지</strong>를 셀 전체가 합의해야 합니다. 그 합의문이 슬롯 패턴입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t1 d1">
+      <title id="t1">DDDSU 패턴과 특수 슬롯의 심볼 구성</title>
+      <desc id="d1">하향 슬롯 3개, 특수 슬롯 1개, 상향 슬롯 1개가 2.5ms 주기로 반복되고, 특수 슬롯은 하향 심볼, 가드, 상향 심볼로 나뉜다.</desc>
+
+      <text class="dimlab" x="550" y="22" text-anchor="middle">↻ 2.5 ms 주기 · 0.5 ms × 5 slots (μ=1, 30 kHz)</text>
+      <path d="M20 46V32H1080V46" fill="none" stroke="var(--hair)" stroke-width="1"/>
+      <g id="patRow"></g>
+      <line id="fL" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+      <line id="fR" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+      <text class="rowlab" x="0" y="188">special slot · 14 symbols</text>
+      <g id="symRow"></g>
+      <g id="symLabels"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="gp">가드 심볼 수</label>
+    <input type="range" id="gp" min="1" max="6" step="1" value="2" aria-describedby="gpOut">
+    <span class="readout" id="gpOut"></span>
+  </div>
+
+  <div class="stats" id="gpStats">
+    <div><span class="n" id="radius"></span><span class="t">가드가 감당하는 최대 셀 반경 (왕복 전파지연 기준)</span></div>
+    <div><span class="n" id="dlpct"></span><span class="t">전체 70심볼 중 하향에 쓰이는 비율</span></div>
+    <div><span class="n" id="ulpct"></span><span class="t">상향 비율. SRS와 PUCCH가 여기 실린다</span></div>
+  </div>
+  <p class="caption">특수 슬롯의 하향/가드/상향 배분만 바꿔본 것입니다. 가드를 늘리면 셀이 커지고 처리량이 줄어드는 거래가 그대로 보입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>규격이 준 것은 빈칸이었다</h2>
+  <p>3GPP가 정의한 것은 패턴의 <em>이름</em>이 아니라 <strong>패턴을 채우는 양식</strong>입니다. 기지국은 SIB1으로 아래 값을 셀 전체에 뿌립니다.</p>
+
+  <div class="stage">
+<pre class="src" style="margin:0;overflow-x:auto">tdd-UL-DL-ConfigurationCommon
+  referenceSubcarrierSpacing    = kHz30
+  dl-UL-TransmissionPeriodicity = ms2p5
+  nrofDownlinkSlots             = 3      ← D D D
+  nrofDownlinkSymbols           = 10     ← S 슬롯 앞부분
+  nrofUplinkSymbols             = 2      ← S 슬롯 뒷부분
+  nrofUplinkSlots               = 1      ← U</pre>
+  </div>
+
+  <p>가드 구간을 지정하는 파라미터가 없다는 점을 눈여겨보세요. 앞뒤에서 지정하고 <strong>남은 심볼이 자동으로 가드</strong>가 됩니다. 규격이 가드를 명시하지 않는 이유는, 그것이 데이터가 아니라 데이터의 <em>부재</em>이기 때문입니다.</p>
+
+  <div class="note">
+    <strong>주기 값은 정해진 목록에서만 고를 수 있다.</strong>
+    0.5 / 0.625 / 1 / 1.25 / 2 / 2.5 / 3 / 4 / 5 / 10 ms.
+    30 kHz에서 5슬롯은 정확히 2.5 ms이고 20 ms 프레임 경계와도 나누어떨어집니다.
+    DDDSU가 자연스러운 선택인 이유가 여기 있습니다. <span class="src">TS 38.331 TDD-UL-DL-ConfigCommon</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>다른 패턴들</h2>
+  <p>같은 양식으로 전혀 다른 성격의 셀을 만들 수 있습니다. 선택은 기술이 아니라 트래픽과 규제가 결정합니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>모두 SCS 30 kHz 기준. FR2에서는 같은 패턴이 1/4 주기로 돈다</caption>
+    <thead>
+      <tr><th>패턴</th><th class="num">주기</th><th>성격</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>DDDSU</strong></td><td class="num">2.5 ms</td><td>한국·유럽·일본 n78 주력. 낮은 지연과 하향 우선의 균형</td></tr>
+      <tr><td>DDDSUDDSUU</td><td class="num">5 ms</td><td>중국 n41/n78. 상향 비중을 키운 이중 주기 변형</td></tr>
+      <tr><td>DDDDDDDSUU</td><td class="num">5 ms</td><td>하향 극대화. 커버리지·용량 우선</td></tr>
+      <tr><td>DSUUU</td><td class="num">2.5 ms</td><td>상향 중심. 사설망, 영상 업링크 시나리오</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="invert">
+  <div class="wrap">
+    <h2>이웃과 박자를 맞춰야 하는 이유</h2>
+    <p>같은 대역을 쓰는 인접 사업자들은 <strong>동일한 패턴과 동일한 타이밍</strong>을 써야 합니다. 한쪽 기지국이 하향을 송신하는 순간 다른 쪽 기지국이 상향을 수신하고 있으면, 수 와트짜리 송신 신호가 피코와트 단위의 단말 신호를 그대로 덮어버립니다.</p>
+    <p>기지국끼리는 서로 잘 보이는 높은 곳에 있어서 감쇠도 적습니다. FDD에서는 상상하기 어려운 종류의 간섭이고, 그래서 TDD 대역은 규제기관이 국가 단위로 패턴을 조율합니다. 모든 기지국이 GPS로 마이크로초 수준의 동기를 잡는 것도 같은 이유입니다.</p>
+    <p>DDDSU가 "표준"이 된 것은 기술적 우위 때문만이 아닙니다. <strong>먼저 합의된 것이 표준이 되는</strong> 종류의 문제였습니다.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>DDDSU는 규격 용어가 아니라, 규격이 준 양식을 채운 결과에 붙은 현장 이름이다.</li>
+    <li>특수 슬롯의 가드 구간이 셀 반경 한계를 결정한다. 넓히면 처리량을 내놓아야 한다.</li>
+    <li>패턴 선택은 이웃 사업자와의 합의 문제다. 혼자 최적화할 수 없다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../01-frame-numerology/index.html">← 01 프레임 구조</a>
+  <a href="../03-cyclic-prefix/index.html">03 순환 전치(CP) →</a>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  var SLOT_W=204, SLOT_X=20, SLOT_Y=56, SLOT_H=60, GAP=8;
+  var kinds=[
+    {l:'D',s:'downlink', fg:'var(--dl)',   bg:'var(--dl-bg)'},
+    {l:'D',s:'downlink', fg:'var(--dl)',   bg:'var(--dl-bg)'},
+    {l:'D',s:'downlink', fg:'var(--dl)',   bg:'var(--dl-bg)'},
+    {l:'S',s:'special',  fg:'var(--gp)',   bg:'var(--gp-bg)'},
+    {l:'U',s:'uplink',   fg:'var(--ul)',   bg:'var(--ul-bg)'}
+  ];
+  var pat=document.getElementById('patRow');
+  kinds.forEach(function(k,i){
+    var x=SLOT_X+i*(SLOT_W+GAP);
+    var r=document.createElementNS(ns,'rect');
+    r.setAttribute('x',x); r.setAttribute('y',SLOT_Y);
+    r.setAttribute('width',SLOT_W); r.setAttribute('height',SLOT_H);
+    r.setAttribute('rx',6); r.setAttribute('fill',k.bg); r.setAttribute('stroke',k.fg);
+    pat.appendChild(r);
+    var t=document.createElementNS(ns,'text');
+    t.setAttribute('x',x+SLOT_W/2); t.setAttribute('y',SLOT_Y+26);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('fill',k.fg);
+    t.setAttribute('style','font-family:"Gothic A1",sans-serif;font-weight:900;font-size:20px');
+    t.textContent=k.l; pat.appendChild(t);
+    var s=document.createElementNS(ns,'text');
+    s.setAttribute('x',x+SLOT_W/2); s.setAttribute('y',SLOT_Y+46);
+    s.setAttribute('text-anchor','middle'); s.setAttribute('class','celllab');
+    s.setAttribute('fill',k.fg); s.textContent=k.s; pat.appendChild(s);
+  });
+
+  var sx=SLOT_X+3*(SLOT_W+GAP);
+  var fL=document.getElementById('fL'), fR=document.getElementById('fR');
+  fL.setAttribute('x1',sx); fL.setAttribute('y1',SLOT_Y+SLOT_H);
+  fL.setAttribute('x2',0);  fL.setAttribute('y2',200);
+  fR.setAttribute('x1',sx+SLOT_W); fR.setAttribute('y1',SLOT_Y+SLOT_H);
+  fR.setAttribute('x2',1100); fR.setAttribute('y2',200);
+
+  var SY=204, SH=48, SW=1100/14;
+  var symRow=document.getElementById('symRow');
+  var symLab=document.getElementById('symLabels');
+  var cells=[];
+  for(var i=0;i<14;i++){
+    var r=document.createElementNS(ns,'rect');
+    r.setAttribute('x',SW*i+2); r.setAttribute('y',SY);
+    r.setAttribute('width',SW-4); r.setAttribute('height',SH);
+    r.setAttribute('rx',3); r.setAttribute('stroke-width','0.75');
+    symRow.appendChild(r);
+    var t=document.createElementNS(ns,'text');
+    t.setAttribute('x',SW*i+SW/2); t.setAttribute('y',SY+SH/2+4);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('class','celllab');
+    t.textContent=i; symRow.appendChild(t);
+    cells.push({r:r,t:t});
+  }
+
+  var slider=document.getElementById('gp'), out=document.getElementById('gpOut');
+  var radius=document.getElementById('radius'), dlpct=document.getElementById('dlpct'), ulpct=document.getElementById('ulpct');
+
+  /* 30 kHz normal CP 기준 심볼 길이 = Tu + CP = 33.333 + 2.344 = 35.677 μs
+     (TS 38.211 §5.3.1 · 첫 심볼 예외는 여기서 무시)
+     가드 길이 → 최대 셀 반경 = 가드시간 × c / 2 (왕복) */
+  var SYM_US=35.677, C=299.792; /* m per μs */
+
+  function render(){
+    var g=parseInt(slider.value,10);
+    var ul=2, dl=14-g-ul;              /* 상향 심볼은 2개 고정, 나머지를 하향에 */
+    if(dl<1){ dl=1; ul=14-g-dl; }
+    for(var i=0;i<14;i++){
+      var kind = i<dl ? 'dl' : (i<dl+g ? 'gp' : 'ul');
+      var fg = 'var(--'+kind+')', bg='var(--'+kind+'-bg)';
+      cells[i].r.setAttribute('fill',bg); cells[i].r.setAttribute('stroke',fg);
+      cells[i].t.setAttribute('fill',fg);
+    }
+    while(symLab.firstChild) symLab.removeChild(symLab.firstChild);
+    function put(from,count,txt,fg){
+      if(count<=0) return;
+      var t=document.createElementNS(ns,'text');
+      t.setAttribute('x',SW*from + SW*count/2); t.setAttribute('y',SY+SH+22);
+      t.setAttribute('text-anchor','middle'); t.setAttribute('class','celllab');
+      t.setAttribute('fill',fg); t.textContent=txt; symLab.appendChild(t);
+    }
+    put(0,dl, dl+' × DL','var(--dl)');
+    put(dl,g, g+' × GP','var(--gp)');
+    put(dl+g,ul, ul+' × UL','var(--ul)');
+
+    var gpUs = g*SYM_US;
+    out.textContent = g+' 심볼 · '+gpUs.toFixed(1)+' μs';
+    radius.textContent = (gpUs*C/2/1000).toFixed(1)+' km';
+    var dlTot = 3*14 + dl, ulTot = 14 + ul;
+    dlpct.textContent = Math.round(dlTot/70*100)+'%';
+    ulpct.textContent = Math.round(ulTot/70*100)+'%';
+  }
+  slider.addEventListener('input',render);
+  render();
+})();
+</script>
+</body>
+</html>

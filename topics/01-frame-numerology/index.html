@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 프레임 구조와 뉴머롤로지 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>01 / 프레임 구조</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">01 · frame structure &amp; numerology</p>
+  <h1>10 ms는 고정,<br><em>슬롯만</em> 짧아진다</h1>
+  <p class="lead">LTE는 시간 단위가 하나였습니다. NR은 다섯 가지를 동시에 씁니다. 그런데 프레임과 서브프레임 길이는 건드리지 않았습니다. 이 설계 하나에 5G의 성격이 거의 다 담겨 있습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>계층 — 세 층으로 되어 있다</h2>
+  <p>NR의 시간 축은 프레임(10 ms) → 서브프레임(1 ms) → 슬롯 순으로 내려갑니다. 앞의 두 층은 <strong>뉴머롤로지와 무관하게 고정</strong>입니다. LTE와 같은 값을 그대로 물려받았고, 그래야 LTE와 같은 하드웨어·동기 인프라를 공유할 수 있기 때문입니다.</p>
+  <p>바뀌는 것은 맨 아래 층뿐입니다. 서브프레임 하나에 슬롯이 <strong>2<sup>μ</sup>개</strong> 들어갑니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t1 d1">
+      <title id="t1">프레임 · 서브프레임 · 슬롯의 계층</title>
+      <desc id="d1">10ms 프레임이 10개의 1ms 서브프레임으로 나뉘고, 서브프레임 하나가 뉴머롤로지에 따라 1개에서 16개의 슬롯으로 분할된다.</desc>
+
+      <text class="rowlab" x="0" y="22">radio frame · 10 ms</text>
+      <g id="frameRow"></g>
+
+      <line id="funnelL" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+      <line id="funnelR" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+
+      <text class="rowlab" x="0" y="150">subframe #0 · 1 ms</text>
+      <g id="slotRow"></g>
+      <text class="dimlab" id="slotNote" x="0" y="286"></text>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="muPick" role="group" aria-label="뉴머롤로지 선택"></span>
+    <span class="readout" id="muOut"></span>
+  </div>
+  <p class="caption">서브프레임 #0만 확대한 것입니다. 나머지 9개도 동일하게 나뉩니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>다섯 가지 뉴머롤로지</h2>
+  <p>부반송파 간격은 <strong>Δf = 15 × 2<sup>μ</sup> kHz</strong>로 정의됩니다. 15 kHz를 기준으로 두 배씩 넓어지는 구조입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.211 §4.2, §4.3.2 · 슬롯당 심볼 수는 normal CP 기준 항상 14</caption>
+    <thead>
+      <tr><th class="num">μ</th><th class="num">SCS</th><th class="num">슬롯 길이</th>
+          <th class="num">슬롯/서브프레임</th><th class="num">슬롯/프레임</th><th>주 용도</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">15 kHz</td><td class="num">1 ms</td><td class="num">1</td><td class="num">10</td><td>FR1, LTE 공존</td></tr>
+      <tr><td class="num">1</td><td class="num">30 kHz</td><td class="num">0.5 ms</td><td class="num">2</td><td class="num">20</td><td><strong>FR1 주력 (n78)</strong></td></tr>
+      <tr><td class="num">2</td><td class="num">60 kHz</td><td class="num">0.25 ms</td><td class="num">4</td><td class="num">40</td><td>FR1/FR2, 확장 CP 지원</td></tr>
+      <tr><td class="num">3</td><td class="num">120 kHz</td><td class="num">0.125 ms</td><td class="num">8</td><td class="num">80</td><td>FR2 mmWave</td></tr>
+      <tr><td class="num">4</td><td class="num">240 kHz</td><td class="num">0.0625 ms</td><td class="num">16</td><td class="num">160</td><td>FR2 SSB 전용</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>확장 CP는 μ=2에서만.</strong> 60 kHz에서만 슬롯당 12심볼짜리 확장 CP를 쓸 수 있습니다.
+    나머지는 전부 14심볼 고정입니다. <span class="src">TS 38.211 §4.3.2 Table 4.3.2-1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>왜 여러 개가 필요한가</h2>
+  <p>하나로 통일하면 간단할 텐데 다섯 가지를 둔 이유는, 무선에서 <strong>시간과 주파수가 서로를 잡아먹기</strong> 때문입니다. 어느 쪽도 공짜로 좋아지지 않습니다.</p>
+
+  <div class="split">
+    <div>
+      <h3>SCS를 넓히면 좋아지는 것</h3>
+      <p>슬롯이 짧아져 지연이 줄고, 부반송파가 넓어 도플러 편이에 강해집니다. 빠르게 움직이는 단말과 밀리초 단위 응답이 필요한 서비스에 유리합니다.</p>
+    </div>
+    <div>
+      <h3>SCS를 넓히면 나빠지는 것</h3>
+      <p>CP가 같은 비율로 짧아집니다. 120 kHz의 CP는 0.586 μs, 반사파가 176 m 이상 돌아오면 데이터가 깨집니다. 셀이 작아질 수밖에 없습니다.</p>
+    </div>
+  </div>
+
+  <p>그래서 실제 배치는 이렇게 갈립니다. 넓은 매크로 셀은 15/30 kHz, mmWave 소형 셀은 120 kHz. 이 트레이드오프의 물리적 근거는 <a href="../03-cyclic-prefix/index.html">03 순환 전치(CP)</a>에서 자세히 다룹니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>프레임 10 ms와 서브프레임 1 ms는 μ와 무관하게 고정이다. LTE 호환을 위해 일부러 그렇게 뒀다.</li>
+    <li>슬롯은 항상 14심볼이고, 길이만 1 ms / 2<sup>μ</sup>로 짧아진다.</li>
+    <li>SCS를 넓히는 것은 지연을 CP 여유와 맞바꾸는 거래다. 공짜인 선택지는 없다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <span>—</span>
+  <a href="../02-tdd-pattern/index.html">02 TDD 슬롯 패턴 →</a>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  var X0=0, W=1100, FRAME_Y=34, FRAME_H=40, SLOT_Y=162, SLOT_H=44;
+  var CELL=W/10;
+
+  /* 프레임 10칸 */
+  var fr=document.getElementById('frameRow');
+  for(var i=0;i<10;i++){
+    var r=document.createElementNS(ns,'rect');
+    r.setAttribute('x',X0+CELL*i+1); r.setAttribute('y',FRAME_Y);
+    r.setAttribute('width',CELL-2); r.setAttribute('height',FRAME_H);
+    r.setAttribute('rx',3);
+    r.setAttribute('fill', i===0 ? 'var(--dl-bg)' : '#fff');
+    r.setAttribute('stroke', i===0 ? 'var(--dl)' : 'var(--hair)');
+    fr.appendChild(r);
+    var t=document.createElementNS(ns,'text');
+    t.setAttribute('x',X0+CELL*i+CELL/2); t.setAttribute('y',FRAME_Y+FRAME_H/2+4);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('class','celllab');
+    t.setAttribute('fill', i===0 ? 'var(--dl)' : 'var(--ink-soft)');
+    t.textContent='SF'+i; fr.appendChild(t);
+  }
+
+  var fl=document.getElementById('funnelL'), fR=document.getElementById('funnelR');
+  fl.setAttribute('x1',1); fl.setAttribute('y1',FRAME_Y+FRAME_H);
+  fl.setAttribute('x2',0); fl.setAttribute('y2',SLOT_Y);
+  fR.setAttribute('x1',CELL-1); fR.setAttribute('y1',FRAME_Y+FRAME_H);
+  fR.setAttribute('x2',W); fR.setAttribute('y2',SLOT_Y);
+
+  var MU=[
+    {mu:0,scs:'15 kHz', len:'1 ms'},
+    {mu:1,scs:'30 kHz', len:'0.5 ms'},
+    {mu:2,scs:'60 kHz', len:'0.25 ms'},
+    {mu:3,scs:'120 kHz',len:'0.125 ms'},
+    {mu:4,scs:'240 kHz',len:'0.0625 ms'}
+  ];
+  var pick=document.getElementById('muPick');
+  MU.forEach(function(m){
+    var b=document.createElement('button');
+    b.type='button'; b.textContent='μ='+m.mu;
+    b.setAttribute('aria-pressed', m.mu===1 ? 'true':'false');
+    b.addEventListener('click',function(){ draw(m.mu); });
+    m.btn=b; pick.appendChild(b);
+  });
+
+  var slotRow=document.getElementById('slotRow');
+  var note=document.getElementById('slotNote');
+  var out=document.getElementById('muOut');
+
+  function draw(mu){
+    var m=MU[mu], n=Math.pow(2,mu), w=W/n;
+    MU.forEach(function(x){ x.btn.setAttribute('aria-pressed', x.mu===mu?'true':'false'); });
+    while(slotRow.firstChild) slotRow.removeChild(slotRow.firstChild);
+    for(var i=0;i<n;i++){
+      var r=document.createElementNS(ns,'rect');
+      r.setAttribute('x',w*i+1); r.setAttribute('y',SLOT_Y);
+      r.setAttribute('width',Math.max(w-2,1)); r.setAttribute('height',SLOT_H);
+      r.setAttribute('rx',3); r.setAttribute('fill','var(--dl-bg)');
+      r.setAttribute('stroke','var(--dl)'); r.setAttribute('stroke-width','0.75');
+      slotRow.appendChild(r);
+      if(w>=44){
+        var t=document.createElementNS(ns,'text');
+        t.setAttribute('x',w*i+w/2); t.setAttribute('y',SLOT_Y+SLOT_H/2+4);
+        t.setAttribute('text-anchor','middle'); t.setAttribute('class','celllab');
+        t.setAttribute('fill','var(--dl)');
+        t.textContent = w>=110 ? ('slot '+i) : i;
+        slotRow.appendChild(t);
+      }
+    }
+    note.textContent = 'slot '+ (n>1 ? '0 – '+(n-1) : '0') + '  ·  각 슬롯 14 OFDM symbols (normal CP)';
+    out.textContent = m.scs + '  ·  슬롯 ' + m.len + '  ·  서브프레임당 ' + n + '개';
+  }
+  draw(1);
+})();
+</script>
+</body>
+</html>

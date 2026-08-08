@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5G NR 통신 이해</title>
+<meta name="description" content="3GPP 5G NR 규격을 직관으로 이해하기 위한 시각 자료 모음">
+<link rel="stylesheet" href="assets/base.css">
+</head>
+<body>
+
+<header class="hero wrap">
+  <p class="eyebrow">3gpp 5g nr · 학습 자료</p>
+  <h1>5G NR<br>통신 이해</h1>
+  <p class="lead">규격서의 숫자가 <em>왜</em> 그 숫자인지를 그림으로 따라가 봅니다. 수식보다 물리적 직관을 먼저 세우고, 그다음에 규격 파라미터로 내려갑니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>자료</h2>
+  <ol class="toc">
+    <li>
+      <a href="topics/01-frame-numerology/index.html">
+        <span class="no">01</span>
+        <span><span class="ttl">프레임 구조와 뉴머롤로지</span>
+          <span class="sub">10 ms 프레임은 왜 고정이고 슬롯만 짧아지는가</span></span>
+        <span class="state">완료</span>
+      </a>
+    </li>
+    <li>
+      <a href="topics/02-tdd-pattern/index.html">
+        <span class="no">02</span>
+        <span><span class="ttl">TDD 슬롯 패턴 — DDDSU</span>
+          <span class="sub">규격에 없는 이름이 어떻게 업계 표준이 됐나</span></span>
+        <span class="state">완료</span>
+      </a>
+    </li>
+    <li>
+      <a href="topics/03-cyclic-prefix/index.html">
+        <span class="no">03</span>
+        <span><span class="ttl">순환 전치(CP)</span>
+          <span class="sub">메아리가 다음 글자를 덮치지 못하게 하는 법</span></span>
+        <span class="state">완료</span>
+      </a>
+    </li>
+    <li><span class="stub">
+        <span class="no">04</span>
+        <span><span class="ttl">SSB와 초기 접속</span>
+          <span class="sub">단말은 아무것도 모르는 상태에서 셀을 어떻게 찾는가</span></span>
+        <span class="state">예정</span>
+      </span></li>
+    <li><span class="stub">
+        <span class="no">05</span>
+        <span><span class="ttl">Bandwidth Part</span>
+          <span class="sub">넓은 대역을 왜 다시 쪼개서 쓰는가</span></span>
+        <span class="state">예정</span>
+      </span></li>
+    <li><span class="stub">
+        <span class="no">06</span>
+        <span><span class="ttl">HARQ와 재전송 타이밍</span>
+          <span class="sub">K0 · K1 · K2가 슬롯 위에서 실제로 뜻하는 것</span></span>
+        <span class="state">예정</span>
+      </span></li>
+  </ol>
+</section>
+
+<section class="wrap">
+  <h2>읽는 순서</h2>
+  <p>01 → 02 → 03이 하나의 흐름입니다. 시간을 어떻게 잘게 나누는지(01), 그 조각을 상·하향에 어떻게 배분하는지(02), 그리고 조각 하나하나를 다중경로로부터 어떻게 지키는지(03)로 이어집니다.</p>
+  <p>04 이후는 독립적으로 읽어도 됩니다.</p>
+
+  <div class="note">
+    <strong>수치 검증에 대하여.</strong> 모든 값에 규격 조항을 병기했지만, 최종 확인은 3GPP 원문을 권합니다.
+    규격은 <a href="https://portal.3gpp.org">portal.3gpp.org</a>에서 무료로 받을 수 있습니다.
+    검증한 항목은 <span class="src">refs/3gpp-notes.md</span>에 누적합니다.
+  </div>
+</section>
+
+<footer class="wrap">
+  개인 학습용 자료 · 작성 규칙은 저장소의 <span class="src">CLAUDE.md</span> 참조
+</footer>
+
+</body>
+</html>
