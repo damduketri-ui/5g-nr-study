@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 SSB와 초기 접속 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>04 / SSB와 초기 접속</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">04 · ssb &amp; initial access</p>
+  <h1>아무것도 모르는 채로<br><em>셀을 찾는</em> 법</h1>
+  <p class="lead">전원을 켠 단말은 주파수도, 시각도, 셀 번호도 모릅니다. 모르는 것을 알려면 신호를 읽어야 하는데, 신호를 읽으려면 이미 그것들을 알아야 합니다. 5G는 이 순환을 등대 하나로 끊습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>문제 — 닭이 먼저냐 달걀이 먼저냐</h2>
+  <p>단말이 부팅 직후 확실히 아는 것은 <strong>자기가 어떤 대역을 지원하는지</strong> 정도입니다. 나머지는 전부 백지입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>전원을 켠 직후 단말의 상태</caption>
+    <thead><tr><th>모르는 것</th><th>왜 알아야 하는가</th></tr></thead>
+    <tbody>
+      <tr><td>셀이 놓인 주파수</td><td>어디에 수신기를 맞출지 정해야 한다</td></tr>
+      <tr><td>심볼·슬롯·프레임 경계</td><td>어디서부터 잘라 읽어야 FFT가 성립한다</td></tr>
+      <tr><td>물리 셀 ID</td><td>모든 기준신호의 시퀀스와 위치가 셀 ID로 결정된다</td></tr>
+      <tr><td>대역폭·공통 자원 격자</td><td>부반송파 번호를 셀과 같은 기준으로 세야 한다</td></tr>
+      <tr><td>다음 정보를 읽을 위치</td><td>SIB1이 없으면 접속 절차 자체를 시작할 수 없다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>얽혀 있다는 게 핵심입니다. <strong>시각을 모르면 복조를 못 하고, 복조를 못 하면 시각을 알려주는 메시지를 못 읽습니다.</strong> 이 순환을 끊으려면 "아무 사전 지식 없이도 찾아낼 수 있는 신호"가 하나는 있어야 합니다.</p>
+
+  <p>5G의 답은 <strong>등대</strong>입니다. 정해진 자리에서, 정해진 박자로, 짧은 신호를 쉬지 않고 내보냅니다. 이 신호 한 덩어리가 <strong>SS/PBCH Block(동기 신호 블록, SSB)</strong>입니다. 이 자료는 등대 하나를 끝까지 따라갑니다 — 불빛을 발견하고(PSS), 어느 등대인지 확인하고(SSS), 안내판을 읽고(PBCH), 마지막에 배가 무전을 보냅니다(랜덤 액세스).</p>
+</section>
+
+<section class="wrap">
+  <h2>어디를 뒤질 것인가 — 동기 래스터</h2>
+  <p>등대를 찾으려면 바다 전체를 훑어야 할까요. 그러면 탐색이 끝나지 않습니다. 규격은 <strong>SSB가 앉을 수 있는 주파수 자리를 미리 못 박아</strong> 이 문제를 유한하게 만듭니다. 이것이 <strong>동기 래스터(synchronization raster)</strong>이고, 자리마다 붙은 번호가 <strong>GSCN(Global Synchronization Channel Number)</strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.104 §5.4.3.1 Table 5.4.3.1-1 · SS<sub>REF</sub>는 SSB의 중심 주파수</caption>
+    <thead>
+      <tr><th class="num">주파수 범위</th><th>SS<sub>REF</sub></th><th class="num">간격</th>
+          <th class="num">GSCN</th><th class="num">GSCN 범위</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0 – 3000 MHz</td><td>N × 1200 kHz + M × 50 kHz<br><span class="src">N = 1…2499, M ∈ {1, 3, 5}</span></td>
+          <td class="num">~400 kHz<sup>*</sup></td><td class="num">3N + (M−3)/2</td><td class="num">2 – 7498</td></tr>
+      <tr><td class="num">3000 – 24250 MHz</td><td>3000 MHz + N × 1.44 MHz<br><span class="src">N = 0…14756</span></td>
+          <td class="num">1.44 MHz</td><td class="num">7499 + N</td><td class="num">7499 – 22255</td></tr>
+      <tr><td class="num">24250 – 100000 MHz</td><td>24250.08 MHz + N × 17.28 MHz<br><span class="src">N = 0…4383</span></td>
+          <td class="num">17.28 MHz</td><td class="num">22256 + N</td><td class="num">22256 – 26639</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption"><sup>*</sup>1200 kHz 블록마다 M = 1, 3, 5 세 자리(50 · 150 · 250 kHz)가 있어 평균 간격이 400 kHz입니다. 3000 MHz까지 2499 × 3 = 7497자리.</p>
+
+  <!-- 유도: n78(3300–3800 MHz)의 후보 자리 수
+       (3800 − 3300) MHz / 1.44 MHz ≈ 347
+       실제 TS 38.104 Table 5.4.3.3-1의 대역별 GSCN 범위는 SSB 대역폭(30 kHz SCS에서 7.2 MHz)이
+       대역 안에 들어가야 하므로 양 끝이 조금 잘려 이보다 좁다. -->
+  <p>숫자로 보면 이렇습니다. n78 대역(3300–3800 MHz)은 500 MHz나 되지만 SSB가 앉을 수 있는 자리는 1.44 MHz마다 하나 — <strong>약 350곳</strong>뿐입니다. 데이터 반송파가 놓이는 채널 래스터는 15/30/100 kHz로 훨씬 촘촘합니다. 즉 <strong>SSB는 반송파 한가운데에 있지 않아도 되고, 실제로 대개 그렇지 않습니다.</strong></p>
+
+  <div class="note">
+    <strong>그래서 MIB에 k<sub>SSB</sub>가 있다.</strong> SSB가 반송파 중심에서 벗어나 있으니,
+    단말이 찾아낸 SSB의 부반송파 0번이 셀의 공통 자원 격자에서 몇 번인지 따로 알려줘야 합니다.
+    그 어긋남이 <code>ssb-SubcarrierOffset</code>(k<sub>SSB</sub>)입니다.
+    <span class="src">TS 38.211 §7.4.3.1 · TS 38.213 §13</span>
+  </div>
+
+  <!-- VERIFY: 대역별 GSCN 범위(예: n78 = 7711–8051)는 TS 38.104 Table 5.4.3.3-1 원문 대조 필요.
+       위 본문은 래스터 간격에서 유도한 근삿값(~350)만 제시했으므로 그 자체는 안전. -->
+</section>
+
+<section class="wrap">
+  <h2>등대 불빛 하나 — SSB의 구조</h2>
+  <p>SSB는 <strong>시간으로 4심볼, 주파수로 240 부반송파(20 RB)</strong>짜리 작은 사각형입니다. 이 안에 세 가지가 들어 있습니다.</p>
+
+  <ul>
+    <li><strong>PSS</strong>(Primary Synchronization Signal, 1차 동기 신호) — "여기 무언가 있다"</li>
+    <li><strong>SSS</strong>(Secondary Synchronization Signal, 2차 동기 신호) — "나는 몇 번 셀이다"</li>
+    <li><strong>PBCH</strong>(Physical Broadcast Channel, 물리 방송 채널) — "지금 몇 시고, 다음은 저기서 읽어라"</li>
+  </ul>
+
+  <p>아래 단추로 단말이 <strong>읽어내는 순서</strong>를 따라가 보세요. 각 단계에서 무엇을 새로 알게 되는지가 아래 칸에 쌓입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 352" role="img" aria-labelledby="t1 d1">
+      <title id="t1">SSB의 자원 배치 — 4 OFDM 심볼 × 240 부반송파</title>
+      <desc id="d1">심볼 0에 PSS, 심볼 2에 SSS가 가운데 127개 부반송파를 쓰고, 심볼 1과 3은 PBCH가 240개 전부를, 심볼 2는 양 끝 96개를 씁니다. PBCH 영역의 4개 중 1개는 복조 기준신호(DMRS)입니다. PSS와 SSS의 양옆은 0으로 비워둡니다.</desc>
+      <text class="dimlab" x="0" y="18">↓ 시간 · 4 심볼</text>
+      <text class="dimlab" x="1100" y="18" text-anchor="end">주파수 · 240 부반송파 = 20 RB →</text>
+      <g id="ssbGrid"></g>
+      <g id="ssbAxis"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="stepPick" role="group" aria-label="단말의 읽기 단계"></span>
+  </div>
+
+  <div class="verdict" id="stepBox">
+    <span class="tag" id="stepTag"></span>
+    <span class="why" id="stepWhy"></span>
+  </div>
+
+  <ul class="cards" id="knowList"></ul>
+  <p class="caption">DMRS 위치는 v = N<sub>ID</sub><sup>cell</sup> mod 4 만큼 옆으로 밀립니다. 그림은 v = 0인 경우입니다. 표시된 부반송파 번호는 SSB 안에서의 상대 번호입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.211 §7.4.3.1 Table 7.4.3.1-1 · k, ℓ은 SSB 시작점 기준 상대 번호</caption>
+    <thead>
+      <tr><th class="num">심볼 ℓ</th><th>내용</th><th class="num">부반송파 k</th><th class="num">RE 수</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0</td><td>PSS</td><td class="num">56 – 182</td><td class="num">127</td></tr>
+      <tr><td class="num">0</td><td>0으로 설정</td><td class="num">0 – 55, 183 – 239</td><td class="num">113</td></tr>
+      <tr><td class="num">1</td><td>PBCH</td><td class="num">0 – 239</td><td class="num">240</td></tr>
+      <tr><td class="num">2</td><td>PBCH</td><td class="num">0 – 47, 192 – 239</td><td class="num">96</td></tr>
+      <tr><td class="num">2</td><td>SSS</td><td class="num">56 – 182</td><td class="num">127</td></tr>
+      <tr><td class="num">2</td><td>0으로 설정</td><td class="num">48 – 55, 183 – 191</td><td class="num">17</td></tr>
+      <tr><td class="num">3</td><td>PBCH</td><td class="num">0 – 239</td><td class="num">240</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- 유도: PBCH 자원 예산 (TS 38.211 §7.4.3.1 + TS 38.212 §7.1)
+       PBCH RE = 240(ℓ1) + 96(ℓ2) + 240(ℓ3) = 576
+       DMRS = 4개당 1개 = 576 / 4 = 144
+       데이터 RE = 576 − 144 = 432 → QPSK 2bit/RE → 864 bit
+       페이로드 32 bit + CRC 24 bit = 56 bit → Polar → 864 bit 로 레이트 매칭
+       부호율 = 56 / 864 ≈ 0.065 -->
+  <div class="stats">
+    <div><span class="n">576</span><span class="t">PBCH가 쓰는 RE · 240 + 96 + 240</span></div>
+    <div><span class="n">144</span><span class="t">그중 DMRS · 4개 중 1개</span></div>
+    <div><span class="n">864</span><span class="t">전송 비트 · 432 RE × QPSK 2비트</span></div>
+    <div><span class="n">0.065</span><span class="t">부호율 · 56 / 864. 셀 끝에서도 읽혀야 한다</span></div>
+  </div>
+  <p class="caption">PBCH의 부호율은 데이터 채널(보통 0.3–0.9)보다 한 자릿수 낮습니다. 등대 안내판은 가장 멀리서도 읽혀야 하니까요. <span class="src">TS 38.212 §7.1.5</span></p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>SSB 한 덩어리의 크기 · 240 × SCS, 4 × (T<sub>u</sub> + CP)</caption>
+    <thead><tr><th class="num">SSB SCS</th><th class="num">점유 대역</th><th class="num">점유 시간</th><th>쓰이는 곳</th></tr></thead>
+    <tbody>
+      <!-- 240 × 15 kHz = 3.6 MHz · 4 × (66.667 + 4.688) μs = 285.42 μs -->
+      <tr><td class="num">15 kHz</td><td class="num">3.6 MHz</td><td class="num">285.4 μs</td><td>FR1 저대역</td></tr>
+      <!-- 240 × 30 kHz = 7.2 MHz · 4 × (33.333 + 2.344) μs = 142.71 μs -->
+      <tr><td class="num">30 kHz</td><td class="num">7.2 MHz</td><td class="num">142.7 μs</td><td><strong>FR1 주력 (n78)</strong></td></tr>
+      <!-- 240 × 120 kHz = 28.8 MHz · 4 × (8.333 + 0.586) μs = 35.68 μs -->
+      <tr><td class="num">120 kHz</td><td class="num">28.8 MHz</td><td class="num">35.7 μs</td><td>FR2</td></tr>
+      <!-- 240 × 240 kHz = 57.6 MHz · 4 × (4.167 + 0.293) μs = 17.84 μs -->
+      <tr><td class="num">240 kHz</td><td class="num">57.6 MHz</td><td class="num">17.8 μs</td><td>FR2 · SSB 전용</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">SSB의 SCS는 데이터 채널의 SCS와 달라도 됩니다. 심볼 길이 계산은 <a href="../03-cyclic-prefix/index.html">03 순환 전치(CP)</a>의 표와 같습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>셀 ID 1008개를 왜 둘로 쪼갰나</h2>
+  <p>물리 셀 ID는 0부터 1007까지 1008가지입니다. 그런데 규격은 이걸 한 신호에 담지 않고 <strong>두 신호로 나눴습니다.</strong></p>
+
+  <div class="note" style="border-left-color:var(--dl)">
+    <strong style="color:var(--dl)">N<sub>ID</sub><sup>cell</sup> = 3 · N<sub>ID</sub><sup>(1)</sup> + N<sub>ID</sub><sup>(2)</sup></strong><br>
+    N<sub>ID</sub><sup>(1)</sup> ∈ {0, …, 335} — SSS가 나른다 &nbsp;·&nbsp;
+    N<sub>ID</sub><sup>(2)</sup> ∈ {0, 1, 2} — PSS가 나른다
+    <span class="src">TS 38.211 §7.4.2.1</span>
+  </div>
+
+  <p>이유는 <strong>탐색 비용</strong>입니다. PSS를 찾는 일은 단말이 하는 계산 중 가장 비쌉니다. 시각을 모르니 <strong>모든 시점에 대해</strong>, 주파수 오차도 모르니 <strong>여러 주파수 가설에 대해</strong> 상관(correlation)을 돌려야 합니다. 이 눈먼 탐색에서 시퀀스 후보가 1008개라면 계산량은 감당이 안 됩니다.</p>
+
+  <p>그래서 눈먼 탐색에는 <strong>3개짜리</strong>만 남겼습니다. PSS로 심볼 경계가 잡히고 나면 SSS는 이미 <strong>어디를 봐야 하는지 아는 상태</strong>에서 읽습니다 — 336개를 다 시도해도 싸게 끝납니다.</p>
+
+  <!-- 유도: 3 + 336 = 339 (분리) vs 1008 (단일) → 1008 / 339 ≈ 2.97배
+       핵심은 총합이 아니라 "시각을 모르는 상태에서 돌리는 상관"이 1008 → 3으로 줄었다는 것 -->
+  <div class="stats">
+    <div><span class="n">3</span><span class="t">시각을 모르는 채 돌려야 하는 PSS 시퀀스</span></div>
+    <div><span class="n">336</span><span class="t">경계가 잡힌 뒤 확인하는 SSS 시퀀스</span></div>
+    <div><span class="n">1008</span><span class="t">3 × 336 · 표현 가능한 셀 ID</span></div>
+    <div><span class="n">127</span><span class="t">PSS·SSS 시퀀스 길이 · 둘 다 m-시퀀스</span></div>
+  </div>
+
+  <div class="note">
+    <strong>127은 왜 127인가.</strong> 7단 시프트 레지스터로 만드는 m-시퀀스의 주기가 2<sup>7</sup> − 1 = 127입니다.
+    PSS는 하나의 m-시퀀스를 43 × N<sub>ID</sub><sup>(2)</sup>만큼 순환 이동해 3가지를 만들고,
+    SSS는 두 개의 m-시퀀스를 각각 다르게 이동시켜 곱해 336가지를 만듭니다.
+    <span class="src">TS 38.211 §7.4.2.2, §7.4.2.3</span>
+  </div>
+</section>
+
+<section class="invert">
+  <div class="wrap">
+    <h2>불빛은 돌아간다 — 왜 한 번으로 끝나지 않는가</h2>
+    <div class="split">
+      <div>
+        <p>등대가 사방을 동시에 비추면 어디든 어슴푸레하게만 밝습니다. 좁게 모아 한 방향씩 비추면 훨씬 멀리 가지만, 그 순간 나머지 방향은 깜깜합니다. 답은 하나뿐입니다 — <strong>돌리는 것.</strong></p>
+        <p>기지국도 똑같이 합니다. SSB를 여러 번, 매번 <strong>다른 빔 방향</strong>으로 쏩니다. 단말은 그중 가장 세게 들어온 것 하나만 잡으면 되고, 그 <strong>SSB 인덱스가 곧 빔 번호</strong>가 됩니다. 나중에 기지국이 "너한테는 3번 빔으로 쏘면 되겠구나"를 아는 근거가 여기서 생깁니다.</p>
+        <p>그래서 빔이 좁을수록 개수가 늘어납니다. FR1은 최대 8개, 빔이 훨씬 좁은 FR2(mmWave)는 <strong>최대 64개</strong>입니다.</p>
+      </div>
+      <div class="stage">
+        <svg viewBox="0 0 320 280" role="img" aria-labelledby="t2 d2">
+          <title id="t2">빔 스위핑</title>
+          <desc id="d2">기지국이 부채꼴로 나뉜 여러 방향에 SSB를 차례로 쏘고, 각 방향에 0부터 시작하는 SSB 인덱스가 붙는다.</desc>
+          <g id="beamFan"></g>
+          <circle cx="160" cy="250" r="7" fill="var(--dark-ink)"/>
+          <text x="160" y="272" text-anchor="middle" class="celllab" fill="var(--dark-ink-soft)">gNB</text>
+        </svg>
+      </div>
+    </div>
+    <p>단말이 SSB 인덱스를 알아내는 방법도 영리합니다. <strong>PBCH의 DMRS 시퀀스 자체를 인덱스마다 다르게</strong> 만들어 뒀습니다. 어차피 복조하려면 DMRS를 찾아야 하니, 찾는 김에 번호까지 읽히는 셈입니다. 인덱스가 64개인 FR2에서는 하위 3비트를 DMRS가, 상위 3비트를 PBCH 페이로드가 나릅니다. <span class="src">TS 38.211 §7.4.1.4.1 · TS 38.212 §7.1.1</span></p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>언제 켜지는가 — 반프레임 안의 정해진 자리</h2>
+  <p>SSB 여러 개(<strong>버스트 세트</strong>)는 아무 데나 흩어지지 않습니다. <strong>5 ms 반프레임(half-frame) 안</strong>에서, 규격이 못 박은 심볼 위치에만 놓입니다. 이 규칙이 Case A부터 E까지 다섯 가지입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t3 d3">
+      <title id="t3">20 ms 주기와 반프레임 안의 SSB 후보 위치</title>
+      <desc id="d3">위쪽 막대는 20 ms를 5 ms 반프레임 네 개로 나눈 것이고, 그중 하나를 확대해 SSB 블록이 놓이는 심볼 위치를 시간 비율대로 보여준다.</desc>
+      <text class="rowlab" x="0" y="22">20 ms · 초기 접속 시 단말이 가정하는 주기</text>
+      <g id="periodRow"></g>
+      <line id="fnL" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+      <line id="fnR" stroke="var(--hair)" stroke-width="1" stroke-dasharray="4 3"/>
+      <text class="rowlab" x="0" y="150">반프레임 5 ms · SSB 후보 자리</text>
+      <g id="burstRow"></g>
+      <g id="burstAxis"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="casePick" role="group" aria-label="SSB 패턴 케이스 선택"></span>
+  </div>
+
+  <div class="stats" id="burstStats">
+    <div><span class="n" id="bL">—</span><span class="t">반프레임 안 SSB 개수 (L<sub>max</sub>)</span></div>
+    <div><span class="n" id="bOne">—</span><span class="t">SSB 하나의 길이 · 4심볼</span></div>
+    <div><span class="n" id="bPct">—</span><span class="t">반프레임에서 SSB가 쓰는 시간</span></div>
+    <div><span class="n" id="bEnd">—</span><span class="t">마지막 SSB가 끝나는 시각</span></div>
+  </div>
+  <p class="caption">시간 축은 5 ms를 실제 비율로 그렸습니다. 심볼 길이는 평균값(5000 μs ÷ 반프레임 심볼 수)을 썼고, 0.5 ms 경계 심볼의 CP 추가분 0.52 μs는 반영하지 않았습니다 — 오차는 0.1% 미만입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.213 §4.1 · 심볼 번호는 반프레임 첫 심볼을 0으로 센 값</caption>
+    <thead>
+      <tr><th class="num">Case</th><th class="num">SSB SCS</th><th>첫 심볼 인덱스</th><th>n</th><th class="num">L<sub>max</sub></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">A</td><td class="num">15 kHz</td><td class="num">{2, 8} + 14n</td>
+          <td>≤ 3 GHz: 0, 1<br>FR1 &gt; 3 GHz: 0, 1, 2, 3</td><td class="num">4<br>8</td></tr>
+      <tr><td class="num">B</td><td class="num">30 kHz</td><td class="num">{4, 8, 16, 20} + 28n</td>
+          <td>≤ 3 GHz: 0<br>FR1 &gt; 3 GHz: 0, 1</td><td class="num">4<br>8</td></tr>
+      <tr><td class="num">C</td><td class="num">30 kHz</td><td class="num">{2, 8} + 14n</td>
+          <td>FDD ≤ 3 GHz · TDD ≤ 2.4 GHz: 0, 1<br>그 위 FR1: 0, 1, 2, 3</td><td class="num">4<br>8</td></tr>
+      <tr><td class="num">D</td><td class="num">120 kHz</td><td class="num">{4, 8, 16, 20} + 28n</td>
+          <td>FR2: 0,1,2,3, 5,6,7,8, 10,11,12,13, 15,16,17,18</td><td class="num">64</td></tr>
+      <tr><td class="num">E</td><td class="num">240 kHz</td><td class="num">{8, 12, 16, 20, 32, 36, 40, 44} + 56n</td>
+          <td>FR2: 0,1,2,3, 5,6,7,8</td><td class="num">64</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- VERIFY: Case C 비페어드(TDD) 기준의 2.4 GHz 경계, 그리고 FR1 상한(Rel-15 6 GHz → Rel-16 7.125 GHz)
+       은 릴리즈에 따라 다르므로 TS 38.213 §4.1 최신본 대조 필요.
+       VERIFY: 대역별 케이스 지정(n78 → Case C)은 TS 38.104 Table 5.4.3.3-1 대조 필요. -->
+
+  <div class="note">
+    <strong>n에 빠진 번호가 있는 이유.</strong> Case D의 n은 4, 9, 14, 19를 건너뜁니다.
+    n 하나가 2슬롯(28심볼)이므로 n 네 개 = 1 ms 동안 SSB 16개를 몰아 보내고, 그다음 0.25 ms를 비우는 셈입니다.
+    이것이 5 ms 안에서 네 번 반복돼 4 × 16 = 64개가 됩니다. Case E도 구조가 같습니다.
+    <span class="src">TS 38.213 §4.1</span>
+  </div>
+
+  <div class="note">
+    <strong>후보 자리는 0.5 ms 경계 심볼을 피해 간다.</strong> 다섯 케이스 어디에서도 SSB가
+    0.5 ms 경계에 걸린 심볼(CP가 0.52 μs 더 긴 심볼)을 밟지 않습니다.
+    덕분에 SSB 길이는 언제나 정확히 4 × (T<sub>u</sub> + 일반 CP)입니다.
+    <span class="src">TS 38.211 §5.3.1 · 03 순환 전치 참조</span>
+  </div>
+
+  <p>주기는 <code>ssb-PeriodicityServingCell</code>로 5 / 10 / 20 / 40 / 80 / 160 ms 중에서 정합니다. 다만 <strong>초기 셀 선택 때 단말은 20 ms를 가정</strong>합니다 — 아직 설정을 받기 전이니 약속된 기본값이 필요한 것입니다. <span class="src">TS 38.213 §4.1 · TS 38.331 <code>ServingCellConfigCommon</code></span></p>
+
+  <!-- 유도: SSB가 실제로 먹는 자원 비율 (n78, 100 MHz, 30 kHz SCS, Case C L=8, 20 ms 주기)
+       시간: 8 × 142.71 μs / 20000 μs = 5.71%
+       주파수: 20 RB / 273 RB = 7.33%       (100 MHz @ 30 kHz → 273 RB, TS 38.101-1 §5.3.2)
+       곱: 0.0571 × 0.0733 = 0.42% -->
+  <p>비싸 보이지만 실제로는 그렇지 않습니다. n78 100 MHz 셀(30 kHz, 273 RB)에서 Case C · 20 ms 주기라면, SSB는 <strong>시간의 5.7%</strong>를 쓰지만 <strong>대역의 7.3%(20/273 RB)</strong>만 차지합니다. 곱하면 전체 자원의 <strong>0.42%</strong>입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>안내판에 적힌 것 — MIB 23비트</h2>
+  <p>PBCH가 나르는 것은 <strong>MIB(Master Information Block, 마스터 정보 블록)</strong>입니다. 크기가 23비트뿐입니다 — 문자 세 개 남짓. 여기에 담을 수 있는 건 "본문"이 아니라 <strong>본문이 있는 곳으로 가는 길</strong>뿐입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.331 <code>MasterInformationBlock</code></caption>
+    <thead><tr><th>필드</th><th class="num">비트</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td><code>systemFrameNumber</code></td><td class="num">6</td><td>SFN의 상위 6비트. 나머지 4비트는 아래 PBCH 페이로드가 나른다</td></tr>
+      <tr><td><code>subCarrierSpacingCommon</code></td><td class="num">1</td><td>SIB1·Msg2·Msg4에 쓸 SCS. FR1은 15/30, FR2는 60/120 중 하나</td></tr>
+      <tr><td><code>ssb-SubcarrierOffset</code></td><td class="num">4</td><td>k<sub>SSB</sub> — SSB와 공통 자원 격자의 어긋남</td></tr>
+      <tr><td><code>dmrs-TypeA-Position</code></td><td class="num">1</td><td>PDSCH DMRS의 첫 심볼(2 또는 3). 이걸 모르면 SIB1을 복조할 수 없다</td></tr>
+      <tr><td><code>pdcch-ConfigSIB1</code></td><td class="num">8</td><td>CORESET#0(4비트) + 탐색공간#0(4비트) → <strong>SIB1을 어디서 찾을지</strong></td></tr>
+      <tr><td><code>cellBarred</code></td><td class="num">1</td><td>이 셀에는 붙지 말라</td></tr>
+      <tr><td><code>intraFreqReselection</code></td><td class="num">1</td><td>막혔을 때 같은 주파수의 다른 셀로 가도 되는가</td></tr>
+      <tr><td><code>spare</code></td><td class="num">1</td><td>예약</td></tr>
+      <tr><td><strong>합계</strong></td><td class="num"><strong>23</strong></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- 유도: PBCH 페이로드 32비트 = 24 + 8
+       24 = BCCH-BCH-Message (CHOICE 1비트 + MIB 23비트)
+        8 = 물리계층 추가분 (TS 38.212 §7.1.1)
+       32 + CRC 24 = 56비트 → Polar 부호화 -->
+  <div class="note">
+    <strong>PBCH 페이로드는 32비트다.</strong> MIB 23비트 + ASN.1 CHOICE 1비트 = 24비트에,
+    물리계층이 8비트를 더 붙입니다 — SFN 하위 4비트, 하프프레임 지시 1비트,
+    그리고 L<sub>max</sub> = 64면 SSB 인덱스 상위 3비트 / 그 외에는 k<sub>SSB</sub>의 MSB 1비트와 예약 2비트.
+    여기에 CRC 24비트를 붙인 56비트가 Polar 부호기로 들어갑니다.
+    <span class="src">TS 38.212 §7.1.1</span>
+  </div>
+
+  <div class="note">
+    <strong>L<sub>max</sub> = 4일 때의 예외.</strong> SSB 후보가 4개뿐이면 DMRS 시퀀스 8가지 중 절반이 남습니다.
+    그래서 이때는 DMRS가 SSB 인덱스 2비트에 <strong>하프프레임 지시까지</strong> 함께 나릅니다
+    (i<sub>SSB</sub> = ī + 4·n<sub>hf</sub>). 남는 자리를 놀리지 않는 설계입니다.
+    <span class="src">TS 38.211 §7.4.1.4.1</span>
+  </div>
+
+  <p>MIB를 읽으면 CORESET#0의 위치가 나오고, 거기서 SI-RNTI로 스크램블된 DCI를 찾으면 그게 <strong>SIB1</strong>을 가리킵니다. SIB1에는 진짜 정보 — 셀 선택 기준, PLMN, 그리고 다음 단계에 필요한 <strong>랜덤 액세스 설정</strong> — 이 들어 있습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>이제 배가 응답한다 — 랜덤 액세스</h2>
+  <p>여기까지 단말은 <strong>듣기만</strong> 했습니다. 등대는 배가 있는지도 모릅니다. 이제 배가 처음으로 무전을 칩니다. 그런데 문제가 둘 있습니다.</p>
+  <ul>
+    <li>기지국은 이 단말이 <strong>얼마나 멀리 있는지</strong> 모릅니다 → 언제 도착할지 모르니 상향 타이밍이 안 맞습니다.</li>
+    <li>같은 순간에 <strong>여러 단말이 동시에</strong> 무전을 칠 수 있습니다 → 누가 누구인지 가려야 합니다.</li>
+  </ul>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 330" role="img" aria-labelledby="t4 d4">
+      <title id="t4">4단계 경합 기반 랜덤 액세스</title>
+      <desc id="d4">단말에서 기지국으로 Msg1 프리앰블, 기지국에서 단말로 Msg2 랜덤 액세스 응답, 다시 단말에서 Msg3 RRC 연결 요청, 기지국에서 Msg4 경합 해소 순서로 네 개의 메시지가 오간다.</desc>
+      <defs>
+        <marker id="arrUL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ul)"/>
+        </marker>
+        <marker id="arrDL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--dl)"/>
+        </marker>
+      </defs>
+
+      <text x="150" y="24" text-anchor="middle" class="rowlab">단말 · UE</text>
+      <text x="950" y="24" text-anchor="middle" class="rowlab">기지국 · gNB</text>
+      <line x1="150" y1="38" x2="150" y2="312" stroke="var(--hair)" stroke-width="1"/>
+      <line x1="950" y1="38" x2="950" y2="312" stroke="var(--hair)" stroke-width="1"/>
+
+      <line x1="150" y1="86" x2="944" y2="86" stroke="var(--ul)" stroke-width="2" marker-end="url(#arrUL)"/>
+      <text x="550" y="76" text-anchor="middle" class="celllab" fill="var(--ul)">Msg1 · PRACH 프리앰블</text>
+      <text x="550" y="106" text-anchor="middle" class="dimlab">64개 중 하나를 무작위로 고른다 · 도착 시각으로 거리가 드러난다</text>
+
+      <line x1="950" y1="150" x2="156" y2="150" stroke="var(--dl)" stroke-width="2" marker-end="url(#arrDL)"/>
+      <text x="550" y="140" text-anchor="middle" class="celllab" fill="var(--dl)">Msg2 · 랜덤 액세스 응답(RAR)</text>
+      <text x="550" y="170" text-anchor="middle" class="dimlab">타이밍 어드밴스 12비트 + 상향 그랜트 27비트 + TC-RNTI 16비트</text>
+
+      <line x1="150" y1="214" x2="944" y2="214" stroke="var(--ul)" stroke-width="2" marker-end="url(#arrUL)"/>
+      <text x="550" y="204" text-anchor="middle" class="celllab" fill="var(--ul)">Msg3 · RRCSetupRequest</text>
+      <text x="550" y="234" text-anchor="middle" class="dimlab">받은 그랜트로 PUSCH 전송 · 여기서 처음 자기 식별자를 말한다</text>
+
+      <line x1="950" y1="278" x2="156" y2="278" stroke="var(--dl)" stroke-width="2" marker-end="url(#arrDL)"/>
+      <text x="550" y="268" text-anchor="middle" class="celllab" fill="var(--dl)">Msg4 · 경합 해소</text>
+      <text x="550" y="298" text-anchor="middle" class="dimlab">내가 보낸 식별자가 되돌아오면 내가 이긴 것. 아니면 처음부터 다시</text>
+    </svg>
+  </div>
+  <p class="caption">색은 방향을 뜻합니다 — 초록은 상향, 파랑은 하향. 세로 간격은 시간 비율이 아닙니다.</p>
+
+  <div class="note">
+    <strong>Msg2는 "누구에게"가 아니라 "어디서 언제"로 주소를 매긴다.</strong>
+    단말은 아직 이름이 없으므로, 응답은 <strong>프리앰블을 보낸 시간·주파수 자리</strong>에서 계산한
+    RA-RNTI로 주소가 매겨집니다.<br>
+    <span class="src">RA-RNTI = 1 + s_id + 14 × t_id + 14 × 80 × f_id + 14 × 80 × 8 × ul_carrier_id · TS 38.321 §5.1.3</span>
+  </div>
+
+  <!-- 유도: 프리앰블 충돌 확률 (64개 중 무작위 선택, k개 단말 동시)
+       P(충돌) = 1 − ∏(i=0..k-1) (64 − i)/64
+       k=3 → 4.6% · k=5 → 14.8% · k=10 → 52.3% -->
+  <div class="stats">
+    <div><span class="n">64</span><span class="t">한 자리에서 고를 수 있는 프리앰블 수 <span class="src">TS 38.211 §6.3.3.1</span></span></div>
+    <div><span class="n">4.6%</span><span class="t">3대가 동시에 시도했을 때 충돌 확률</span></div>
+    <div><span class="n">52%</span><span class="t">10대가 동시에 시도했을 때 충돌 확률</span></div>
+    <div><span class="n">56</span><span class="t">RAR 한 개의 비트 수 · 1+12+27+16 <span class="src">TS 38.321 §6.2.3</span></span></div>
+  </div>
+  <p class="caption">충돌하면 두 단말이 같은 TC-RNTI로 같은 그랜트를 받아 Msg3를 겹쳐 보냅니다. Msg4의 경합 해소가 필요한 이유가 이것이고, 진 쪽은 백오프 후 재시도합니다.</p>
+
+  <h3>타이밍 어드밴스 — 거리를 시간으로 되돌려 주기</h3>
+  <p>기지국은 프리앰블이 <strong>얼마나 늦게 도착했는지</strong>로 왕복 전파 지연을 잽니다. 그리고 "너는 이만큼 미리 쏘라"고 알려줍니다. 이게 없으면 먼 단말의 신호가 가까운 단말의 다음 심볼 위로 흘러넘칩니다 — <a href="../03-cyclic-prefix/index.html">03</a>에서 본 그 문제가 상향에서 재현되는 것입니다.</p>
+
+  <!-- 유도: TA 한 눈금 = 16 × 64 × Tc / 2^μ
+       16 × 64 × Tc = 1024 × 0.50863 ns = 520.83 ns  (μ=0)
+       거리 해상도 = c × 눈금 / 2,  c = 299.792458 m/μs
+       μ=0: 0.52083 μs → 78.1 m   μ=1: 39.0 m   μ=2: 19.5 m   μ=3: 9.8 m
+       최대 TA (T_A = 3846): μ=0 → 2003 μs 왕복 → 300 km (규격 상한이지 실제 한계가 아님) -->
+  <div class="table-scroll">
+  <table>
+    <caption>N<sub>TA</sub> = T<sub>A</sub> × 16 × 64 / 2<sup>μ</sup> (단위 T<sub>c</sub>) · RAR에서는 T<sub>A</sub> ∈ {0 … 3846} · TS 38.213 §4.2</caption>
+    <thead><tr><th class="num">μ</th><th class="num">SCS</th><th class="num">한 눈금</th><th class="num">거리 해상도</th><th class="num">규격상 최대 거리</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">15 kHz</td><td class="num">0.521 μs</td><td class="num">78.1 m</td><td class="num">300 km</td></tr>
+      <tr><td class="num">1</td><td class="num">30 kHz</td><td class="num">0.260 μs</td><td class="num">39.0 m</td><td class="num">150 km</td></tr>
+      <tr><td class="num">2</td><td class="num">60 kHz</td><td class="num">0.130 μs</td><td class="num">19.5 m</td><td class="num">75 km</td></tr>
+      <tr><td class="num">3</td><td class="num">120 kHz</td><td class="num">0.065 μs</td><td class="num">9.8 m</td><td class="num">38 km</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>"규격상 최대"는 실제 한계가 아니다.</strong> 셀 반경은 TA 범위보다 훨씬 앞서
+    프리앰블 포맷의 보호 구간과 TDD 가드 심볼에서 먼저 막힙니다.
+    예컨대 프리앰블 포맷 0은 CP 103.1 μs + 시퀀스 800 μs로 1 ms를 채우고 보호 구간 96.9 μs가 남아,
+    <strong>반경 약 14.5 km</strong>가 상한입니다. TDD 쪽 한계는 <a href="../02-tdd-pattern/index.html">02 TDD 슬롯 패턴</a>에서 다룬 그대로입니다.
+    <span class="src">TS 38.211 §6.3.3.1 Table 6.3.3.1-1</span>
+  </div>
+
+  <div class="note">
+    <strong>Rel-16의 2단계 방식.</strong> 4단계를 MsgA(프리앰블 + PUSCH를 한꺼번에) / MsgB(응답 + 경합 해소)
+    두 단계로 줄인 절차가 추가됐습니다. 왕복이 두 번 줄어 접속 지연이 짧아집니다.
+    <span class="src">TS 38.213 §8.1 · TS 38.321 §5.1.1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>SSB는 4심볼 × 20 RB짜리 덩어리 하나다. "여기 있다"(PSS) · "누구다"(SSS) · "몇 시고 다음은 어디다"(PBCH)가 전부 그 안에 들어 있다.</li>
+    <li>규격이 SSB의 주파수 자리(동기 래스터)와 시간 자리(반프레임 안 후보 심볼)를 못 박은 덕분에, 아무것도 모르는 단말의 탐색이 유한해진다. 셀 ID를 3 × 336으로 쪼갠 것도 같은 이유다.</li>
+    <li>SSB 인덱스는 곧 빔 번호다. 단말은 셀을 찾는 동시에 "나에게 맞는 빔"을 고르고, 랜덤 액세스로 그 빔에 응답한다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../03-cyclic-prefix/index.html">← 03 순환 전치(CP)</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+
+  /* ══════════════════ SVG 1 · SSB 자원 격자 ══════════════════
+     TS 38.211 §7.4.3.1 Table 7.4.3.1-1
+     ℓ0: PSS k=56..182,  0 설정 k=0..55, 183..239
+     ℓ1: PBCH k=0..239
+     ℓ2: PBCH k=0..47, 192..239 · SSS k=56..182 · 0 설정 k=48..55, 183..191
+     ℓ3: PBCH k=0..239
+     DMRS: PBCH 영역에서 4개당 1개, 오프셋 v = N_ID^cell mod 4 (그림은 v=0)          */
+  var SC=240, GX0=92, GW=1000, U=GW/SC;            // 4.1667 px / 부반송파
+  var ROWY=[46,108,170,232], RH=52;
+  var grid=document.getElementById('ssbGrid'), axis=document.getElementById('ssbAxis');
+  var parts=[];                                     // {node, step}
+
+  function band(rowi,k0,k1,kind,step,label){
+    var fill,stroke;
+    if(kind==='zero'){ fill='var(--gp-bg)'; stroke='var(--gp)'; }
+    else { fill='var(--dl-bg)'; stroke='var(--dl)'; }
+    var r=el('rect',{x:GX0+k0*U, y:ROWY[rowi], width:(k1-k0+1)*U, height:RH,
+                     fill:fill, stroke:stroke, 'stroke-width':0.9});
+    grid.appendChild(r); parts.push({node:r,step:step});
+    if(label && (k1-k0+1)*U>34){
+      var t=txt(GX0+(k0+k1+1)/2*U, ROWY[rowi]+RH/2+4, label, 'celllab',
+                kind==='zero'?'var(--gp)':'var(--dl)');
+      grid.appendChild(t); parts.push({node:t,step:step});
+    }
+  }
+  /* DMRS: 해당 PBCH 구간 안에서 (k − v) mod 4 === 0 인 부반송파 */
+  function dmrs(rowi,k0,k1,step){
+    var v=0;
+    for(var k=k0;k<=k1;k++){
+      if(((k-v)%4+4)%4!==0) continue;
+      var r=el('rect',{x:GX0+k*U, y:ROWY[rowi]+3, width:U, height:RH-6, fill:'var(--dl)'});
+      grid.appendChild(r); parts.push({node:r,step:step});
+    }
+  }
+
+  /* 단계 3(DMRS)이 단계 4(PBCH 데이터)보다 먼저 드러나야 하므로 PBCH 밑칸은 step 4 */
+  band(0,0,55,'zero',1);        band(0,56,182,'sig',1,'PSS');   band(0,183,239,'zero',1);
+  band(1,0,239,'sig',4,'PBCH');
+  band(2,0,47,'sig',4,'PBCH');  band(2,48,55,'zero',2);
+  band(2,56,182,'sig',2,'SSS'); band(2,183,191,'zero',2);       band(2,192,239,'sig',4,'PBCH');
+  band(3,0,239,'sig',4,'PBCH');
+  dmrs(1,0,239,3); dmrs(2,0,47,3); dmrs(2,192,239,3); dmrs(3,0,239,3);
+
+  /* 심볼 라벨 */
+  ['ℓ = 0','ℓ = 1','ℓ = 2','ℓ = 3'].forEach(function(s,i){
+    grid.appendChild(txt(0,ROWY[i]+RH/2+4,s,'rowlab',null,'start'));
+  });
+
+  /* PSS·SSS 대역 경계 안내선 — 240개 중 가운데 127개 */
+  [56,183].forEach(function(k){
+    axis.appendChild(el('line',{x1:GX0+k*U,y1:38,x2:GX0+k*U,y2:292,
+      stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 4',opacity:0.5}));
+  });
+  axis.appendChild(txt(GX0+119.5*U,306,'가운데 127 부반송파','dimlab'));
+
+  /* 아래 눈금 — RB 경계(12마다) */
+  for(var rb=0;rb<=20;rb++){
+    axis.appendChild(el('line',{x1:GX0+rb*12*U,y1:292,x2:GX0+rb*12*U,y2:rb%5===0?300:296,
+      stroke:'var(--hair)','stroke-width':1}));
+  }
+  axis.appendChild(el('line',{x1:GX0,y1:292,x2:GX0+GW,y2:292,stroke:'var(--hair)','stroke-width':1}));
+  [[0,'k=0','start'],[60,'60','middle'],[120,'120','middle'],[180,'180','middle'],[239,'239','end']]
+  .forEach(function(p){
+    axis.appendChild(txt(GX0+p[0]*U,320,p[1],'dimlab',null,p[2]));
+  });
+
+  /* 범례 — 색이 뜻을 나르므로 글머리도 실제 색으로 칠한다 */
+  [[0,  'var(--dl-bg)','var(--dl)','전송되는 자원'],
+   [170,'var(--gp-bg)','var(--gp)','0으로 비워두는 부반송파'],
+   [420,'var(--dl)',   'var(--dl)','PBCH DMRS']].forEach(function(g){
+    axis.appendChild(el('rect',{x:g[0],y:334,width:13,height:13,fill:g[1],stroke:g[2],'stroke-width':0.9}));
+    axis.appendChild(txt(g[0]+19,345,g[3],'dimlab','var(--ink-soft)','start'));
+  });
+
+  /* ── 읽기 단계 컨트롤 ── */
+  var STEPS=[
+    {n:1,btn:'① PSS',  tag:'불빛을 봤다',
+     why:'127길이 시퀀스 3개 중 하나가 상관에서 튀어나옵니다. 심볼 경계와 대략의 주파수 오차, 그리고 N_ID^(2)가 여기서 잡힙니다.'},
+    {n:2,btn:'② SSS',  tag:'어느 등대인지 안다',
+     why:'경계를 아는 상태에서 336개 후보를 확인합니다. PSS와 합쳐 셀 ID 0–1007이 확정됩니다.'},
+    {n:3,btn:'③ PBCH DMRS', tag:'몇 번 빔인지 안다',
+     why:'DMRS 시퀀스 자체가 SSB 인덱스마다 다릅니다. 채널 추정을 하면서 빔 번호가 같이 읽힙니다.'},
+    {n:4,btn:'④ PBCH 데이터', tag:'안내판을 읽었다',
+     why:'32비트 페이로드에서 SFN·하프프레임·k_SSB, 그리고 SIB1을 찾아갈 CORESET#0 설정이 나옵니다.'}
+  ];
+  var KNOW=[
+    {k:'심볼 경계',      v:'FFT 시작점',        s:1},
+    {k:'주파수 오차',    v:'대략값',            s:1},
+    {k:'N_ID⁽²⁾',       v:'0 – 2',             s:1},
+    {k:'N_ID⁽¹⁾',       v:'0 – 335',           s:2},
+    {k:'셀 ID',          v:'0 – 1007',          s:2},
+    {k:'SSB 인덱스',     v:'빔 번호',           s:3},
+    {k:'SFN · 하프프레임', v:'시스템 시각',     s:4},
+    {k:'CORESET#0',      v:'SIB1 가는 길',      s:4}
+  ];
+  var stepPick=document.getElementById('stepPick');
+  var stepTag=document.getElementById('stepTag'), stepWhy=document.getElementById('stepWhy');
+  var stepBox=document.getElementById('stepBox'), knowList=document.getElementById('knowList');
+
+  STEPS.forEach(function(s){
+    var b=document.createElement('button'); b.type='button'; b.textContent=s.btn;
+    b.addEventListener('click',function(){ setStep(s.n); });
+    s.btn_=b; stepPick.appendChild(b);
+  });
+  KNOW.forEach(function(c){
+    var li=document.createElement('li');
+    li.innerHTML='<span class="k">'+c.k+'</span><span class="v">'+c.v+'</span><span class="s"></span>';
+    c.el=li; c.sel=li.querySelector('.s'); knowList.appendChild(li);
+  });
+
+  function setStep(n){
+    STEPS.forEach(function(s){ s.btn_.setAttribute('aria-pressed', s.n===n?'true':'false'); });
+    parts.forEach(function(p){
+      p.node.setAttribute('opacity', p.step<n ? 0.5 : (p.step===n ? 1 : 0.14));
+    });
+    var s=STEPS[n-1];
+    stepBox.className='verdict ok';
+    stepTag.textContent=s.tag; stepWhy.textContent=s.why;
+    KNOW.forEach(function(c){
+      var got=c.s<=n;
+      c.el.style.opacity = got ? '1' : '0.4';
+      c.sel.textContent = got ? '확보' : '아직';
+    });
+  }
+  setStep(1);
+
+  /* ══════════════════ SVG 2 · 빔 스위핑 부채꼴 ══════════════════ */
+  var fan=document.getElementById('beamFan'), CX=160, CY=250, R=132, NB=8, SPAN=180/NB;
+  for(var i=0;i<NB;i++){
+    var a0=(180+i*SPAN)*Math.PI/180, a1=(180+(i+1)*SPAN)*Math.PI/180;
+    var x0=CX+R*Math.cos(a0), y0=CY+R*Math.sin(a0);
+    var x1=CX+R*Math.cos(a1), y1=CY+R*Math.sin(a1);
+    /* sweep-flag=1 : SVG의 y-아래 좌표계에서 각이 커지면 화면상 시계방향(왼→위→오른) */
+    fan.appendChild(el('path',{
+      d:'M'+CX+' '+CY+' L'+x0.toFixed(1)+' '+y0.toFixed(1)+
+        ' A'+R+' '+R+' 0 0 1 '+x1.toFixed(1)+' '+y1.toFixed(1)+' Z',
+      fill:'var(--dl-bg)', opacity:(i===3?0.95:0.22),
+      stroke:'var(--dark-edge)','stroke-width':0.8}));
+    var am=(a0+a1)/2;
+    fan.appendChild(txt(CX+R*0.68*Math.cos(am), CY+R*0.68*Math.sin(am)+4, i, 'celllab',
+      i===3?'var(--ink)':'var(--dark-ink-soft)'));
+  }
+
+  /* ══════════════════ SVG 3 · 반프레임 안의 SSB 후보 자리 ══════════════════
+     TS 38.213 §4.1 · 반프레임 심볼 수 = 70 × 2^μ (5 ms × 2^μ 슬롯 × 14 심볼)
+     SSB 하나의 길이 = 4 × (Tu + CP) = 285.4167 / 2^μ  μs                      */
+  var CASES=[
+    {k:'A · 15 kHz · ≤3 GHz',  mu:0, base:[2,8],                    step:14, n:[0,1]},
+    {k:'B · 30 kHz · >3 GHz',  mu:1, base:[4,8,16,20],              step:28, n:[0,1]},
+    {k:'C · 30 kHz · n78',     mu:1, base:[2,8],                    step:14, n:[0,1,2,3]},
+    {k:'D · 120 kHz · FR2',    mu:3, base:[4,8,16,20],              step:28,
+     n:[0,1,2,3,5,6,7,8,10,11,12,13,15,16,17,18]},
+    {k:'E · 240 kHz · FR2',    mu:4, base:[8,12,16,20,32,36,40,44], step:56, n:[0,1,2,3,5,6,7,8]}
+  ];
+
+  var W=1100, PY=34, PH=34, BY=164, BH=54;
+  var period=document.getElementById('periodRow');
+  var burst=document.getElementById('burstRow');
+  var baxis=document.getElementById('burstAxis');
+
+  /* 20 ms = 반프레임 4개, 첫 번째를 확대 */
+  for(var q=0;q<4;q++){
+    period.appendChild(el('rect',{x:W/4*q+1, y:PY, width:W/4-2, height:PH, rx:3,
+      fill:q===0?'var(--dl-bg)':'#fff', stroke:q===0?'var(--dl)':'var(--hair)'}));
+    period.appendChild(txt(W/4*q+W/8, PY+PH/2+4, (q*5)+' – '+(q*5+5)+' ms', 'celllab',
+      q===0?'var(--dl)':'var(--ink-soft)'));
+  }
+  var fnL=document.getElementById('fnL'), fnR=document.getElementById('fnR');
+  fnL.setAttribute('x1',1);     fnL.setAttribute('y1',PY+PH); fnL.setAttribute('x2',0); fnL.setAttribute('y2',BY);
+  fnR.setAttribute('x1',W/4-1); fnR.setAttribute('y1',PY+PH); fnR.setAttribute('x2',W); fnR.setAttribute('y2',BY);
+
+  /* 시간 눈금 0–5 ms */
+  baxis.appendChild(el('line',{x1:0,y1:BY+BH+8,x2:W,y2:BY+BH+8,stroke:'var(--hair)','stroke-width':1}));
+  for(var ms=0;ms<=5;ms++){
+    baxis.appendChild(el('line',{x1:W/5*ms,y1:BY+BH+8,x2:W/5*ms,y2:BY+BH+14,stroke:'var(--hair)','stroke-width':1}));
+    baxis.appendChild(txt(Math.min(Math.max(W/5*ms,14),W-14), BY+BH+30, ms+' ms','dimlab'));
+  }
+
+  var casePick=document.getElementById('casePick');
+  CASES.forEach(function(c){
+    var b=document.createElement('button'); b.type='button'; b.textContent=c.k;
+    b.addEventListener('click',function(){ drawCase(c); });
+    c.btn=b; casePick.appendChild(b);
+  });
+
+  function drawCase(c){
+    CASES.forEach(function(x){ x.btn.setAttribute('aria-pressed', x===c?'true':'false'); });
+    while(burst.firstChild) burst.removeChild(burst.firstChild);
+
+    var nsym=70*Math.pow(2,c.mu);                    // 반프레임 심볼 수
+    var one=285.4167/Math.pow(2,c.mu);               // SSB 하나 [μs] = 4 × (Tu + CP)
+    var px=W/nsym, bw=4*px;
+
+    /* 슬롯 경계는 슬롯이 20개 이하일 때만 그린다 */
+    var slots=5*Math.pow(2,c.mu);
+    if(slots<=20) for(var s=1;s<slots;s++)
+      burst.appendChild(el('line',{x1:W/slots*s,y1:BY,x2:W/slots*s,y2:BY+BH,
+        stroke:'var(--hair)','stroke-width':1}));
+    burst.insertBefore(el('rect',{x:0,y:BY,width:W,height:BH,fill:'#fff',
+      stroke:'var(--hair)','stroke-width':1}), burst.firstChild);
+
+    var firsts=[];
+    c.n.forEach(function(n){ c.base.forEach(function(b){ firsts.push(b+c.step*n); }); });
+    firsts.sort(function(a,b){return a-b;});
+
+    firsts.forEach(function(f,i){
+      burst.appendChild(el('rect',{x:f*px, y:BY+3, width:Math.max(bw,1.4), height:BH-6,
+        fill:'var(--dl-bg)', stroke:'var(--dl)', 'stroke-width':bw>3?0.8:0.4}));
+      if(bw>=26) burst.appendChild(txt(f*px+bw/2, BY+BH/2+4, i, 'celllab','var(--dl)'));
+    });
+
+    var L=firsts.length, last=firsts[L-1];
+    document.getElementById('bL').textContent=L;
+    document.getElementById('bOne').textContent=one.toFixed(1)+' μs';
+    document.getElementById('bPct').textContent=(L*one/5000*100).toFixed(1)+'%';
+    document.getElementById('bEnd').textContent=((last+4)/nsym*5).toFixed(2)+' ms';
+  }
+  drawCase(CASES[2]);
+})();
+</script>
+</body>
+</html>
