@@ -68,6 +68,33 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 |---|---|---|---|---|
 | PBCH 페이로드 | §7.1.1 | 32비트 = 상위계층 24비트(CHOICE 1 + MIB 23) + 물리계층 8비트<br>물리계층 8: SFN 하위 4 + 하프프레임 1 + (L_max=64면 SSB 인덱스 상위 3, 아니면 k_SSB MSB 1 + 예약 2) | 04 | |
 | PBCH 부호화 | §7.1.3–7.1.5 | CRC 24비트 부착 → Polar → 레이트 매칭 E = 864비트 | 04 | |
+| 코드블록 분할 | §5.2.2 | K_cb = 8448(BG1) / 3840(BG2), L = 24<br>C = ⌈B/(K_cb − L)⌉ | 06 | |
+| LDPC 기본 그래프 | §5.3.2 | BG1 46×68(정보열 22), BG2 42×52(정보열 10)<br>앞 2·Zc 시스템 비트 천공 → 부호어 N = 66·Zc / 50·Zc | 06 | |
+| RV 시작 위치 | §5.4.2.1 Table 5.4.2.1-2 | k_0 = ⌊(a·N_cb)/(b·Zc)⌋·Zc<br>BG1 a = 0, 17, 33, 56 (b = 66) · BG2 a = 0, 13, 25, 43 (b = 50) | 06 | |
+| DCI의 HARQ 필드 | §7.3.1 | HARQ process number 4비트 · NDI 1비트 · Redundancy version 2비트<br>PDSCH-to-HARQ_feedback timing indicator 3비트 · 시간영역 자원할당 4비트 | 06 | |
+
+---
+
+## TS 38.214 — Physical layer procedures for data
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| K0 (PDCCH → PDSCH) | §5.1.2.1 | PDSCH 슬롯 = ⌊n·2^μ_PDSCH / 2^μ_PDCCH⌋ + K0, K0 ∈ 0…32 | 06 | |
+| CQI 목표 오류율 | §5.2.2.1 | 전송 블록 오류 확률이 0.1을 넘지 않는 조합을 보고<br>Table 5.2.2.1-4(CQI 표 3)는 목표 10⁻⁵ | 06 | |
+| N1 (PDSCH 처리) | §5.3 Table 5.3-1 | 능력 1, dmrs-AdditionalPosition=pos0: μ=0 8, μ=1 10, μ=2 17, μ=3 20 심볼<br>그 외: 13, 13, 20, 24 심볼 | 06 | |
+| N1 (저지연) | §5.3 Table 5.3-2 | 능력 2: μ=0 3, μ=1 4.5, μ=2 9 심볼 | 06 | ⚠️ 미검증 |
+| K2 (PDCCH → PUSCH) | §6.1.2.1 | PUSCH 슬롯 = ⌊n·2^μ_PUSCH / 2^μ_PDCCH⌋ + K2, K2 ∈ 0…32 | 06 | |
+| N2 (PUSCH 준비) | §6.4 Table 6.4-1 | 능력 1: μ=0 10, μ=1 12, μ=2 23, μ=3 36 심볼 | 06 | |
+| N2 (저지연) | §6.4 Table 6.4-2 | 능력 2: μ=0 5, μ=1 5.5, μ=2 11 심볼 | 06 | ⚠️ 미검증 |
+| 처리 시간 공식 | §5.3, §6.4 | T_proc = (N + d)(2048+144)·κ·2^−μ·T_c<br>괄호 안은 곧 심볼 하나(T_u + 일반 CP) | 06 | |
+
+---
+
+## TS 38.322 — Radio Link Control
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| RLC AM 재전송 | 전반 | HARQ가 놓친 잔여 오류를 상위에서 다시 잡는 2층 구조 | 06 | |
 
 ---
 
@@ -78,6 +105,7 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | RA-RNTI | §5.1.3 | 1 + s_id + 14·t_id + 14·80·f_id + 14·80·8·ul_carrier_id | 04 | |
 | RAR 페이로드 | §6.2.3 | R(1) + Timing Advance Command(12) + UL Grant(27) + TC-RNTI(16) = 56비트 | 04 | |
 | 2단계 RA | §5.1.1 | MsgA(프리앰블+PUSCH) / MsgB(응답+경합해소) | 04 | |
+| 상향 HARQ 프로세스 수 | §5.4.2 | Rel-15에서 16개 고정 | 06 | |
 
 ---
 
@@ -110,6 +138,10 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | MIB | `MasterInformationBlock` | systemFrameNumber(6) · subCarrierSpacingCommon(1) · ssb-SubcarrierOffset(4) · dmrs-TypeA-Position(1) · pdcch-ConfigSIB1(8) · cellBarred(1) · intraFreqReselection(1) · spare(1) = **23비트** | 04 | |
 | SIB1 위치 | `PDCCH-ConfigSIB1` | controlResourceSetZero(4) + searchSpaceZero(4) | 04 | |
 | SSB 주기 | `ssb-PeriodicityServingCell` | 5 / 10 / 20 / 40 / 80 / 160 ms | 04 | |
+| 하향 HARQ 프로세스 수 | `nrofHARQ-ProcessesForPDSCH` | n2/n4/n6/n8/n10/n12/n16 · 필드가 없으면 8 | 06 | |
+| K1 후보 목록 | `dl-DataToUL-ACK` (PUCCH-Config) | 최대 8개, 각 0…15. DCI 3비트가 이 목록을 가리킨다 | 06 | |
+| K0 · K2 표 | `PDSCH-/PUSCH-TimeDomainResourceAllocationList` | 최대 16행, 행마다 (K, 매핑 타입, SLIV). DCI 4비트가 행 번호 | 06 | |
+| CBG 설정 | `codeBlockGroupTransmission` | `maxCodeBlockGroupsPerTransportBlock` ∈ n2/n4/n6/n8 | 06 | |
 
 ---
 
@@ -168,6 +200,51 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 
 ---
 
+## 유도한 값 — 06 HARQ와 재전송 타이밍 (계산 근거)
+
+```
+[RV 시작 위치를 버퍼 비율로]  TS 38.212 Table 5.4.2.1-2
+  BG1  0 · 17/66 = 25.8% · 33/66 = 50% · 56/66 = 84.8%
+  BG2  0 · 13/50 = 26%   · 25/50 = 50% · 43/50 = 86%
+  분모 66·50은 부호어 길이 N = 66·Zc / 50·Zc 와 같은 수 — RV는 부호어를 66(50)등분한 눈금이다
+
+[시스템 비트 몫]  §5.3.2
+  BG1 (22 − 2)/66 = 30.3%      BG2 (10 − 2)/50 = 16%
+  RV3 뒤에 남은 몫 = (66 − 56)/66 = 15.2%
+  → 한 번에 보내는 양이 15.2%를 넘으면 RV3이 감겨 들어와 시스템 비트를 다시 만난다
+    (verify-numbers.py 가 10/66에서 안 닿고 한 칸 넘으면 닿는 것을 확인한다)
+
+[누적 커버리지]  버퍼를 660등분(66의 배수)해 계산. 한 번에 22/66 = 1/3씩 보낼 때
+  RV 0→2→3→1   33.3% → 66.7% → 81.8% → 98.5%
+  RV 0→1→2→3   33.3% → 59.1% → 83.3% → 98.5%
+  2회차 차이 7.6%p — 대부분의 재전송이 2회차에서 끝나므로 이 구간이 실질적으로 중요하다
+
+[처리 시간]  T_proc = N × (2048+144)·κ·2^−μ·Tc,  괄호 안 = Tu + 일반 CP = 71.354 μs / 2^μ
+  능력 1   μ=0  N1  8 →  570.8 μs    N2 10 →  713.5 μs
+           μ=1  N1 10 →  356.8 μs    N2 12 →  428.1 μs
+           μ=2  N1 17 →  303.3 μs    N2 23 →  410.3 μs
+           μ=3  N1 20 →  178.4 μs    N2 36 →  321.1 μs
+  능력 2   μ=0  N1  3 →  214.1 μs    N2  5 →  356.8 μs
+           μ=1  N1 4.5 → 160.5 μs    N2 5.5 → 196.2 μs
+  ※ 심볼 수는 μ에 따라 늘지만 절대 시간은 줄어든다 (570.8 → 178.4 μs). 자료의 핵심 주장이라
+    verify-numbers.py 가 단조 감소를 검사한다.
+
+[코드블록과 CBG]  §5.2.2
+  B = 100,000비트, K_cb = 8448, L = 24 → C = ⌈100000/8424⌉ = 12조각
+  CBG 4묶음이면 1조각 실패에 3조각만 재전송 → 12/3 = 4배 절약
+
+[HARQ 프로세스 이용률]  프로세스 N개, 왕복 R슬롯
+  주기 P = max(N, R),  이용률 = N/P = min(N/R, 1)
+  R = 8 가정:  N=1 12.5%   N=4 50%   N=8 100%   N=16 100%
+  ※ R은 K1 + 기지국 복호·스케줄링 시간이며 규격값이 아니라 구현에 달렸다
+
+[평균 전송 횟수]  각 시도가 독립적으로 10% 실패한다는 가정 하의 상한
+  E[N] = 1/(1 − 0.1) = 1.11회
+  실제 HARQ는 소프트 컴바이닝 덕에 2차 시도 성공률이 훨씬 높아 이보다 낫다
+```
+
+---
+
 ## 확인이 필요한 것 (VERIFY)
 
 - [ ] DDDSU의 특수 슬롯 10:2:2 배분 — 규격 강제가 아니라 사업자 관행. 벤더 문서로 근거 보강 필요
@@ -178,6 +255,10 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 - [ ] **FR1 상한** — Rel-15는 6 GHz, Rel-16 이후 7.125 GHz. 04는 "FR1 > 3 GHz"로만 적어 회피했으나 표에 릴리즈 병기 검토
 - [ ] **대역별 SSB 케이스 지정** (n78 → Case C) — TS 38.104 Table 5.4.3.3-1 대조 필요. 04의 버튼 라벨 "C · 30 kHz · n78"이 여기 의존
 - [ ] **대역별 GSCN 범위** (예: n78) — TS 38.104 Table 5.4.3.3-1. 04 본문은 래스터 간격에서 유도한 "약 350"만 제시해 회피함
+- [ ] **RV 전송 순서 0 → 2 → 3 → 1** — 규격이 정하는 것은 RV 시작 위치 네 개와 DCI 2비트까지다. 순서는 스케줄러 관행이므로 벤더 문서로 근거 보강 필요. 06에 관행임을 명시해 두었음
+- [ ] **처리 능력 2의 μ=2 항목** (N1 9심볼, N2 11심볼)이 FR1에 한정되는 조건 — TS 38.214 Table 5.3-2 / 6.4-2 각주 대조 필요. 06 본문은 μ=0,1만 인용해 회피함
+- [ ] **HARQ 왕복 8슬롯 가정** — 06의 프로세스 그림이 쓰는 값. K1은 규격 범위가 있으나 기지국 복호·스케줄링 시간은 구현 의존이라 규격 근거가 없음. 캡션에 명시해 두었음
+- [ ] **첫 전송 BLER 10% 운용점** — CQI 정의(TS 38.214 §5.2.2.1)에 근거가 있으나, 실제 링크 적응이 이 값을 목표로 한다는 것은 관행. 벤더 문서 확인
 
 ---
 
@@ -205,3 +286,13 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | Physical Random Access Channel | 물리 랜덤 액세스 채널 | PRACH |
 | Random Access Response | 랜덤 액세스 응답 | RAR |
 | Timing Advance | 타이밍 어드밴스 | TA |
+| Hybrid Automatic Repeat reQuest | 혼합 자동 재전송 요구 | HARQ |
+| Automatic Repeat reQuest | 자동 재전송 요구 | ARQ |
+| Redundancy Version | 잉여 버전 | RV |
+| Incremental Redundancy | 증분 잉여 | IR |
+| Channel Quality Indicator | 채널 품질 지시자 | CQI |
+| Block Error Rate | 블록 오류율 | BLER |
+| Code Block Group | 코드블록 그룹 | CBG |
+| New Data Indicator | 신규 데이터 지시자 | NDI |
+| Downlink Control Information | 하향 제어 정보 | DCI |
+| Transport Block | 전송 블록 | TB |

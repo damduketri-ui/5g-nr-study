@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 HARQ와 재전송 타이밍 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>06 / HARQ와 재전송 타이밍</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">06 · harq &amp; retransmission timing</p>
+  <h1>10%는 실패하도록<br><em>설계되어</em> 있다</h1>
+  <p class="lead">무선은 반드시 틀립니다. 5G는 이걸 막으려 하지 않고 <strong>틀릴 것을 전제로</strong> 설계됐습니다. 실패한 전송을 버리지 않고 쌓아두는 것, 그리고 답을 기다리는 동안 멈추지 않는 것 — 이 두 가지가 HARQ입니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>왜 10%나 틀리게 두는가</h2>
+  <p>지직거리는 전화를 생각해 봅시다. 상대의 말을 100% 알아들으려면 아주 천천히, 또박또박, 한 글자씩 말해야 합니다. 알아듣기는 하겠지만 <strong>대화가 안 됩니다.</strong> 반대로 평소 속도로 말하면 가끔 못 알아듣습니다. 그때만 "뭐라고?" 하면 됩니다. 전체로 보면 두 번째가 훨씬 빠릅니다.</p>
+
+  <p>5G의 선택도 같습니다. 단말이 기지국에 "이 정도 속도면 받을 만합니다"라고 보고하는 값이 <strong>CQI(Channel Quality Indicator, 채널 품질 지시자)</strong>인데, 규격은 이 값의 뜻을 <strong>"전송 블록 오류 확률이 0.1을 넘지 않는 조합"</strong>으로 정의합니다. 즉 <strong>첫 전송의 10% 실패는 목표치</strong>이지 사고가 아닙니다.</p>
+
+  <!-- 유도: 각 시도가 독립적으로 10% 실패한다고 가정할 때 평균 전송 횟수
+       E[N] = 1/(1−p) = 1/0.9 = 1.111
+       실제 HARQ는 소프트 컴바이닝 덕에 2차 시도의 성공률이 훨씬 높으므로 이보다 낫다. -->
+  <div class="stats">
+    <div><span class="n">0.1</span><span class="t">CQI가 목표로 하는 첫 전송 오류율 <span class="src">TS 38.214 §5.2.2.1</span></span></div>
+    <div><span class="n">10⁻⁵</span><span class="t">URLLC용 CQI 테이블의 목표 오류율 <span class="src">Table 5.2.2.1-4</span></span></div>
+    <div><span class="n">1.11</span><span class="t">평균 전송 횟수 · 1/(1−0.1) · 독립 가정 시의 상한</span></div>
+    <div><span class="n">16</span><span class="t">동시에 굴릴 수 있는 HARQ 프로세스 수</span></div>
+  </div>
+
+  <div class="note">
+    <strong>왜 0.1%가 아니라 10%인가.</strong> 오류율을 100배 낮추려면 변조·부호율을 몇 단계 낮춰야 하고,
+    그 손실은 항상 부담해야 합니다. 반면 10% 실패는 <strong>실패한 10%에 대해서만</strong> 재전송 비용을 냅니다.
+    실효 처리량 = (성공률) × (스펙트럼 효율)에서 뒤쪽을 지키는 쪽이 이깁니다.
+  </div>
+
+  <p>대신 조건이 붙습니다. <strong>재전송이 싸야 합니다.</strong> 그 "싸게 만드는 법"이 이 자료의 나머지 전부입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>HARQ의 H — 못 알아들은 말을 버리지 않는다</h2>
+  <p>보통의 재전송(ARQ)은 이렇습니다. 못 알아들었다 → 버린다 → 처음부터 다시 받는다. 앞서 받은 것은 쓰레기입니다.</p>
+  <p>HARQ는 다릅니다. <strong>흐릿하게 들린 것을 머릿속에 남겨둡니다.</strong> 상대가 다시 말하면, 두 번 들은 것을 <strong>겹쳐서</strong> 판단합니다. 한 번씩으로는 각각 못 알아들어도 합치면 알아들어집니다.</p>
+
+  <p>수신기 안에서 이건 은유가 아니라 문자 그대로입니다. 복호기는 비트마다 "0일 것 같은 정도 / 1일 것 같은 정도"를 실수로 갖고 있는데(연판정, soft value), 재전송이 오면 <strong>이 값을 그냥 더합니다.</strong> 약한 증거 둘이 강한 증거 하나가 됩니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 236" role="img" aria-labelledby="t1 d1">
+      <title id="t1">소프트 컴바이닝 — 약한 증거 둘을 더하면 판정선을 넘는다</title>
+      <desc id="d1">1차 수신과 2차 수신의 증거 막대는 각각 판정선에 못 미치지만, 두 값을 더한 막대는 판정선을 넘어 복호에 성공한다.</desc>
+
+      <line x1="760" y1="26" x2="760" y2="200" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="770" y="20" class="dimlab" fill="var(--ink)">복호에 필요한 확신</text>
+
+      <text class="rowlab" x="0" y="52">1차 수신</text>
+      <rect x="180" y="36" width="330" height="30" fill="var(--alert-bg)" stroke="var(--alert)" stroke-width="1"/>
+      <text x="524" y="56" class="celllab" fill="var(--alert)">부족 — 복호 실패</text>
+
+      <text class="rowlab" x="0" y="116">2차 수신 (재전송)</text>
+      <rect x="180" y="100" width="360" height="30" fill="var(--alert-bg)" stroke="var(--alert)" stroke-width="1"/>
+      <text x="554" y="120" class="celllab" fill="var(--alert)">이것만으로도 부족</text>
+
+      <text class="rowlab" x="0" y="180">두 값을 더하면</text>
+      <rect x="180" y="164" width="690" height="30" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1"/>
+      <line x1="510" y1="164" x2="510" y2="194" stroke="var(--ul)" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="884" y="184" class="celllab" fill="var(--ul)">복호 성공</text>
+    </svg>
+  </div>
+  <p class="caption">막대 길이는 개념을 보이기 위한 예시이며 실제 연판정 값이 아닙니다. 점선은 1차 수신분이 어디까지였는지를 표시합니다.</p>
+
+  <p>그런데 여기서 한 걸음 더 갈 수 있습니다. 두 번째에 <strong>똑같은 말을 반복</strong>하는 대신, <strong>다른 표현을 덧붙이면</strong> 어떨까요. "세시"가 안 들렸다면 "세시"를 또 외치는 것보다 "오후 셋, 3시"라고 바꿔 말하는 편이 낫습니다. 같은 에너지로 더 많은 정보를 실어 보내는 것입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>재전송 두 가지 방식 · NR은 증분 잉여(IR)를 쓴다</caption>
+    <thead><tr><th>방식</th><th>재전송에 싣는 것</th><th>얻는 것</th></tr></thead>
+    <tbody>
+      <tr><td>Chase 결합</td><td>처음과 <strong>같은</strong> 비트</td><td>에너지만 두 배. 부호율은 그대로</td></tr>
+      <tr><td><strong>증분 잉여(IR)</strong></td><td>처음과 <strong>다른</strong> 패리티 비트</td><td>에너지 + 부호율 하락. 정정 능력 자체가 올라간다</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>순환 버퍼와 RV — "다른 표현"은 어디서 오는가</h2>
+  <p>LDPC 부호기는 데이터 하나로 <strong>필요한 것보다 훨씬 많은 비트</strong>를 만들어 둡니다. 이걸 고리 모양 버퍼(순환 버퍼)에 담아 놓고, 전송할 때마다 <strong>어디서부터 읽을지</strong>만 정합니다. 그 시작점이 <strong>RV(Redundancy Version, 잉여 버전)</strong>이고, 네 자리가 규격에 못 박혀 있습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>TS 38.212 §5.4.2.1 Table 5.4.2.1-2 · k<sub>0</sub> = ⌊(a·N<sub>cb</sub>)/(b·Z<sub>c</sub>)⌋ · Z<sub>c</sub></caption>
+    <thead>
+      <tr><th class="num">RV</th><th class="num">기본 그래프 1</th><th class="num">버퍼 대비 위치</th>
+          <th class="num">기본 그래프 2</th><th class="num">버퍼 대비 위치</th></tr>
+    </thead>
+    <tbody>
+      <!-- BG1: 0, 17/66=0.2576, 33/66=0.5, 56/66=0.8485 · BG2: 0, 13/50=0.26, 25/50=0.5, 43/50=0.86 -->
+      <tr><td class="num">0</td><td class="num">0</td><td class="num">0%</td><td class="num">0</td><td class="num">0%</td></tr>
+      <tr><td class="num">1</td><td class="num">17 / 66</td><td class="num">25.8%</td><td class="num">13 / 50</td><td class="num">26%</td></tr>
+      <tr><td class="num">2</td><td class="num">33 / 66</td><td class="num">50%</td><td class="num">25 / 50</td><td class="num">50%</td></tr>
+      <tr><td class="num">3</td><td class="num">56 / 66</td><td class="num">84.8%</td><td class="num">43 / 50</td><td class="num">86%</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>분모 66과 50에는 이유가 있습니다. 기본 그래프 1은 부호어가 66·Z<sub>c</sub> 비트, 그래프 2는 50·Z<sub>c</sub> 비트입니다. RV 위치는 <strong>부호어 전체를 66등분(또는 50등분)한 눈금</strong>인 셈입니다.</p>
+
+  <p>아래에서 <strong>한 번에 보내는 양</strong>을 바꿔 보세요. 네 번의 전송이 버퍼를 어떻게 덮는지, 그리고 어디서 겹치는지가 보입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 356" role="img" aria-labelledby="t2 d2">
+      <title id="t2">순환 버퍼 위에서 RV 네 개가 덮는 구간</title>
+      <desc id="d2">맨 위는 순환 버퍼 전체와 시스템 비트 구간, 그 아래 네 줄은 RV 0, 2, 3, 1 순서로 각 전송이 덮는 구간이며, 맨 아래는 누적 커버리지다. 버퍼 끝을 넘으면 앞으로 감겨 들어간다.</desc>
+      <g id="rvGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="esize">한 번에 보내는 양</label>
+    <input type="range" id="esize" min="5" max="66" step="1" value="22" aria-describedby="eout">
+    <span class="readout" id="eout"></span>
+  </div>
+
+  <div class="stats" id="covStats">
+    <div><span class="n" id="c1">—</span><span class="t">1회 전송 후 커버리지</span></div>
+    <div><span class="n" id="c2">—</span><span class="t">2회까지 (RV0 → RV2)</span></div>
+    <div><span class="n" id="c3">—</span><span class="t">3회까지 (→ RV3)</span></div>
+    <div><span class="n" id="c4">—</span><span class="t">4회까지 (→ RV1)</span></div>
+  </div>
+  <p class="caption">가로축은 순환 버퍼 전체를 실제 비율로 그린 것입니다. 파랑은 새로 덮는 구간, 흙색은 이미 보낸 곳을 다시 보내는 구간입니다 — 겹친 곳은 새 정보가 아니라 에너지만 보탭니다.</p>
+
+  <div class="note">
+    <strong>시스템 비트가 왜 중요한가.</strong> 버퍼 앞쪽 20/66(그래프 1 기준 30.3%)은 <strong>원본 데이터 그대로</strong>인 시스템 비트입니다.
+    RV0은 여기서 시작하므로 그 자체로 복호가 가능합니다. RV3(84.8%)은 보내는 양이 15.2%를 넘으면 버퍼 끝을 넘어
+    <strong>앞으로 감겨 들어와</strong> 시스템 비트를 다시 만납니다. 위 슬라이더로 직접 확인할 수 있습니다.
+    <span class="src">TS 38.212 §5.3.2 · 그래프 1은 22개 정보열 중 2·Z<sub>c</sub>가 천공되어 20/66이 남는다</span>
+  </div>
+
+  <!-- 유도: 한 번에 1/3씩 보낼 때 RV 순서별 누적 커버리지 (버퍼를 660등분해 계산)
+       RV 시작 = 0, 170, 330, 560 (= 0, 17/66, 33/66, 56/66 × 660)
+       0→2→3→1 : 33.3% → 66.7% → 81.8% → 98.5%
+       0→1→2→3 : 33.3% → 59.1% → 83.3% → 98.5%
+       2회차에서 7.6%p 차이 — 순서가 빠른 회복을 좌우한다 -->
+  <div class="note">
+    <strong>왜 0 → 2 → 3 → 1 순서인가.</strong> 한 번에 1/3씩 보낼 때 두 번째 전송까지의 커버리지가
+    0→2는 66.7%, 0→1은 59.1%입니다. RV1은 RV0이 덮은 자리와 많이 겹치기 때문입니다.
+    <strong>대부분의 재전송은 두 번째에서 끝나므로</strong> 2회차 커버리지가 실질적으로 가장 중요합니다.
+    다만 이 순서는 규격이 강제하는 것이 아니라 <strong>스케줄러가 DCI의 RV 2비트로 매번 지정</strong>하는 값입니다.
+    <span class="src">TS 38.212 §7.3.1 · Redundancy version 2비트</span>
+  </div>
+  <!-- VERIFY: 0→2→3→1이 업계 관행이라는 서술 — 벤더 문서로 근거 보강 필요.
+       규격이 정하는 것은 RV 시작 위치 네 개와 DCI 2비트 필드까지다. -->
+</section>
+
+<section class="wrap">
+  <h2>기다리면 파이프가 빈다 — HARQ 프로세스</h2>
+  <p>여기까지가 "못 알아들었을 때 어떻게 하는가"였습니다. 이제 다른 문제가 있습니다. <strong>답을 기다리는 동안 무엇을 할 것인가.</strong></p>
+  <p>전화에서 한 마디 할 때마다 "들었어?"를 확인하고 기다린다면 대화가 기어갑니다. 사람은 그러지 않습니다. 확인을 기다리는 동안 <strong>다른 이야기를 이어갑니다.</strong></p>
+  <p>HARQ 프로세스가 그 "동시에 진행 중인 이야기"입니다. 프로세스 하나는 <strong>보내고 → ACK를 기다리고 → 그제야 재사용</strong>되는 정직한 stop-and-wait입니다. 대신 이걸 여러 개 돌립니다. 아래에서 개수를 바꿔 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 336" role="img" aria-labelledby="t3 d3">
+      <title id="t3">HARQ 프로세스 수에 따른 슬롯 점유</title>
+      <desc id="d3">프로세스마다 한 슬롯 전송한 뒤 왕복 시간만큼 대기한다. 프로세스 수가 왕복 시간보다 적으면 아무도 쓰지 않는 빈 슬롯이 생긴다.</desc>
+      <g id="procGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="nproc">프로세스 수</label>
+    <input type="range" id="nproc" min="1" max="16" step="1" value="4" aria-describedby="procOut">
+    <span class="readout" id="procOut"></span>
+  </div>
+
+  <div class="verdict" id="procBox">
+    <span class="tag" id="procTag"></span>
+    <span class="why" id="procWhy"></span>
+  </div>
+  <p class="caption">왕복 시간을 8슬롯으로 가정했습니다. 실제 값은 K1 + 기지국 복호·스케줄링 시간으로 정해지며 <strong>규격이 정하는 값이 아니라 구현에 달렸습니다.</strong> 가로축 20슬롯은 30 kHz에서 10 ms입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>HARQ 프로세스 설정</caption>
+    <thead><tr><th>항목</th><th class="num">값</th><th>근거</th></tr></thead>
+    <tbody>
+      <tr><td>하향 프로세스 수</td><td class="num">2 / 4 / 6 / 8 / 10 / 12 / 16</td>
+          <td><code>nrofHARQ-ProcessesForPDSCH</code> · 없으면 8 <span class="src">TS 38.331</span></td></tr>
+      <tr><td>상향 프로세스 수</td><td class="num">16</td><td>Rel-15에서는 고정 <span class="src">TS 38.321</span></td></tr>
+      <tr><td>DCI의 프로세스 번호 필드</td><td class="num">4비트</td><td>2<sup>4</sup> = 16 <span class="src">TS 38.212 §7.3.1</span></td></tr>
+      <tr><td>NDI(신규 데이터 지시)</td><td class="num">1비트</td><td>토글되면 새 데이터, 그대로면 재전송</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>부반송파 간격이 넓어지면 더 많이 필요하다.</strong> 기지국·단말의 처리 시간은 <strong>절대 시간</strong>으로 거의 고정인데
+    슬롯은 짧아집니다. 같은 왕복 시간이 30 kHz에서 8슬롯이면 120 kHz에서는 32슬롯 몫이 됩니다.
+    최대 16개라는 숫자는 여기서 나옵니다. <a href="../01-frame-numerology/index.html">01 프레임 구조</a>의 트레이드오프가 여기서도 반복됩니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>K0 · K1 · K2 — 슬롯 위의 세 화살표</h2>
+  <p>이제 타이밍입니다. 5G에서는 <strong>"언제"가 전부 명시적으로 지정</strong>됩니다. 세 개의 숫자가 그 일을 합니다.</p>
+
+  <ul>
+    <li><strong>K0</strong> — 하향 스케줄링 정보(PDCCH)와 실제 데이터(PDSCH) 사이의 슬롯 간격</li>
+    <li><strong>K1</strong> — 데이터(PDSCH)와 ACK/NACK(PUCCH) 사이의 슬롯 간격</li>
+    <li><strong>K2</strong> — 상향 스케줄링 정보(PDCCH)와 실제 상향 데이터(PUSCH) 사이의 슬롯 간격</li>
+  </ul>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 312" role="img" aria-labelledby="t4 d4">
+      <title id="t4">K0, K1, K2가 슬롯 축에서 뜻하는 것</title>
+      <desc id="d4">하향 흐름에서 PDCCH로부터 K0 슬롯 뒤에 PDSCH가, 다시 K1 슬롯 뒤에 PUCCH의 ACK가 놓인다. 상향 흐름에서는 PDCCH로부터 K2 슬롯 뒤에 PUSCH가 놓인다.</desc>
+      <g id="kGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="k0">K0</label><input type="range" id="k0" min="0" max="3" step="1" value="0" style="flex:0 1 120px">
+    <label for="k1">K1</label><input type="range" id="k1" min="0" max="7" step="1" value="2" style="flex:0 1 120px">
+    <label for="k2">K2</label><input type="range" id="k2" min="0" max="7" step="1" value="3" style="flex:0 1 120px">
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="kPdsch">—</span><span class="t">PDSCH 슬롯 · n + K0</span></div>
+    <div><span class="n" id="kAck">—</span><span class="t">ACK 슬롯 · n + K0 + K1</span></div>
+    <div><span class="n" id="kLoop">—</span><span class="t">하향 왕복 · 30 kHz 기준</span></div>
+    <div><span class="n" id="kPusch">—</span><span class="t">PUSCH 슬롯 · n + K2</span></div>
+  </div>
+  <p class="caption">30 kHz(슬롯 0.5 ms) 기준으로 슬롯 폭을 실제 비율로 그렸습니다. 여기서 "왕복"은 단말이 ACK를 쏘는 시점까지이며, 기지국이 그것을 받아 재전송을 스케줄링하는 시간은 포함하지 않았습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>세 값의 범위와 전달 방식</caption>
+    <thead><tr><th class="num">값</th><th>구간</th><th class="num">범위</th><th>어떻게 전달되는가</th></tr></thead>
+    <tbody>
+      <tr><td class="num">K0</td><td>PDCCH → PDSCH</td><td class="num">0 – 32</td>
+          <td>DCI의 시간영역 자원할당 4비트가 <strong>표의 행</strong>을 가리킨다 <span class="src">TS 38.214 §5.1.2.1</span></td></tr>
+      <tr><td class="num">K1</td><td>PDSCH → PUCCH</td><td class="num">0 – 15</td>
+          <td>DCI의 PDSCH-to-HARQ 지시자 3비트가 <code>dl-DataToUL-ACK</code> 목록(최대 8개)을 가리킨다 <span class="src">TS 38.213 §9.2.3</span></td></tr>
+      <tr><td class="num">K2</td><td>PDCCH → PUSCH</td><td class="num">0 – 32</td>
+          <td>K0과 같은 방식. 표는 PUSCH용으로 따로 있다 <span class="src">TS 38.214 §6.1.2.1</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>K 값은 DCI에 직접 실리지 않는다.</strong> DCI가 나르는 것은 <strong>표의 행 번호</strong>입니다.
+    행 하나에 (K0, 매핑 타입, 시작 심볼과 길이)가 묶여 있고, 표 자체는 RRC로 미리 내려줍니다.
+    최대 16행이라 4비트면 충분합니다 — 매번 K를 통째로 실어 보내는 것보다 훨씬 쌉니다.
+    <span class="src">TS 38.331 <code>PDSCH-TimeDomainResourceAllocationList</code></span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>왜 그 아래로는 못 내려가는가 — N1 · N2</h2>
+  <p>K1을 0으로 두면 데이터를 받은 그 슬롯에 바로 ACK를 쏘게 됩니다. 당연히 안 됩니다. <strong>복호할 시간</strong>이 필요하니까요. 규격은 이 최소 시간을 심볼 개수로 못 박았습니다.</p>
+
+  <ul>
+    <li><strong>N1</strong> — 단말이 PDSCH를 복호하고 ACK를 준비하는 데 필요한 최소 심볼 수</li>
+    <li><strong>N2</strong> — 단말이 상향 그랜트를 받고 PUSCH를 준비하는 데 필요한 최소 심볼 수</li>
+  </ul>
+
+  <!-- 유도: T_proc = (N + d)(2048+144)·κ·2^−μ·Tc
+       (2048+144)·κ·2^−μ·Tc = Tu + 일반 CP = 71.354 μs / 2^μ  ← 03의 심볼 길이와 같은 값
+       N1(능력1, pos0): μ=0 8심볼 → 570.8 μs   μ=1 10 → 356.8   μ=2 17 → 303.3   μ=3 20 → 178.4
+       N2(능력1):       μ=0 10   → 713.5 μs   μ=1 12 → 428.1   μ=2 23 → 410.3   μ=3 36 → 321.1 -->
+  <div class="table-scroll">
+  <table>
+    <caption>처리 시간 능력 1(일반) · TS 38.214 Table 5.3-1, Table 6.4-1 ·
+      T<sub>proc</sub> = (N + d)(2048+144)·κ·2<sup>−μ</sup>·T<sub>c</sub>, 괄호 안이 곧 심볼 하나</caption>
+    <thead>
+      <tr><th class="num">μ</th><th class="num">SCS</th><th class="num">N1 심볼</th><th class="num">N1 시간</th>
+          <th class="num">N2 심볼</th><th class="num">N2 시간</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">15 kHz</td><td class="num">8</td><td class="num">570.8 μs</td><td class="num">10</td><td class="num">713.5 μs</td></tr>
+      <tr><td class="num">1</td><td class="num">30 kHz</td><td class="num">10</td><td class="num">356.8 μs</td><td class="num">12</td><td class="num">428.1 μs</td></tr>
+      <tr><td class="num">2</td><td class="num">60 kHz</td><td class="num">17</td><td class="num">303.3 μs</td><td class="num">23</td><td class="num">410.3 μs</td></tr>
+      <tr><td class="num">3</td><td class="num">120 kHz</td><td class="num">20</td><td class="num">178.4 μs</td><td class="num">36</td><td class="num">321.1 μs</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">N1은 DMRS 추가 심볼이 없는 경우(<code>dmrs-AdditionalPosition = pos0</code>) 기준입니다. 그 외에는 더 깁니다 — μ=0,1에서 13심볼, μ=2에서 20, μ=3에서 24. d는 할당 형태에 따른 보정항입니다.</p>
+
+  <p>표에서 읽어야 할 것은 <strong>심볼 수가 아니라 시간</strong>입니다. 심볼 수는 μ가 커질수록 늘어나지만(8 → 20), <strong>실제 시간은 오히려 줄어듭니다</strong>(570.8 → 178.4 μs). 부반송파 간격을 넓히면 지연이 짧아진다는 <a href="../01-frame-numerology/index.html">01</a>의 이야기가 여기서 숫자로 확인됩니다.</p>
+
+  <div class="note">
+    <strong>더 빨라야 한다면 — 처리 능력 2.</strong> URLLC를 위해 훨씬 짧은 처리 시간이 규격에 함께 정의돼 있습니다.
+    N1은 μ=0에서 3심볼(214.1 μs), μ=1에서 4.5심볼(160.5 μs). N2는 5심볼(356.8 μs)과 5.5심볼(196.2 μs).
+    단말이 이 능력을 지원한다고 보고해야 쓸 수 있습니다.
+    <span class="src">TS 38.214 Table 5.3-2, Table 6.4-2</span>
+  </div>
+  <!-- VERIFY: 처리 능력 2의 μ=2 항목(N1 9심볼, N2 11심볼)이 FR1에 한정되는 조건 — 원문 각주 대조 필요.
+       위 본문은 μ=0,1만 인용해 이 조건을 피해 갔다. -->
+</section>
+
+<section class="wrap">
+  <h2>NR이 LTE와 갈라진 곳 — 비동기와 CBG</h2>
+
+  <div class="split">
+    <div>
+      <h3>비동기 HARQ</h3>
+      <p>LTE의 상향 HARQ는 <strong>동기식</strong>이었습니다. 재전송 시점이 8 ms 뒤로 고정. 프로세스 번호를 보낼 필요가 없다는 장점이 있었지만, 그 순간 자원이 나빠도 무조건 그때 쏴야 했습니다.</p>
+      <p>NR은 상·하향 모두 <strong>완전 비동기</strong>입니다. DCI가 <strong>프로세스 번호 4비트를 매번 명시</strong>하므로, 스케줄러는 자원이 좋아지는 시점에 재전송을 붙일 수 있습니다. 4비트를 내주고 자유를 산 셈입니다.</p>
+    </div>
+    <div>
+      <h3>코드블록 그룹(CBG)</h3>
+      <p>전송 블록이 크면 여러 개의 코드블록으로 쪼개집니다. 최대 크기가 기본 그래프 1에서 8448비트, 그래프 2에서 3840비트니까, 10만 비트짜리 블록은 12조각이 됩니다.</p>
+      <!-- 유도: C = ⌈B / (K_cb − L)⌉, K_cb = 8448, L = 24
+           B = 100000 → ⌈100000 / 8424⌉ = ⌈11.87⌉ = 12 조각
+           CBG 4개로 묶으면 1조각 실패 시 3조각만 재전송 → 12/3 = 4배 절약 -->
+      <p>여기서 <strong>한 조각만 깨져도 12조각 전부를 다시 보내야</strong> 한다면 낭비입니다. CBG는 조각을 그룹으로 묶어 <strong>깨진 그룹만</strong> 재전송합니다. 4그룹으로 묶으면 3조각만 다시 보내면 되니 4배 절약입니다.</p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><span class="n">8448</span><span class="t">코드블록 최대 크기 · 기본 그래프 1 <span class="src">TS 38.212 §5.2.2</span></span></div>
+    <div><span class="n">3840</span><span class="t">기본 그래프 2</span></div>
+    <div><span class="n">12</span><span class="t">10만 비트 블록의 조각 수 · ⌈100000/(8448−24)⌉</span></div>
+    <div><span class="n">2·4·6·8</span><span class="t">묶을 수 있는 CBG 개수 <span class="src">TS 38.331</span></span></div>
+  </div>
+
+  <div class="note">
+    <strong>HARQ가 놓친 것은 RLC가 잡는다.</strong> HARQ는 빠르지만 완벽하지 않습니다.
+    ACK/NACK 자체가 잘못 읽히면 데이터가 조용히 사라집니다. 그래서 그 위층에 RLC AM의 재전송이 한 겹 더 있습니다.
+    HARQ는 <strong>빠르고 자주</strong>, RLC ARQ는 <strong>느리지만 확실하게</strong> — 두 층이 각자 다른 시간 규모를 맡습니다.
+    <span class="src">TS 38.322</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>첫 전송의 10% 실패는 목표치다. 실패를 없애는 대신 재전송을 싸게 만드는 쪽을 택한 설계다.</li>
+    <li>실패한 전송은 버려지지 않는다. 연판정 값을 더해 쌓고(소프트 컴바이닝), 재전송에는 순환 버퍼의 <strong>다른 자리</strong>를 보내 부호율 자체를 낮춘다(IR).</li>
+    <li>K0·K1·K2는 자유로운 숫자가 아니라 N1·N2라는 물리적 처리 시간이 정한 하한 위에서 움직인다. 그 하한을 슬롯으로 환산한 값이 필요한 HARQ 프로세스 개수를 정한다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../04-ssb-initial-access/index.html">← 04 SSB와 초기 접속</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+
+  /* ══════════════ SVG 2 · 순환 버퍼와 RV ══════════════════════════
+     TS 38.212 §5.4.2.1 · 기본 그래프 1 기준
+     버퍼를 660등분하면 RV 시작점이 정수로 떨어진다:
+       RV0 = 0,  RV1 = 17/66×660 = 170,  RV2 = 33/66×660 = 330,  RV3 = 56/66×660 = 560
+     시스템 비트 구간 = 20/66×660 = 200  (22개 정보열 중 2·Zc 천공 → 20/66 잔존, §5.3.2) */
+  var BINS=660, RV_AT=[0,170,330,560], SYS=200;
+  var ORDER=[0,2,3,1];                       // 전송 순서 (스케줄러 관행)
+  var RG=document.getElementById('rvGrid');
+  var GX=118, GW=964, RH=30;
+  var ROWY=[46,104,142,180,218,276];         // 버퍼 · 전송1~4 · 누적
+  function bx(bin){ return GX+bin/BINS*GW; }
+
+  /* 한 전송이 덮는 구간을 [시작,끝) 목록으로. 버퍼 끝을 넘으면 앞으로 감긴다 */
+  function spans(start,E){
+    if(start+E<=BINS) return [[start,start+E]];
+    return [[start,BINS],[0,start+E-BINS]];
+  }
+  /* 연속한 같은 상태의 칸을 묶어 rect 수를 줄인다 */
+  function runs(arr){
+    var out=[],s=0;
+    for(var i=1;i<=arr.length;i++){
+      if(i===arr.length||arr[i]!==arr[s]){ out.push([s,i,arr[s]]); s=i; }
+    }
+    return out;
+  }
+
+  var esize=document.getElementById('esize'), eout=document.getElementById('eout');
+
+  /* 슬라이더 눈금은 부호어를 66등분한 것 — RV 시작점과 같은 단위라 22/66이 정확히 1/3이 된다 */
+  function drawRV(){
+    var v=parseInt(esize.value,10);
+    var E=v*(BINS/66);
+    clear(RG);
+
+    /* 0행 — 순환 버퍼 전체와 시스템 비트 구간 */
+    RG.appendChild(txt(0,ROWY[0]+RH/2+4,'순환 버퍼','rowlab',null,'start'));
+    RG.appendChild(el('rect',{x:GX,y:ROWY[0],width:GW,height:RH,fill:'#fff',
+      stroke:'var(--hair)','stroke-width':1}));
+    RG.appendChild(el('rect',{x:GX,y:ROWY[0],width:GW*SYS/BINS,height:RH,
+      fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':1}));
+    RG.appendChild(txt(GX+GW*SYS/BINS/2,ROWY[0]+RH/2+4,'시스템 비트 20/66','celllab','var(--dl)'));
+    RG.appendChild(txt(GX+GW*(SYS+BINS)/2/BINS,ROWY[0]+RH/2+4,'패리티 비트','celllab','var(--ink-soft)'));
+
+    /* RV 시작점 눈금 */
+    RV_AT.forEach(function(b,i){
+      RG.appendChild(el('line',{x1:bx(b),y1:ROWY[0]-16,x2:bx(b),y2:ROWY[5]+RH,
+        stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 4',opacity:0.45}));
+      RG.appendChild(txt(bx(b)+(i===0?12:0),ROWY[0]-22,'RV'+i,'celllab','var(--ink-soft)',i===0?'start':'middle'));
+    });
+
+    /* 1~4행 — 전송마다 새로 덮는 칸(파랑)과 이미 덮은 칸(흙색) */
+    var cover=new Array(BINS).fill(0), cum=[];
+    ORDER.forEach(function(rv,t){
+      var row=new Array(BINS).fill(0);       // 0=안 보냄 1=새로 덮음 2=중복
+      spans(RV_AT[rv],E).forEach(function(iv){
+        for(var i=iv[0];i<iv[1];i++){ row[i]=cover[i]?2:1; cover[i]=1; }
+      });
+      RG.appendChild(txt(0,ROWY[t+1]+RH/2+4,'전송 '+(t+1)+' · RV'+rv,'rowlab',null,'start'));
+      RG.appendChild(el('rect',{x:GX,y:ROWY[t+1],width:GW,height:RH,fill:'#fff',
+        stroke:'var(--hair)','stroke-width':0.8}));
+      runs(row).forEach(function(r){
+        if(!r[2]) return;
+        RG.appendChild(el('rect',{x:bx(r[0]),y:ROWY[t+1],width:bx(r[1])-bx(r[0]),height:RH,
+          fill:r[2]===1?'var(--dl-bg)':'var(--gp-bg)',
+          stroke:r[2]===1?'var(--dl)':'var(--gp)','stroke-width':0.8}));
+      });
+      cum.push(cover.reduce(function(a,b){return a+b;},0)/BINS*100);
+    });
+
+    /* 5행 — 누적 커버리지 */
+    RG.appendChild(txt(0,ROWY[5]+RH/2+4,'누적 커버리지','rowlab',null,'start'));
+    RG.appendChild(el('rect',{x:GX,y:ROWY[5],width:GW,height:RH,fill:'#fff',
+      stroke:'var(--hair)','stroke-width':1}));
+    runs(cover).forEach(function(r){
+      if(!r[2]) return;
+      RG.appendChild(el('rect',{x:bx(r[0]),y:ROWY[5],width:bx(r[1])-bx(r[0]),height:RH,
+        fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':0.8}));
+    });
+
+    eout.textContent=v+'/66 · 버퍼의 '+(v/66*100).toFixed(1)+'%';
+    ['c1','c2','c3','c4'].forEach(function(id,i){
+      document.getElementById(id).textContent=cum[i].toFixed(1)+'%';
+    });
+  }
+  esize.addEventListener('input',drawRV);
+  drawRV();
+
+  /* ══════════════ SVG 3 · HARQ 프로세스 파이프라인 ══════════════
+     프로세스 p는 슬롯 p, p+P, p+2P… 에서 전송한다 (P = max(N, R)).
+     N < R 이면 슬롯 N…R−1 을 아무도 못 쓴다 → 이용률 = N/max(N,R) */
+  var SLOTS=20, RTT=8;
+  var PG=document.getElementById('procGrid');
+  var PX0=104, PW=978, SW=PW/SLOTS;
+  var nproc=document.getElementById('nproc'), procOut=document.getElementById('procOut');
+  var procBox=document.getElementById('procBox');
+  var procTag=document.getElementById('procTag'), procWhy=document.getElementById('procWhy');
+
+  function drawProc(){
+    var N=parseInt(nproc.value,10), P=Math.max(N,RTT);
+    clear(PG);
+    var top=30, h=Math.max(9,Math.min(20,206/N)), gap=Math.max(1.5,h*0.18);
+
+    /* 슬롯 눈금 */
+    for(var s=0;s<=SLOTS;s+=2)
+      PG.appendChild(txt(PX0+s*SW,20,s,'dimlab'));
+
+    /* 프로세스별 전송 + ACK 대기 구간 */
+    for(var p=0;p<N;p++){
+      var y=top+p*(h+gap);
+      if(h>=13) PG.appendChild(txt(PX0-10,y+h/2+4,'HARQ '+p,'celllab','var(--ink-soft)','end'));
+      for(var s2=p;s2<SLOTS;s2+=P){
+        PG.appendChild(el('rect',{x:PX0+s2*SW+1,y:y,width:SW-2,height:h,
+          fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':0.8}));
+        var wEnd=Math.min(s2+RTT,SLOTS);
+        PG.appendChild(el('line',{x1:PX0+(s2+1)*SW,y1:y+h/2,x2:PX0+wEnd*SW,y2:y+h/2,
+          stroke:'var(--hair)','stroke-width':1}));
+        if(s2+RTT<=SLOTS)
+          PG.appendChild(el('circle',{cx:PX0+wEnd*SW,cy:y+h/2,r:Math.min(3.2,h/3),fill:'var(--ul)'}));
+      }
+    }
+    if(h<13) PG.appendChild(txt(PX0-10,top+h*N/2,'HARQ 0–'+(N-1),'celllab','var(--ink-soft)','end'));
+
+    /* 요약 행 — 슬롯마다 쓰이는가 */
+    var sy=284;
+    PG.appendChild(txt(PX0-10,sy+18,'슬롯 사용','rowlab',null,'end'));
+    var idle=0;
+    for(var s3=0;s3<SLOTS;s3++){
+      var used=(s3%P)<N;
+      if(!used) idle++;
+      PG.appendChild(el('rect',{x:PX0+s3*SW+1,y:sy,width:SW-2,height:26,
+        fill:used?'var(--dl-bg)':'var(--gp-bg)',
+        stroke:used?'var(--dl)':'var(--gp)','stroke-width':0.8}));
+    }
+    PG.appendChild(txt(PX0+PW/2,sy+52,'● ACK 도착 · 파랑 = 전송 중인 슬롯 · 흙색 = 아무도 쓰지 못하는 슬롯','dimlab','var(--ink-soft)'));
+
+    var util=N/P*100;
+    procOut.textContent=N+'개 · 이용률 '+util.toFixed(0)+'%';
+    var full=N>=RTT;
+    procBox.className='verdict '+(full?'ok':'bad');
+    procTag.textContent=full?'파이프가 꽉 참':'파이프가 빈다';
+    procWhy.textContent=full
+      ? '왕복 8슬롯 동안 굴릴 프로세스가 충분합니다. 매 슬롯 전송이 이어지고 노는 슬롯이 없습니다.'
+      : '프로세스가 '+N+'개뿐이라 '+N+'번 보내고 나면 0번이 풀릴 때까지 기다려야 합니다. 20슬롯 중 '+idle+'개가 놉니다.';
+  }
+  nproc.addEventListener('input',drawProc);
+  drawProc();
+
+  /* ══════════════ SVG 4 · K0 · K1 · K2 ══════════════════════════
+     PDSCH 슬롯 = n + K0 (TS 38.214 §5.1.2.1)
+     ACK  슬롯 = PDSCH 슬롯 + K1 (TS 38.213 §9.2.3)
+     PUSCH 슬롯 = n + K2 (TS 38.214 §6.1.2.1)
+     30 kHz 기준 슬롯 = 0.5 ms */
+  var KSLOTS=12, N0=1, SLOT_MS=0.5;
+  var KG=document.getElementById('kGrid');
+  var KX0=96, KW=986, KSW=KW/KSLOTS;
+  var k0=document.getElementById('k0'), k1=document.getElementById('k1'), k2=document.getElementById('k2');
+
+  function blk(row,slot,label,fill,stroke){
+    KG.appendChild(el('rect',{x:KX0+slot*KSW+2,y:row,width:KSW-4,height:44,
+      fill:fill,stroke:stroke,'stroke-width':1.1,rx:2}));
+    KG.appendChild(txt(KX0+slot*KSW+KSW/2,row+27,label,'celllab',stroke));
+  }
+  function arrow(row,a,b,label){
+    if(a===b) return;
+    var x1=KX0+a*KSW+KSW/2, x2=KX0+b*KSW+KSW/2;
+    KG.appendChild(el('path',{d:'M'+x1+' '+row+' L'+x2+' '+row,
+      stroke:'var(--ink)','stroke-width':1.2,'marker-end':'url(#kArr)'}));
+    KG.appendChild(txt((x1+x2)/2,row-7,label,'celllab','var(--ink)'));
+  }
+
+  function drawK(){
+    var a=+k0.value, b=+k1.value, c=+k2.value;
+    clear(KG);
+    KG.appendChild(el('defs',{})).appendChild(el('marker',{id:'kArr',viewBox:'0 0 10 10',
+      refX:9,refY:5,markerWidth:6,markerHeight:6,orient:'auto'}))
+      .appendChild(el('path',{d:'M0 0 L10 5 L0 10 z',fill:'var(--ink)'}));
+
+    /* 슬롯 눈금 */
+    for(var s=0;s<KSLOTS;s++){
+      KG.appendChild(el('rect',{x:KX0+s*KSW,y:36,width:KSW,height:20,fill:'#fff',
+        stroke:'var(--hair)','stroke-width':0.8}));
+      KG.appendChild(txt(KX0+s*KSW+KSW/2,51,s===N0?'n':(s<N0?'n−'+(N0-s):'n+'+(s-N0)),'celllab','var(--ink-soft)'));
+    }
+    KG.appendChild(txt(0,51,'슬롯','rowlab',null,'start'));
+
+    /* 하향 흐름 */
+    KG.appendChild(txt(0,138,'하향 데이터','rowlab',null,'start'));
+    blk(116,N0,'PDCCH','var(--dl-bg)','var(--dl)');
+    blk(116,N0+a,'PDSCH','var(--dl-bg)','var(--dl)');
+    blk(116,N0+a+b,'ACK','var(--ul-bg)','var(--ul)');
+    arrow(100,N0,N0+a,'K0 = '+a);
+    arrow(100,N0+a,N0+a+b,'K1 = '+b);
+
+    /* 상향 흐름 */
+    KG.appendChild(txt(0,254,'상향 데이터','rowlab',null,'start'));
+    blk(232,N0,'PDCCH','var(--dl-bg)','var(--dl)');
+    blk(232,N0+c,'PUSCH','var(--ul-bg)','var(--ul)');
+    arrow(216,N0,N0+c,'K2 = '+c);
+
+    document.getElementById('kPdsch').textContent='n+'+a;
+    document.getElementById('kAck').textContent='n+'+(a+b);
+    document.getElementById('kLoop').textContent=((a+b)*SLOT_MS).toFixed(1)+' ms';
+    document.getElementById('kPusch').textContent='n+'+c;
+  }
+  [k0,k1,k2].forEach(function(s){ s.addEventListener('input',drawK); });
+  drawK();
+})();
+</script>
+</body>
+</html>

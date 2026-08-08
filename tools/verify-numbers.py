@@ -67,9 +67,135 @@ def main():
     print(f"\n[02] DDDSU(10:2:2)  DL {dl}/70 = {dl/70*100:.1f}%   UL {(14+2)/70*100:.1f}%")
 
     ok &= check_ssb()
+    ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
     return 0 if ok else 1
+
+
+# ══════════ topics/06-harq-timing ═════════════════════════════════════
+# 근거: TS 38.212 §5.2.2(코드블록 분할), §5.3.2(기본 그래프), §5.4.2.1(RV)
+#       TS 38.214 §5.2.2.1(CQI 목표 BLER), §5.3(N1), §6.4(N2)
+
+# RV 시작 위치의 분자/분모 — TS 38.212 Table 5.4.2.1-2
+RV_FRAC = {
+    'BG1': (66, [0, 17, 33, 56]),
+    'BG2': (50, [0, 13, 25, 43]),
+}
+# 부호어에서 시스템 비트가 차지하는 몫 — §5.3.2
+# BG1: 22개 정보열 중 2·Zc 천공 → (22−2)/66 · BG2: 10개 중 2·Zc 천공 → (10−2)/50
+SYS_FRAC = {'BG1': (20, 66), 'BG2': (8, 50)}
+
+BINS = 660          # 66의 배수로 잡으면 RV 시작점이 정수 칸에 떨어진다
+
+
+def rv_bins(bg='BG1'):
+    den, nums = RV_FRAC[bg]
+    return [n * BINS // den for n in nums]
+
+
+def coverage(order, e_bins, bg='BG1'):
+    """전송 순서대로 덮어 나갈 때의 누적 커버리지 [%] 목록"""
+    at, cover, out = rv_bins(bg), [0] * BINS, []
+    for rv in order:
+        start = at[rv]
+        for i in range(start, start + e_bins):
+            cover[i % BINS] = 1
+        out.append(sum(cover) / BINS * 100)
+    return out
+
+
+def rv3_touches_systematic(e_bins, bg='BG1'):
+    """RV3에서 시작해 e_bins만큼 보낼 때 시스템 비트 구간까지 감겨 들어오는가"""
+    start = rv_bins(bg)[3]
+    num, den = SYS_FRAC[bg]
+    sys_end = num * BINS // den
+    return any((start + i) % BINS < sys_end for i in range(e_bins))
+
+
+def n_codeblocks(b, k_cb=8448, L=24):
+    """전송 블록을 코드블록으로 쪼갠 개수 — TS 38.212 §5.2.2"""
+    return 1 if b <= k_cb else -(-b // (k_cb - L))
+
+
+def check_harq():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<36} {got:>10.4g}  게시 {want:<8} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[06] 순환 버퍼와 RV — TS 38.212 §5.4.2.1")
+    for bg, pub in [('BG1', [0.0, 25.8, 50.0, 84.8]), ('BG2', [0.0, 26.0, 50.0, 86.0])]:
+        den, nums = RV_FRAC[bg]
+        got = [n / den * 100 for n in nums]
+        hit = all(abs(g - p) < 0.05 for g, p in zip(got, pub))
+        ok &= hit
+        print(f"  {bg} RV 위치 [%]  " + "  ".join(f"{g:5.1f}" for g in got) +
+              f"   게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    eq("BG1 시스템 비트 몫 [%]", 20 / 66 * 100, 30.3, 0.05)
+    eq("BG1 RV3 뒤에 남은 몫 [%]", (66 - 56) / 66 * 100, 15.2, 0.05)
+    # 자료의 주장: "RV3은 보내는 양이 15.2%를 넘으면 감겨 들어와 시스템 비트를 다시 만난다"
+    unit = BINS // 66
+    below = rv3_touches_systematic(10 * unit)      # 정확히 15.2% — 아직 안 감김
+    above = rv3_touches_systematic(10 * unit + 1)  # 한 칸만 넘어도 감김
+    hit = (not below) and above
+    ok &= hit
+    print(f"  RV3 되감김 경계 10/66에서 {'닿지 않고' if not below else '닿고'}, "
+          f"한 칸 넘으면 {'닿는다' if above else '닿지 않는다'}  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[06] 누적 커버리지 — 한 번에 버퍼의 1/3(22/66)씩 보낼 때")
+    e = 22 * (BINS // 66)
+    for order, pub in [((0, 2, 3, 1), [33.3, 66.7, 81.8, 98.5]),
+                       ((0, 1, 2, 3), [33.3, 59.1, 83.3, 98.5])]:
+        got = coverage(list(order), e)
+        hit = all(abs(g - p) < 0.06 for g, p in zip(got, pub))
+        ok &= hit
+        print("  RV " + "→".join(map(str, order)) + "  " +
+              "  ".join(f"{g:5.1f}" for g in got) + f"   게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    gap = coverage([0, 2], e)[1] - coverage([0, 1], e)[1]
+    eq("2회차 커버리지 차이 [%p]", gap, 7.6, 0.06)
+
+    print("\n[06] 처리 시간 — T_proc = N × (2048+144)·κ·2^−μ·Tc  (TS 38.214 §5.3, §6.4)")
+    # 괄호 안은 곧 심볼 하나 = Tu + 일반 CP
+    for mu, n1, n2, p1, p2 in [(0, 8, 10, 570.8, 713.5), (1, 10, 12, 356.8, 428.1),
+                               (2, 17, 23, 303.3, 410.3), (3, 20, 36, 178.4, 321.1)]:
+        sym = tu(mu) + cp(mu)
+        a, b = n1 * sym, n2 * sym
+        hit = abs(a - p1) < 0.1 and abs(b - p2) < 0.1
+        ok &= hit
+        print(f"  μ={mu}  N1 {n1:>2}심볼 = {a:7.1f} μs (게시 {p1})   "
+              f"N2 {n2:>2}심볼 = {b:7.1f} μs (게시 {p2})  {'✓' if hit else '✗ 불일치'}")
+    # 심볼 수는 늘지만 절대 시간은 줄어든다 — 자료의 핵심 주장
+    times = [n * (tu(m) + cp(m)) for m, n in [(0, 8), (1, 10), (2, 17), (3, 20)]]
+    mono = all(times[i] > times[i + 1] for i in range(len(times) - 1))
+    ok &= mono
+    print(f"  N1 절대 시간이 μ에 대해 단조 감소  {'✓' if mono else '✗ 자료의 주장과 다름'}")
+
+    print("\n[06] 처리 능력 2 (저지연) — TS 38.214 Table 5.3-2, Table 6.4-2")
+    for mu, n1, n2, p1, p2 in [(0, 3, 5, 214.1, 356.8), (1, 4.5, 5.5, 160.5, 196.2)]:
+        sym = tu(mu) + cp(mu)
+        a, b = n1 * sym, n2 * sym
+        hit = abs(a - p1) < 0.1 and abs(b - p2) < 0.1
+        ok &= hit
+        print(f"  μ={mu}  N1 {n1:>4}심볼 = {a:6.1f} μs (게시 {p1})   "
+              f"N2 {n2:>4}심볼 = {b:6.1f} μs (게시 {p2})  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[06] 코드블록과 CBG — TS 38.212 §5.2.2")
+    eq("10만 비트의 코드블록 수", n_codeblocks(100_000), 12, 0)
+    eq("CBG 4묶음일 때 재전송 절약 배수", 12 / 3, 4, 0)
+    eq("평균 전송 횟수 · 1/(1−0.1)", 1 / (1 - 0.1), 1.11, 0.005)
+
+    print("\n[06] HARQ 프로세스 이용률 = N / max(N, R),  R = 8슬롯 가정")
+    for n, pub in [(1, 12.5), (4, 50.0), (8, 100.0), (16, 100.0)]:
+        u = n / max(n, 8) * 100
+        hit = abs(u - pub) < 0.05
+        ok &= hit
+        print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
 
 
 # ══════════ topics/04-ssb-initial-access ══════════════════════════════
