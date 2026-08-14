@@ -70,6 +70,7 @@ def main():
 
     ok &= check_ssb()
     ok &= check_bwp()
+    ok &= check_beam()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -197,6 +198,155 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/07-beamforming ═════════════════════════════════════
+# 이 자료는 절반이 안테나 이론이고 절반이 규격이다. 아래 검산은 대부분 물리 쪽이며
+# 규격에서 가져온 것은 SSB 개수·길이(TS 38.213 §4.1, TS 38.211 §7.4.3)뿐이다.
+# 04에서 이미 검산한 SSB 값을 그대로 재사용해 두 자료가 어긋나지 않게 한다.
+
+C_LIGHT = 299_792_458.0     # m/s
+
+
+def wavelength(f_hz):
+    return C_LIGHT / f_hz
+
+
+def array_gain_db(n):
+    """균일 여진 N소자 배열의 소자 대비 이득 [dB]"""
+    return 10 * math.log10(n)
+
+
+def aperture_gain_db(area_m2, f_hz):
+    """개구면 이득 G = 4πA/λ² [dBi], 개구효율 100% 가정"""
+    return 10 * math.log10(4 * math.pi * area_m2 / wavelength(f_hz) ** 2)
+
+
+def hpbw_deg(n, d_lambda=0.5, scan_deg=0.0):
+    """반전력 빔폭 ≈ 0.886·λ/(N·d·cosθ₀)"""
+    return 0.886 / (n * d_lambda * math.cos(math.radians(scan_deg))) * 180 / math.pi
+
+
+def grating_limit(scan_deg):
+    """가시 그레이팅 로브가 생기지 않는 최대 간격 d/λ"""
+    return 1 / (1 + abs(math.sin(math.radians(scan_deg))))
+
+
+def has_grating(d_lambda, scan_deg):
+    """sinθ₀ ± λ/d 가 [−1,1] 안에 들어오면 그레이팅 로브가 보인다"""
+    s = math.sin(math.radians(scan_deg))
+    return any(abs(s + m / d_lambda) <= 1 for m in (-1, 1))
+
+
+def check_beam():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<40} {got:>10.6g}  게시 {want:<9} {'✓' if hit else '✗ 불일치'}")
+
+    F1, F2 = 3.5e9, 28e9
+    print("\n[07] 핵심 항등식 — 잃은 만큼 되찾는가")
+    l1, l2 = wavelength(F1), wavelength(F2)
+    eq("λ(3.5 GHz) [mm]", l1 * 1000, 85.7, 0.05)
+    eq("λ(28 GHz) [mm]", l2 * 1000, 10.7, 0.05)
+    eq("파장 비", l1 / l2, 8.0, 1e-9)
+
+    side = l1                                   # 패널 한 변 = 3.5 GHz의 λ
+    n1 = round(side / (l1 / 2))
+    n2 = round(side / (l2 / 2))
+    eq("패널 한 변 [mm]", side * 1000, 85.7, 0.05)
+    eq("3.5 GHz 한 줄 소자 수", n1, 2, 0)
+    eq("28 GHz 한 줄 소자 수", n2, 16, 0)
+    eq("소자 수 비 (256/4)", (n2 * n2) / (n1 * n1), 64, 0)
+
+    fspl = 20 * math.log10(F2 / F1)
+    gain = array_gain_db(n2 * n2) - array_gain_db(n1 * n1)
+    eq("자유공간 손실 증가 [dB]", fspl, 18.06, 0.005)
+    eq("배열이득 증가 [dB]", gain, 18.06, 0.005)
+    # 자료의 핵심 주장: 우연이 아니라 항등식이므로 오차가 0이어야 한다
+    exact = abs(gain - fspl) < 1e-9
+    ok &= exact
+    print(f"  두 값이 오차 없이 같은가  차 {abs(gain-fspl):.2e} dB  "
+          f"{'✓' if exact else '✗ 자료의 주장과 다름'}")
+
+    # 임의의 주파수 쌍에서도 항등식이 성립하는가 (N ∝ 1/λ² 이므로)
+    ident = True
+    for fa, fb in [(2e9, 6e9), (3.5e9, 28e9), (700e6, 39e9), (28e9, 3.5e9)]:
+        lhs = 20 * math.log10(fb / fa)
+        rhs = 10 * math.log10((wavelength(fa) / wavelength(fb)) ** 2)
+        ident &= abs(lhs - rhs) < 1e-9
+    ok &= ident
+    print(f"  임의의 주파수 쌍에서도 성립  {'✓' if ident else '✗ 자료의 주장과 다름'}")
+
+    print("\n[07] 개구면 공식과 배열 공식이 같은 답을 주는가")
+    area = side * side
+    diffs = []
+    for f, n in [(F1, n1 * n1), (F2, n2 * n2)]:
+        g_ap = aperture_gain_db(area, f)
+        diffs.append(g_ap - array_gain_db(n))
+        print(f"  {f/1e9:5.1f} GHz  개구면 {g_ap:6.2f} dBi   배열 {array_gain_db(n):6.2f} dB   "
+              f"차(소자이득) {diffs[-1]:5.2f} dB")
+    same = abs(diffs[0] - diffs[1]) < 1e-9
+    ok &= same
+    print(f"  두 방식의 차이가 주파수와 무관하게 일정  {'✓' if same else '✗ 불일치'}")
+
+    print("\n[07] 빔폭과 조향 — HPBW ≈ 0.886·λ/(N·d·cosθ₀)")
+    for n, pub in [(4, 25.4), (8, 12.7), (16, 6.3), (64, 1.6)]:
+        got = hpbw_deg(n)
+        hit = abs(got - pub) < 0.05
+        ok &= hit
+        print(f"  N={n:>3}  빔폭 {got:6.2f}° (게시 {pub})  배열이득 {array_gain_db(n):5.2f} dB  "
+              f"{'✓' if hit else '✗ 불일치'}")
+    eq("조향 60° 이득 손실 [dB]", 10 * math.log10(math.cos(math.radians(60))), -3.01, 0.005)
+    eq("조향 60° 빔폭 배율", 1 / math.cos(math.radians(60)), 2.0, 1e-9)
+
+    print("\n[07] 왜 λ/2 인가 — 그레이팅 로브 경계")
+    for scan, pub in [(0, 1.0), (30, 0.667), (60, 0.536), (90, 0.5)]:
+        got = grating_limit(scan)
+        hit = abs(got - pub) < 0.001
+        ok &= hit
+        print(f"  조향 {scan:>2}°  한계 {got:.4f}λ  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: λ/2 는 어떤 조향각에서도 안전한 최대 간격
+    safe = all(not has_grating(0.5, s) for s in range(0, 90))
+    edge = has_grating(0.5 + 1e-6, 90) and not has_grating(0.5, 0)
+    ok &= safe and edge
+    print(f"  d=λ/2 는 조향 0–89° 전 구간에서 안전  {'✓' if safe else '✗ 자료의 주장과 다름'}")
+    print(f"  λ/2 를 조금이라도 넘으면 최악각에서 발생  {'✓' if edge else '✗ 자료의 주장과 다름'}")
+
+    print("\n[07] SSB 빔 스위핑 — 04에서 검산한 값을 그대로 쓴다")
+    for name, mu, L, one_pub, pct_pub in [("FR1 Case C(30 kHz)", 1, 8, 142.71, 5.71),
+                                          ("FR2 Case D(120 kHz)", 3, 64, 35.68, 11.42)]:
+        one = 4 * (tu(mu) + cp(mu))             # 04와 같은 식
+        pct = L * one / 20000 * 100             # 20 ms 주기
+        hit = abs(one - one_pub) < 0.01 and abs(pct - pct_pub) < 0.01
+        ok &= hit
+        print(f"  {name:<20} SSB 하나 {one:6.2f} μs × {L:>2} = {L*one:8.1f} μs → "
+              f"{pct:5.2f}%  {'✓' if hit else '✗ 불일치'}")
+    ratio = (64 * 4 * (tu(3) + cp(3))) / (8 * 4 * (tu(1) + cp(1)))
+    eq("FR2 오버헤드 / FR1 오버헤드", ratio, 2.0, 1e-9)
+
+    print("\n[07] 왜 SSB만으로는 부족한가 — 섹터를 덮는 데 드는 빔 수 (120°×30°)")
+    for n, pub in [(8, 30), (16, 95)]:
+        hp = hpbw_deg(n)
+        cnt = math.ceil(120 / hp) * math.ceil(30 / hp)
+        hit = cnt == pub
+        ok &= hit
+        print(f"  {n}×{n}={n*n:>3}소자  빔폭 {hp:5.2f}°  필요 빔 {cnt:>3}개 (게시 {pub})  "
+              f"{'SSB 64개 안' if cnt <= 64 else 'SSB 64개 초과'}  {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: 8×8은 SSB로 훑을 수 있고 16×16은 없다 → 2단계 정련이 필요하다
+    claim = (math.ceil(120 / hpbw_deg(8)) * math.ceil(30 / hpbw_deg(8)) <= 64
+             and math.ceil(120 / hpbw_deg(16)) * math.ceil(30 / hpbw_deg(16)) > 64)
+    ok &= claim
+    print(f"  넓은 빔은 SSB로 가능, 좁은 빔은 불가 → 정련 단계가 필요  "
+          f"{'✓' if claim else '✗ 자료의 주장과 다름'}")
+
+    print("\n[07] 빔 지시 — 설정 128 / 활성 8 / DCI 3비트")
+    eq("DCI TCI 3비트가 가리키는 수", 2**3, 8, 0)
 
     return ok
 

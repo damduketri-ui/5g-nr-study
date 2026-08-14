@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 빔포밍과 빔 관리 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>07 / 빔포밍과 빔 관리</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">07 · beamforming &amp; beam management</p>
+  <h1>18 dB를 잃고<br><em>같은 18 dB를</em> 되찾는다</h1>
+  <p class="lead">주파수를 3.5 GHz에서 28 GHz로 올리면 자유공간 손실이 18 dB 늘어납니다. 그런데 같은 크기 안테나에 소자가 64배 들어가고, 그 배열이득이 <strong>정확히 같은 18 dB</strong>입니다. 우연이 아니라 항등식입니다. FR2는 이 상쇄 위에 서 있습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>전구와 손전등</h2>
+  <p>전구는 사방을 비추고 손전등은 한 곳만 비춥니다. 손전등이 더 밝게 보이는 이유는 <strong>빛을 더 만들어서가 아닙니다.</strong> 쓰지 않을 방향을 포기하고 그 몫을 한 방향에 몰아준 것뿐입니다. 배터리는 같습니다.</p>
+
+  <p>안테나 이득도 똑같습니다. 이득은 증폭이 아니라 <strong>분배</strong>입니다. 사방으로 고르게 퍼뜨리면(등방성) 이득은 1이고, 좁은 각도에 몰아주면 그 각도만큼 이득이 올라갑니다.</p>
+
+  <!-- 물리 관계: 전 방향 입체각 4π 스테라디안을 빔 하나가 Ω만큼 차지하면 G ≈ 4π/Ω
+       3GPP 규격이 아니라 안테나 이론. 이 자료는 둘을 구분해 표기한다. -->
+  <div class="note">
+    <strong>이득 × 각도 ≈ 일정.</strong> 구 전체는 4π 스테라디안입니다. 빔 하나가 Ω만큼을 차지하면
+    이득은 대략 <strong>G ≈ 4π / Ω</strong>가 됩니다. 빔을 절반으로 좁히면 이득이 두 배가 되고,
+    그만큼 <strong>못 보는 방향이 늘어납니다.</strong> 이 자료의 나머지 절반은 그 대가에 관한 것입니다.
+    <span class="src">안테나 이론 · 3GPP 규격값이 아님</span>
+  </div>
+
+  <p>이 비유를 끝까지 밀고 가겠습니다. 손전등은 밝지만 <strong>겨냥해야 하고</strong>, 찾을 때는 <strong>휘둘러야 하고</strong>, 손바닥 하나로도 <strong>가려집니다.</strong> 5G의 빔 관리는 정확히 이 세 가지 문제를 푸는 절차입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>28 GHz가 성립하는 이유</h2>
+  <p>고주파는 손해 보는 장사처럼 보입니다. 자유공간 손실은 주파수의 제곱에 비례하니까요. 3.5 GHz에서 28 GHz로 여덟 배 올리면 손실이 <strong>20 log₁₀ 8 = 18.06 dB</strong> 늘어납니다. 그냥 두면 도달 거리가 8분의 1로 줄어듭니다.</p>
+
+  <p>그런데 파장도 같이 여덟 배 짧아집니다. 안테나 소자는 <strong>반 파장 간격</strong>으로 놓으므로, 같은 크기 판때기에 들어가는 소자가 가로 8배·세로 8배 — <strong>64배</strong>가 됩니다.</p>
+
+  <!-- 유도: λ = c/f,  3.5 GHz → 85.655 mm,  28 GHz → 10.707 mm  (비 정확히 8)
+       한 변이 85.655 mm(=3.5 GHz의 λ)인 정사각 패널에 λ/2 간격으로 채우면
+         3.5 GHz: 85.655 / 42.827 =  2 → 2×2  =   4소자 → 배열이득 10log10(4)   =  6.0206 dB
+         28  GHz: 85.655 /  5.353 = 16 → 16×16 = 256소자 → 배열이득 10log10(256) = 24.0824 dB
+       증가분 18.0618 dB = 20log10(8) = 자유공간 손실 증가분과 오차 0
+       항등식인 이유: 소자 수 N ∝ 1/λ² 이므로 10log10(N₂/N₁) = 10log10((f₂/f₁)²) = 20log10(f₂/f₁) -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 350" role="img" aria-labelledby="t1 d1">
+      <title id="t1">같은 크기 패널에 들어가는 안테나 소자 수 — 3.5 GHz와 28 GHz</title>
+      <desc id="d1">한 변 85.7 밀리미터인 같은 크기의 정사각 패널 두 개. 3.5 GHz에서는 반 파장 간격이 42.8 밀리미터라 2×2 = 4개의 소자만 들어가고, 28 GHz에서는 5.35 밀리미터라 16×16 = 256개가 들어간다. 소자 수가 64배가 되어 배열이득이 18.06 dB 늘어나는데, 이는 주파수를 8배 올려 늘어난 자유공간 손실 18.06 dB와 정확히 같다.</desc>
+
+      <defs>
+        <!-- 소자를 패턴으로 타일링한다 — 200px 패널에 100px 주기면 2×2, 12.5px 주기면 16×16 -->
+        <pattern id="el35" width="100" height="100" patternUnits="userSpaceOnUse">
+          <circle cx="50" cy="50" r="9" fill="var(--dl)"/>
+        </pattern>
+        <pattern id="el28" width="12.5" height="12.5" patternUnits="userSpaceOnUse">
+          <circle cx="6.25" cy="6.25" r="2.4" fill="var(--dl)"/>
+        </pattern>
+        <marker id="bfArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/>
+        </marker>
+      </defs>
+
+      <!-- 3.5 GHz 패널 -->
+      <text x="280" y="42" class="celllab" fill="var(--ink)" text-anchor="middle">3.5 GHz · λ = 85.7 mm</text>
+      <rect x="180" y="58" width="200" height="200" fill="#fff" stroke="var(--hair)" stroke-width="1"/>
+      <rect x="180" y="58" width="200" height="200" fill="url(#el35)"/>
+      <text x="280" y="284" class="celllab" fill="var(--dl)" text-anchor="middle">2 × 2 = 4 소자</text>
+      <text x="280" y="304" class="dimlab" text-anchor="middle">반 파장 간격 42.83 mm</text>
+      <text x="280" y="330" class="celllab" fill="var(--ink)" text-anchor="middle">배열이득 6.02 dB</text>
+
+      <!-- 가운데 화살표 -->
+      <line x1="410" y1="158" x2="580" y2="158" stroke="var(--ink)" stroke-width="1.4" marker-end="url(#bfArr)"/>
+      <text x="495" y="148" class="celllab" fill="var(--ink)" text-anchor="middle">주파수 8배</text>
+      <text x="495" y="176" class="dimlab" text-anchor="middle">패널 크기는 그대로</text>
+
+      <!-- 28 GHz 패널 -->
+      <text x="720" y="42" class="celllab" fill="var(--ink)" text-anchor="middle">28 GHz · λ = 10.7 mm</text>
+      <rect x="620" y="58" width="200" height="200" fill="#fff" stroke="var(--hair)" stroke-width="1"/>
+      <rect x="620" y="58" width="200" height="200" fill="url(#el28)"/>
+      <text x="720" y="284" class="celllab" fill="var(--dl)" text-anchor="middle">16 × 16 = 256 소자</text>
+      <text x="720" y="304" class="dimlab" text-anchor="middle">반 파장 간격 5.35 mm</text>
+      <text x="720" y="330" class="celllab" fill="var(--ink)" text-anchor="middle">배열이득 24.08 dB</text>
+
+      <!-- 결산 -->
+      <text x="960" y="140" class="celllab" fill="var(--alert)" text-anchor="middle">손실 +18.06 dB</text>
+      <text x="960" y="164" class="celllab" fill="var(--ul)" text-anchor="middle">이득 +18.06 dB</text>
+      <line x1="880" y1="178" x2="1040" y2="178" stroke="var(--ink)" stroke-width="1"/>
+      <text x="960" y="200" class="celllab" fill="var(--ink)" text-anchor="middle">합계 0.00 dB</text>
+    </svg>
+  </div>
+  <p class="caption">패널 한 변은 3.5 GHz의 파장 하나(85.7 mm)로 잡았습니다 — 이 크기에서 두 주파수 모두 소자가 정수로 딱 떨어집니다. 소자는 실제 개수만큼 그렸습니다.</p>
+
+  <div class="stats">
+    <div><span class="n">8×</span><span class="t">주파수 비 · 28 / 3.5 GHz</span></div>
+    <div><span class="n">64×</span><span class="t">같은 면적에 들어가는 소자 수 · 8²</span></div>
+    <div><span class="n">18.06</span><span class="t">늘어난 자유공간 손실 [dB] · 20 log₁₀ 8</span></div>
+    <div><span class="n">18.06</span><span class="t">늘어난 배열이득 [dB] · 10 log₁₀ 64</span></div>
+  </div>
+
+  <div class="note">
+    <strong>우연이 아니라 항등식이다.</strong> 소자 수는 면적을 (λ/2)²로 나눈 값이므로 N ∝ 1/λ² ∝ f².
+    그러면 배열이득 증가분은 10 log₁₀(f₂/f₁)² = <strong>20 log₁₀(f₂/f₁)</strong>가 되는데,
+    이건 자유공간 손실 증가분과 <strong>글자 그대로 같은 식</strong>입니다. 두 주파수를 무엇으로 잡든 상쇄됩니다.
+    개구면 관점으로 풀어도 같습니다 — 이득 G = 4πA/λ²에서 면적 A가 고정이면 이득은 1/λ²로 자라니까요.
+    <span class="src">안테나 이론 · <code>tools/verify-numbers.py</code>가 두 방식이 같은 답을 주는지 검사한다</span>
+  </div>
+
+  <p>그래서 밀리미터파는 "닿지 않는 주파수"가 아닙니다. <strong>안테나를 키우지 않고도 손실을 되갚을 수 있는</strong> 주파수입니다. 다만 조건이 하나 붙습니다.</p>
+
+  <p><strong>그 이득은 빔을 좁혀서 얻은 것입니다.</strong> 256소자 배열의 빔폭은 아래에서 보겠지만 몇 도에 불과합니다. 손전등을 켠 셈이고, 손전등은 겨냥해야 합니다. 뒤의 절반은 전부 그 이야기입니다.</p>
+
+  <div class="note">
+    <strong>이 상쇄가 감춘 것.</strong> 위 계산은 <strong>자유공간</strong>만 따진 것입니다.
+    실제 28 GHz에서 더 아픈 것은 회절이 거의 없어 <strong>그림자가 짙다</strong>는 점, 벽·유리·나뭇잎의 투과 손실이 크다는 점,
+    그리고 비에 감쇠된다는 점입니다. 이것들은 배열이득으로 상쇄되지 않습니다.
+    FR2가 실내와 핫스팟 위주로 쓰이는 이유는 손실 자체보다 여기에 있습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>빔은 어떻게 만들어지는가 — 위상 배열</h2>
+  <p>소자를 여러 개 놓는다고 저절로 빔이 생기지는 않습니다. <strong>언제 쏘는지</strong>를 어긋나게 해야 합니다.</p>
+
+  <p>줄지어 선 소자들이 <strong>똑같은 순간에</strong> 쏘면, 정면에서는 모든 파가 같은 위상으로 도착해 더해지고 옆에서는 어긋나 상쇄됩니다. 빔이 정면을 향합니다. 여기서 소자마다 <strong>조금씩 늦게</strong> 쏘면 파면이 기울어지고, 빔도 그만큼 기웁니다. 기계적으로 안테나를 돌리지 않고 <strong>위상만 바꿔서</strong> 방향을 트는 것 — 이게 위상 배열(Phased Array)입니다.</p>
+
+  <!-- 배열 인자 AF(θ) = |sin(Nψ/2) / (N·sin(ψ/2))|,  ψ = 2π(d/λ)(sinθ − sinθ₀)
+       ψ→0 에서 AF→1 (로피탈). 반전력 빔폭 HPBW ≈ 0.886·λ/(N·d·cosθ₀) [rad]
+       d = λ/2, θ₀ = 0 이면 HPBW ≈ 101.5°/N
+       조향 손실 = 10log10(cosθ₀) — 유효 개구면이 cosθ₀ 로 줄어든다 -->
+  <p>아래에서 소자 수와 간격, 조향각을 직접 바꿔 보세요. <strong>간격을 반 파장 위로 올리면</strong> 무슨 일이 생기는지가 이 그림의 핵심입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 430" role="img" aria-labelledby="t2 d2">
+      <title id="t2">소자 수·간격·조향각에 따른 배열 빔 패턴</title>
+      <desc id="d2">반원형 극좌표 위에 배열 안테나의 방사 패턴을 데시벨로 그린다. 소자 수를 늘리면 주 빔이 좁아지고, 조향각을 키우면 빔이 기울면서 넓어진다. 소자 간격이 반 파장을 넘으면 의도하지 않은 방향에 그레이팅 로브라는 두 번째 빔이 나타난다.</desc>
+      <g id="bfGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="bfN">소자 수</label>
+    <input type="range" id="bfN" min="2" max="32" step="1" value="8" aria-describedby="bfOut">
+    <label for="bfD">간격 d/λ</label>
+    <input type="range" id="bfD" min="0.25" max="1" step="0.05" value="0.5" aria-describedby="bfOut">
+    <label for="bfS">조향각</label>
+    <input type="range" id="bfS" min="-70" max="70" step="1" value="0" aria-describedby="bfOut">
+    <span class="readout" id="bfOut"></span>
+  </div>
+
+  <div class="verdict" id="bfBox">
+    <span class="tag" id="bfTag"></span>
+    <span class="why" id="bfWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="bfGain">—</span><span class="t">배열이득 · 10 log₁₀ N</span></div>
+    <div><span class="n" id="bfHp">—</span><span class="t">반전력 빔폭</span></div>
+    <div><span class="n" id="bfScan">—</span><span class="t">조향 손실 · 10 log₁₀ cos θ₀</span></div>
+    <div><span class="n" id="bfLimit">—</span><span class="t">이 조향각에서 안전한 최대 간격</span></div>
+  </div>
+  <p class="caption">반지름은 −30 dB를 원점으로 한 상대 세기이고, 각도는 실제 비율입니다. 정면이 위쪽입니다. 배열 인자 AF(θ) = |sin(Nψ/2) / (N sin(ψ/2))|, ψ = 2π(d/λ)(sin θ − sin θ₀) — 안테나 이론이며 3GPP 규격이 아닙니다.</p>
+
+  <!-- 유도: 가시 그레이팅 로브 조건
+       ψ = ±2π 에서 두 번째 주엽 → sinθ = sinθ₀ ± λ/d
+       |sinθ| ≤ 1 이어야 실제로 보이므로 → d/λ ≥ 1/(1+|sinθ₀|) 일 때 발생
+       최악은 θ₀ = ±90° 로 d/λ ≥ 0.5.  따라서 λ/2 는 어떤 방향으로 조향해도 안전한 최대 간격이다. -->
+  <div class="note">
+    <strong>왜 하필 반 파장인가.</strong> 간격을 벌리면 배열이 커져 빔이 좁아지니 이득에는 이롭습니다.
+    그런데 어느 선을 넘으면 <strong>엉뚱한 방향에 두 번째 빔</strong>이 생깁니다(그레이팅 로브).
+    조건을 풀면 d/λ ≥ 1 / (1 + |sin θ₀|)일 때 나타나는데, 가장 불리한 θ₀ = 90°를 넣으면 <strong>d/λ ≥ 0.5</strong>입니다.
+    즉 <strong>반 파장은 어느 방향으로 조향해도 안전한 최대 간격</strong>입니다. 위 슬라이더에서 간격을 0.5 위로 올린 뒤
+    조향각을 키워 보면 두 번째 빔이 옆에서 올라오는 것이 보입니다.
+    <span class="src">안테나 이론 · <code>tools/verify-numbers.py</code>가 경계값을 검사한다</span>
+  </div>
+
+  <div class="note">
+    <strong>정면을 벗어나면 손해를 본다.</strong> 조향각 θ₀로 빔을 틀면 상대편에서 본 배열의 <strong>유효 폭이 cos θ₀만큼 줄어듭니다.</strong>
+    60°를 틀면 이득이 3 dB 떨어지고 빔은 두 배로 넓어집니다. 그래서 단말은 패널 하나로 사방을 감당하지 못하고,
+    <strong>여러 면에 모듈을 나눠 붙입니다.</strong> 손에 쥔 방향에 따라 어느 모듈이 살아 있는지가 달라집니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>겨냥하는 법 — 빔 관리</h2>
+  <p>좁은 빔은 공짜가 아닙니다. <strong>어느 방향인지 모르면 아무 소용이 없습니다.</strong> 기지국과 단말은 서로의 방향을 처음부터 모르고, 알아낸 뒤에도 사람이 걸어가면 계속 바뀝니다.</p>
+
+  <p>첫 단계는 <a href="../04-ssb-initial-access/index.html">04에서 이미 봤습니다.</a> 기지국이 SSB를 여러 번 쏘는데 <strong>매번 다른 방향으로</strong> 쏩니다. 단말은 그중 가장 세게 들린 것의 번호를 기억합니다 — 그 번호가 곧 방향입니다. 04에서 FR2의 L<sub>max</sub>가 유독 64였던 이유가 이것입니다.</p>
+
+  <p>64는 좌우로만 쓰는 숫자가 아닙니다. <strong>위아래로도 나눠야</strong> 하기 때문에 방위각 8칸 × 고각 8켜 같은 식으로 쪼개집니다. 아래 부채꼴은 그중 <strong>한 켜의 단면</strong>입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="t3 d3">
+      <title id="t3">SSB 빔 스위핑 — 공간의 부채꼴과 시간의 버스트</title>
+      <desc id="d3">왼쪽은 기지국이 부채꼴 섹터를 여러 개의 빔으로 나눈 그림이고, 오른쪽은 그 빔들을 시간 순서대로 하나씩 쏘는 SSB 버스트다. 단말이 놓인 각도에 해당하는 빔과 SSB 인덱스가 함께 표시된다.</desc>
+      <g id="swpGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="swpCase" role="group" aria-label="SSB 개수 선택"></span>
+    <label for="swpAng">단말 방향</label>
+    <input type="range" id="swpAng" min="-60" max="60" step="1" value="-18" aria-describedby="swpOut">
+    <span class="readout" id="swpOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="swpIdx">—</span><span class="t">단말 방향에 걸리는 SSB 인덱스</span></div>
+    <div><span class="n" id="swpWide">—</span><span class="t">방위각 빔 하나가 맡는 각도</span></div>
+    <div><span class="n" id="swpTime">—</span><span class="t">전체를 한 바퀴 도는 시간</span></div>
+    <div><span class="n" id="swpOver">—</span><span class="t">20 ms 주기에서 SSB가 쓰는 시간</span></div>
+  </div>
+  <p class="caption">부채꼴은 120° 섹터의 <strong>방위각 단면</strong>을 실제 비율로 나눈 것이고, 오른쪽 시간 축도 실제 비율입니다. 규격이 정하는 것은 <strong>L 하나뿐</strong>입니다 — 그 L을 방위각과 고각에 어떻게 쪼개는지는 구현에 달렸습니다. 여기서는 FR2의 64개를 8 × 8로 잡았습니다. SSB 개수와 길이는 <a href="../04-ssb-initial-access/index.html">04</a>에서 검산한 값입니다.</p>
+
+  <!-- 유도: 빔폭 101.5°/N 로 120°×30° 섹터를 덮는 데 필요한 빔 수
+       8×8 배열  빔폭 12.69° → ⌈120/12.69⌉ × ⌈30/12.69⌉ = 10 × 3 = 30개   (SSB 64개 안에 들어감)
+       16×16 배열 빔폭  6.35° → ⌈120/6.35⌉ × ⌈30/6.35⌉  = 19 × 5 = 95개   (SSB 64개를 넘어섬)
+       → SSB 는 넓은 빔으로만 훑을 수 있고, 좁은 빔은 따로 정련해야 한다 -->
+  <div class="note">
+    <strong>SSB만으로는 끝나지 않는 이유.</strong> 빔이 좁을수록 섹터를 덮는 데 더 많이 필요합니다.
+    8×8 배열의 빔폭 12.7°로 120°×30° 섹터를 덮으려면 <strong>30개</strong>면 되지만,
+    16×16 배열의 6.3°로는 <strong>95개</strong>가 듭니다. 그런데 SSB는 최대 64개입니다.
+    <strong>가장 좁은 빔은 SSB로 훑을 수가 없습니다.</strong> 그래서 빔 찾기가 2단계로 갈라집니다 —
+    SSB로 대충 찾고, 그다음에 좁혀 들어갑니다.
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <caption>빔을 찾고 좁히고 따라가는 세 단계</caption>
+    <thead><tr><th>단계</th><th>누가 무엇을 바꾸는가</th><th>쓰는 신호</th></tr></thead>
+    <tbody>
+      <tr><td><strong>P1</strong> · 처음 찾기</td>
+          <td>기지국이 <strong>넓은 빔</strong>으로 섹터 전체를 훑는다. 단말은 가장 센 것을 고른다</td>
+          <td>SSB <span class="src">→ <a href="../04-ssb-initial-access/index.html">04</a></span></td></tr>
+      <tr><td><strong>P2</strong> · 기지국 쪽 좁히기</td>
+          <td>찾은 방향 <strong>근처만</strong> 좁은 빔 여러 개로 다시 쏜다</td>
+          <td>CSI-RS</td></tr>
+      <tr><td><strong>P3</strong> · 단말 쪽 좁히기</td>
+          <td>기지국 빔을 고정한 채 <strong>단말이 자기 수신 빔</strong>을 바꿔 가며 고른다</td>
+          <td>CSI-RS</td></tr>
+      <tr><td>상향</td>
+          <td>단말이 SRS를 쏘고 기지국이 상향 빔을 정한다</td>
+          <td>SRS</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">P1·P2·P3라는 이름은 연구 단계 문서인 <strong>TR 38.802</strong>의 용어입니다. 규격 본문(TS 38.213 §6)은 이 이름을 쓰지 않고 절차만 정의합니다 — 업계에서 널리 통용되므로 여기서도 그대로 씁니다.</p>
+
+  <h3>정해진 빔을 어떻게 알려주는가 — TCI와 QCL</h3>
+  <p>빔을 찾았다면 이제 "이번 데이터는 그 방향으로 받아라"라고 말해야 합니다. 그런데 규격에는 <strong>"빔"이라는 필드가 없습니다.</strong> 대신 훨씬 우회적인 방법을 씁니다.</p>
+
+  <p><strong>QCL(Quasi Co-Location, 준 동일 위치)</strong>은 "이 신호와 저 신호는 같은 곳에서 온 것처럼 취급해도 된다"는 선언입니다. 그중 <strong>타입 D</strong>가 "공간 수신 파라미터가 같다" — 즉 <strong>같은 방향으로 받으라</strong>는 뜻입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>QCL 타입 · TS 38.214 §5.1.5</caption>
+    <thead><tr><th class="num">타입</th><th>공유한다고 보는 성질</th><th>쓰임</th></tr></thead>
+    <tbody>
+      <tr><td class="num">A</td><td>도플러 편이 · 도플러 확산 · 평균 지연 · 지연 확산</td><td>채널 추정 전반</td></tr>
+      <tr><td class="num">B</td><td>도플러 편이 · 도플러 확산</td><td>시간 변화만</td></tr>
+      <tr><td class="num">C</td><td>도플러 편이 · 평균 지연</td><td>대략의 동기</td></tr>
+      <tr><td class="num"><strong>D</strong></td><td><strong>공간 수신 파라미터</strong></td><td><strong>이것이 빔이다</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>이 선언을 묶어 놓은 것이 <strong>TCI(Transmission Configuration Indication, 전송 설정 지시) 상태</strong>입니다. TCI 상태 하나는 "기준신호 X와 QCL 타입 D"라는 짝이고, 결국 <strong>"5번 SSB를 받던 그 방향으로 받아라"</strong>는 말이 됩니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>빔 지시가 세 단계로 좁혀지는 과정</caption>
+    <thead><tr><th>단계</th><th class="num">개수</th><th>수단</th><th>속도</th></tr></thead>
+    <tbody>
+      <tr><td>설정</td><td class="num">최대 128</td><td>RRC <span class="src">TS 38.331</span></td><td>느림</td></tr>
+      <tr><td>활성화</td><td class="num">최대 8</td><td>MAC-CE</td><td>중간</td></tr>
+      <tr><td>지시</td><td class="num">1</td><td>DCI의 TCI 필드 <strong>3비트</strong> <span class="src">TS 38.212 §7.3.1</span></td><td>슬롯 단위</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">3비트로 8개를 가리키므로 활성화 단계가 8개인 것과 맞아떨어집니다 — <a href="../05-bandwidth-part/index.html">05의 BWP 지시자 2비트 ↔ 창문 4개</a>와 같은 구조입니다. 무거운 목록은 RRC로 미리 내려두고 DCI는 번호만 나릅니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>빔이 끊어지면</h2>
+  <p>손전등은 손바닥 하나로 가려집니다. 28 GHz도 그렇습니다. 사람이 앞을 지나가거나 단말을 쥔 손이 모듈을 덮으면 <strong>수십 밀리초 만에</strong> 링크가 사라집니다.</p>
+
+  <p>셀이 안 잡힐 때의 원래 절차는 무선 링크 실패(RLF) 선언 후 재접속인데, 이건 <strong>너무 느립니다.</strong> 셀은 멀쩡하고 방향만 틀어졌을 뿐인데 처음부터 다시 붙는 셈이니까요. 그래서 <strong>빔 수준의 복구 절차</strong>가 따로 있습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>빔 실패 복구(BFR) · TS 38.321 §5.17 · TS 38.213 §6</caption>
+    <thead><tr><th class="num">단계</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>하위계층이 검출용 기준신호의 품질을 재고, 임계 미만이면 <strong>빔 실패 인스턴스</strong>를 올린다</td></tr>
+      <tr><td class="num">2</td><td>카운터가 <code>beamFailureInstanceMaxCount</code>에 닿으면 <strong>빔 실패 선언</strong></td></tr>
+      <tr><td class="num">3</td><td>미리 받아 둔 후보 빔 목록에서 <strong>임계를 넘는 빔</strong>을 찾는다</td></tr>
+      <tr><td class="num">4</td><td>그 빔에 딸린 <strong>전용 PRACH</strong>로 "이 빔으로 바꿔 달라"고 알린다 <span class="src">→ <a href="../04-ssb-initial-access/index.html">04</a></span></td></tr>
+      <tr><td class="num">5</td><td>기지국이 응답하면 그 빔으로 계속. 실패하면 그때 RLF로 넘어간다</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <!-- VERIFY: beamFailureInstanceMaxCount 와 beamFailureDetectionTimer 의 열거값 —
+       TS 38.331 ASN.1 원문 대조 필요. 본문은 필드 이름만 쓰고 값은 인용하지 않았다. -->
+
+  <div class="note">
+    <strong>후보 빔을 미리 받아 두는 것이 핵심이다.</strong> 빔이 끊어진 뒤에 처음부터 찾으면 이미 늦습니다.
+    단말은 <strong>쓰고 있는 빔 말고도</strong> 다른 SSB·CSI-RS를 계속 재고 있고, 그중 쓸 만한 것을 후보로 들고 있습니다.
+    끊기는 순간 <strong>이미 알고 있는 다음 빔</strong>으로 넘어가는 것 — 이게 재접속과 갈리는 지점입니다.
+    <a href="../06-harq-timing/index.html">06의 HARQ</a>가 "틀릴 것을 전제로 설계"했듯, 빔 관리도 <strong>끊길 것을 전제로</strong> 설계돼 있습니다.
+  </div>
+
+  <p>이제 <a href="../02-tdd-pattern/index.html">02의 TDD</a>가 왜 FR2에서 당연한지도 보입니다. 상향과 하향이 <strong>같은 주파수</strong>를 쓰면 채널이 서로 뒤집어도 같으므로(가역성), 단말이 쏜 SRS 하나로 <strong>하향 빔까지 정할 수 있습니다.</strong> 주파수를 나눠 쓰는 FDD에서는 이게 성립하지 않습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>고주파의 손실은 <strong>같은 크기 안테나가 그대로 되갚는다.</strong> 소자 수가 f²로 늘어 배열이득 증가분이 자유공간 손실 증가분과 같은 식이 되기 때문이다 — 3.5 → 28 GHz에서 양쪽 다 18.06 dB다. 밀리미터파의 진짜 적은 손실이 아니라 <strong>그림자와 투과 손실</strong>이다.</li>
+    <li>이득은 증폭이 아니라 <strong>몰아주기</strong>다. 얻은 만큼 각도를 잃으므로, 좁은 빔은 반드시 <strong>겨냥하는 절차</strong>를 함께 요구한다. 소자 간격이 반 파장인 것도 여기서 나온다 — 어느 방향으로 조향해도 엉뚱한 빔이 안 생기는 최대 간격이다.</li>
+    <li>그 절차가 빔 관리다. SSB로 훑고(P1), CSI-RS로 좁히고(P2·P3), TCI로 지시하고, 끊기면 <strong>미리 재 둔 후보 빔</strong>으로 넘어간다. 04의 L<sub>max</sub> = 64는 처음부터 빔 스위핑이었다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../06-harq-timing/index.html">← 06 HARQ와 재전송 타이밍</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  var RAD=Math.PI/180;
+  /* 각도 표기는 본문·dB 라벨과 같은 진짜 빼기 기호(U+2212)를 쓴다 — ASCII 하이픈과 섞이지 않게 */
+  function deg(n){ return (n<0?'−'+Math.abs(n):''+n)+'°'; }
+
+  /* ══════════════ SVG 2 · 배열 빔 패턴 ══════════════════════════
+     배열 인자  AF(θ) = |sin(Nψ/2) / (N·sin(ψ/2))|,  ψ = 2π(d/λ)(sinθ − sinθ₀)
+     ψ 가 2π의 배수면 분모가 0 — 모든 소자가 같은 위상이라는 뜻이므로 AF = 1 (주엽·그레이팅 로브)
+     반전력 빔폭 ≈ 0.886·λ/(N·d·cosθ₀) [rad]
+     가시 그레이팅 로브 조건: sinθ₀ ± λ/d 가 [−1, 1] 안에 들어올 때
+       ⇔ d/λ ≥ 1/(1+|sinθ₀|).  최악 θ₀=90° 에서 0.5 → 이것이 λ/2 간격의 근거.
+     안테나 이론이며 3GPP 규격이 아니다. */
+  var BG=document.getElementById('bfGrid');
+  var CX=550, CY=392, R=300, FLOOR=30;        // −30 dB 를 원점으로
+  var bfN=document.getElementById('bfN'), bfD=document.getElementById('bfD'), bfS=document.getElementById('bfS');
+
+  function af(th,N,d,s0){
+    var psi=2*Math.PI*d*(Math.sin(th)-Math.sin(s0));
+    var den=Math.sin(psi/2);
+    if(Math.abs(den)<1e-9) return 1;          // 분모 0 → 전 소자 동위상
+    return Math.abs(Math.sin(N*psi/2)/(N*den));
+  }
+  function rr(v){                             // 진폭 → 반지름
+    var db=20*Math.log10(Math.max(v,1e-6));
+    return R*Math.max(0,(db+FLOOR)/FLOOR);
+  }
+  function pt(th,r){ return [CX+r*Math.sin(th), CY-r*Math.cos(th)]; }
+
+  function drawBF(){
+    var N=parseInt(bfN.value,10), d=parseFloat(bfD.value), s0=parseInt(bfS.value,10)*RAD;
+    clear(BG);
+
+    /* 눈금 — 동심 반원과 방사선 */
+    [10,20,30].forEach(function(db){
+      var r=R*(FLOOR-db)/FLOOR;
+      if(r<=0) return;
+      var a=pt(-Math.PI/2,r), b=pt(Math.PI/2,r);
+      BG.appendChild(el('path',{d:'M'+a[0]+' '+a[1]+' A'+r+' '+r+' 0 0 1 '+b[0]+' '+b[1],
+        fill:'none',stroke:'var(--hair)','stroke-width':1}));
+      BG.appendChild(txt(CX+4,CY-r-5,'−'+db+' dB','dimlab','var(--ink-soft)','start'));
+    });
+    [-90,-60,-30,0,30,60,90].forEach(function(a){
+      var p=pt(a*RAD,R);
+      BG.appendChild(el('line',{x1:CX,y1:CY,x2:p[0],y2:p[1],stroke:'var(--hair)','stroke-width':1}));
+      var q=pt(a*RAD,R+22);
+      BG.appendChild(txt(q[0],q[1]+4,deg(a),'dimlab','var(--ink-soft)'));
+    });
+
+    /* 패턴 — 0.25° 간격으로 훑는다 */
+    var dpath='M'+CX+' '+CY;
+    for(var a2=-90;a2<=90;a2+=0.25){
+      var p2=pt(a2*RAD,rr(af(a2*RAD,N,d,s0)));
+      dpath+=' L'+p2[0].toFixed(2)+' '+p2[1].toFixed(2);
+    }
+    dpath+=' Z';
+    BG.appendChild(el('path',{d:dpath,fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':1.6,
+      'stroke-linejoin':'round'}));
+
+    /* 조향 방향 표시 */
+    var sp=pt(s0,R+6);
+    BG.appendChild(el('line',{x1:CX,y1:CY,x2:sp[0],y2:sp[1],
+      stroke:'var(--ink)','stroke-width':1.4,'stroke-dasharray':'6 4'}));
+
+    /* 그레이팅 로브 — sinθ₀ ± λ/d 가 보이는 범위에 들어오는가 */
+    var lobes=[];
+    [-1,1].forEach(function(m){
+      var s=Math.sin(s0)+m/d;
+      if(Math.abs(s)<=1) lobes.push(Math.asin(s));
+    });
+    lobes.forEach(function(th){
+      var q=pt(th,R);
+      BG.appendChild(el('line',{x1:CX,y1:CY,x2:q[0],y2:q[1],
+        stroke:'var(--alert)','stroke-width':1.4,'stroke-dasharray':'4 3'}));
+      var lp=pt(th,R-46);
+      BG.appendChild(txt(lp[0],lp[1],'그레이팅 로브','celllab','var(--alert)'));
+    });
+
+    /* 배열 소자 — 아래쪽에 실제 개수·간격 비율로 */
+    var span=Math.min(300,(N-1)*d*46);
+    for(var i=0;i<N;i++){
+      var x=CX-span/2+(N===1?0:span*i/(N-1));
+      BG.appendChild(el('circle',{cx:x,cy:CY+18,r:3.2,fill:'var(--dl)'}));
+    }
+    BG.appendChild(txt(CX,CY+40,N+'소자 · 간격 '+d.toFixed(2)+'λ','dimlab','var(--ink-soft)'));
+
+    /* 읽을거리 */
+    var hp=0.886/(N*d*Math.cos(s0))*180/Math.PI;
+    var limit=1/(1+Math.abs(Math.sin(s0)));
+    bfOutSet(N,d,parseInt(bfS.value,10));
+    document.getElementById('bfGain').textContent=(10*Math.log10(N)).toFixed(2)+' dB';
+    document.getElementById('bfHp').textContent=hp.toFixed(2)+'°';
+    document.getElementById('bfScan').textContent=(10*Math.log10(Math.cos(s0))).toFixed(2)+' dB';
+    document.getElementById('bfLimit').textContent=limit.toFixed(3)+'λ';
+
+    var box=document.getElementById('bfBox');
+    box.className='verdict '+(lobes.length?'bad':'ok');
+    document.getElementById('bfTag').textContent=lobes.length?'빔이 새어 나간다':'빔이 하나뿐';
+    document.getElementById('bfWhy').textContent=lobes.length
+      ? '간격 '+d.toFixed(2)+'λ 는 이 조향각에서 한계 '+limit.toFixed(3)+'λ 를 넘습니다. '
+        +lobes.map(function(t){return deg(Math.round(t/RAD));}).join(', ')
+        +' 방향으로 주 빔과 같은 세기의 빔이 하나 더 생겼습니다 — 그쪽으로 나간 전력은 버려지고, 그 방향의 다른 단말에는 간섭이 됩니다.'
+      : '간격 '+d.toFixed(2)+'λ 는 이 조향각의 한계 '+limit.toFixed(3)+'λ 안에 있습니다. 에너지가 의도한 방향 하나에만 모입니다.';
+  }
+  function bfOutSet(N,d,s){
+    document.getElementById('bfOut').textContent=N+'소자 · '+d.toFixed(2)+'λ · '+deg(s);
+  }
+  [bfN,bfD,bfS].forEach(function(s){ s.addEventListener('input',drawBF); });
+  drawBF();
+
+  /* ══════════════ SVG 3 · SSB 빔 스위핑 ══════════════════════════
+     04에서 검산한 값을 그대로 쓴다 — SSB 하나 = 4심볼 = 285.4167 μs / 2^μ
+       FR1 Case C(30 kHz, μ=1) L=8  → 142.71 μs × 8  = 1141.7 μs
+       FR2 Case D(120 kHz, μ=3) L=64 → 35.68 μs × 64 = 2283.3 μs
+     주기 20 ms 기준 점유율 5.71% / 11.42% (정확히 2배)
+     ※ 빔을 각도에 고르게 배분한 것은 설명을 위한 단순화이며 규격이 정하는 바가 아니다. */
+  var SSB_ONE=285.4166667;                    // μs, μ=0 기준 (4심볼)
+  /* L 은 규격값이지만 그것을 방위각·고각으로 어떻게 쪼개는지는 구현에 달렸다.
+     아래 nAz×nEl 은 예시다. FR2의 64개를 방위각 하나로 늘어놓으면 빔 하나가 1.9°가 되어
+     "SSB는 넓은 빔으로 훑는다"는 이 자료의 서술과 어긋난다 — 실제로는 고각도 함께 쓴다. */
+  var CASES=[
+    {label:'FR1 · L=4',  L:4,  mu:0, nAz:4, nEl:1},
+    {label:'FR1 · L=8',  L:8,  mu:1, nAz:8, nEl:1},
+    {label:'FR2 · L=64', L:64, mu:3, nAz:8, nEl:8}
+  ];
+  var swpCase=2, SEC=120;                     // 섹터 120°
+  var SG=document.getElementById('swpGrid');
+  var FCX=300, FCY=300, FR=214;               // 부채꼴
+  var TX=560, TW=510, TY=150;                 // 시간 축
+  var swpAng=document.getElementById('swpAng');
+
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+  var syncCase=mkSeg(document.getElementById('swpCase'),CASES,
+    function(){return swpCase;}, function(v){swpCase=v;}, function(){drawSweep();});
+
+  function drawSweep(){
+    var c=CASES[swpCase], L=c.L, one=SSB_ONE/Math.pow(2,c.mu);
+    var ang=parseInt(swpAng.value,10);
+    var per=SEC/c.nAz;                         // 방위각 빔 하나가 맡는 각도
+    var iAz=Math.min(c.nAz-1,Math.max(0,Math.floor((ang+SEC/2)/per)));
+    var lo=iAz*c.nEl, hi=lo+c.nEl-1;           // 그 방위각에 딸린 SSB 묶음 (고각별로 하나씩)
+    clear(SG);
+
+    /* ── 왼쪽 · 부채꼴 (방위각 단면) ── */
+    SG.appendChild(txt(FCX,26,'기지국이 나눠 쏘는 방향 · 방위각 단면','rowlab','var(--ink-soft)'));
+    for(var i=0;i<c.nAz;i++){
+      var a0=(-SEC/2+i*per)*RAD, a1=(-SEC/2+(i+1)*per)*RAD, hit=(i===iAz);
+      var p0=[FCX+FR*Math.sin(a0),FCY-FR*Math.cos(a0)];
+      var p1=[FCX+FR*Math.sin(a1),FCY-FR*Math.cos(a1)];
+      SG.appendChild(el('path',{
+        d:'M'+FCX+' '+FCY+' L'+p0[0].toFixed(2)+' '+p0[1].toFixed(2)
+          +' A'+FR+' '+FR+' 0 0 1 '+p1[0].toFixed(2)+' '+p1[1].toFixed(2)+' Z',
+        fill:hit?'var(--dl-bg)':'#fff',stroke:hit?'var(--dl)':'var(--hair)',
+        'stroke-width':hit?1.6:0.8}));
+    }
+    if(c.nEl>1) SG.appendChild(txt(FCX,FCY+40,
+      '고각으로도 '+c.nEl+'겹 — 그림은 그중 한 켜','dimlab','var(--ink-soft)'));
+    /* 단말 */
+    var ua=ang*RAD, up=[FCX+(FR+26)*Math.sin(ua),FCY-(FR+26)*Math.cos(ua)];
+    SG.appendChild(el('line',{x1:FCX,y1:FCY,x2:up[0],y2:up[1],
+      stroke:'var(--ink)','stroke-width':1.4,'stroke-dasharray':'5 4'}));
+    SG.appendChild(el('circle',{cx:up[0],cy:up[1],r:6,fill:'var(--ink)'}));
+    SG.appendChild(txt(up[0],up[1]-14,'단말 '+deg(ang),'celllab','var(--ink)'));
+    SG.appendChild(el('rect',{x:FCX-16,y:FCY,width:32,height:14,fill:'var(--ink)'}));
+
+    /* ── 오른쪽 · 시간 축 ── */
+    SG.appendChild(txt(TX,26,'그 방향들을 시간 순서로 하나씩','rowlab','var(--ink-soft)','start'));
+    var total=L*one, px=TW/total;
+    for(var j=0;j<L;j++){
+      var hit2=(j>=lo&&j<=hi);
+      SG.appendChild(el('rect',{x:TX+j*one*px+(L>16?0.2:1),y:TY-30,
+        width:one*px-(L>16?0.4:2),height:60,
+        fill:hit2?'var(--dl-bg)':'#fff',stroke:hit2?'var(--dl)':'var(--hair)',
+        'stroke-width':hit2?1.6:(L>16?0.4:0.8)}));
+    }
+    SG.appendChild(txt(TX,TY+56,'0','dimlab','var(--ink-soft)','start'));
+    SG.appendChild(txt(TX+TW,TY+56,(total/1000).toFixed(2)+' ms','dimlab','var(--ink-soft)','end'));
+    var label=(c.nEl>1?'SSB #'+lo+'–#'+hi:'SSB #'+lo);
+    var hx=TX+((lo+hi+1)/2)*one*px;
+    SG.appendChild(el('line',{x1:hx,y1:TY-46,x2:hx,y2:TY-32,stroke:'var(--dl)','stroke-width':1.6}));
+    SG.appendChild(txt(Math.min(Math.max(hx,TX+50),TX+TW-50),TY-52,label,'celllab','var(--dl)'));
+    SG.appendChild(txt(TX+TW/2,TY+92, c.nEl>1
+      ? '이 방위각에 딸린 '+c.nEl+'개 중 가장 센 것을 고른다 — 그 번호가 곧 방향이다'
+      : '단말은 이 하나만 세게 듣는다 — 그 번호가 곧 방향이다','dimlab','var(--ink-soft)'));
+
+    /* 읽을거리 */
+    document.getElementById('swpOut').textContent=deg(ang)+' · '+label;
+    document.getElementById('swpIdx').textContent=(c.nEl>1?'#'+lo+'–'+hi:'#'+lo);
+    document.getElementById('swpWide').textContent=per.toFixed(1)+'°';
+    document.getElementById('swpTime').textContent=(total/1000).toFixed(2)+' ms';
+    document.getElementById('swpOver').textContent=(total/20000*100).toFixed(2)+'%';
+  }
+  swpAng.addEventListener('input',drawSweep);
+  drawSweep();
+})();
+</script>
+</body>
+</html>
