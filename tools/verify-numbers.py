@@ -7,6 +7,8 @@
 근거: TS 38.211 §4.1(Tc, κ), §4.2(SCS), §5.3.1(CP)
 """
 
+import math
+
 Tc = 1 / (480_000 * 4096)   # §4.1  ≈ 0.50863 ns
 KAPPA = 64                  # §4.1  Ts/Tc
 
@@ -67,6 +69,7 @@ def main():
     print(f"\n[02] DDDSU(10:2:2)  DL {dl}/70 = {dl/70*100:.1f}%   UL {(14+2)/70*100:.1f}%")
 
     ok &= check_ssb()
+    ok &= check_bwp()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -194,6 +197,162 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/05-bandwidth-part ══════════════════════════════════
+# 근거: TS 38.211 §4.4.2(N_RB^max = 275), §4.4.4(Point A · CRB · PRB), §4.4.5(BWP)
+#       TS 38.214 §5.1.2.2.2(RIV), Table 5.1.2.2.1-1(RBG 크기 P)
+#       TS 38.212 §7.3.1.2.2(주파수 자원 할당 비트 수)
+#       TS 38.331 BWP(locationAndBandwidth 0..37949), TS 38.133 §8.6.2(전환 지연)
+#       TS 38.101-1 Table 5.3.2-1(대역폭당 RB 수)
+
+N_RB_MAX = 275                          # §4.4.2 Table 4.4.2-1, 모든 μ 공통
+
+# TS 38.133 Table 8.6.2-1 — μ: (타입1 슬롯, 타입2 슬롯)
+BWP_DELAY = {0: (1, 3), 1: (2, 5), 2: (3, 9), 3: (6, 18)}
+
+# TS 38.101-1 Table 5.3.2-1 — 30 kHz에서 채널 대역폭당 RB 수
+RB_AT_30K = {10: 24, 20: 51, 40: 106, 50: 133, 100: 273}
+
+
+def riv(start, L, n=N_RB_MAX):
+    """TS 38.214 §5.1.2.2.2 — 시작 위치와 폭을 정수 하나로 접는다"""
+    if L - 1 <= n // 2:
+        return n * (L - 1) + start
+    return n * (n - L + 1) + (n - 1 - start)
+
+
+def rbg_size(n, config=1):
+    """TS 38.214 Table 5.1.2.2.1-1 — BWP 폭에 따른 공칭 RBG 크기 P"""
+    if n <= 36:
+        return 2 if config == 1 else 4
+    if n <= 72:
+        return 4 if config == 1 else 8
+    if n <= 144:
+        return 8 if config == 1 else 16
+    return 16
+
+
+def fft_size(rb):
+    """부반송파를 담을 수 있는 최소 2의 거듭제곱"""
+    n = 1
+    while n < rb * 12:
+        n *= 2
+    return n
+
+
+def check_bwp():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<38} {got:>10.6g}  게시 {want:<9} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[05] RIV는 전단사인가 — TS 38.214 §5.1.2.2.2 / TS 38.331 locationAndBandwidth")
+    seen = {}
+    for L in range(1, N_RB_MAX + 1):
+        for s in range(0, N_RB_MAX - L + 1):
+            seen.setdefault(riv(s, L), []).append((s, L))
+    pairs = N_RB_MAX * (N_RB_MAX + 1) // 2
+    dup = sum(len(v) - 1 for v in seen.values())
+    gapless = set(seen) == set(range(pairs))
+    eq("(시작, 폭) 조합 수 · 275·276/2", pairs, 37950, 0)
+    eq("서로 다른 RIV 수", len(seen), 37950, 0)
+    eq("충돌 수", dup, 0, 0)
+    eq("RIV 최댓값", max(seen), 37949, 0)
+    eq("RIV 최솟값", min(seen), 0, 0)
+    ok &= gapless
+    print(f"  {'0…37949를 빈틈없이 덮는가':<36} {'예' if gapless else '아니오':>12}  "
+          f"{'✓' if gapless else '✗ 자료의 주장과 다름'}")
+    eq("필드 폭 ⌈log2 37950⌉ [비트]", math.ceil(math.log2(pairs)), 16, 0)
+
+    # 자료의 주장: 폭이 139 이상이면 두 번째 갈래로 "접힌다"
+    fold = N_RB_MAX // 2 + 2                       # 138 + 1 = 139
+    below = (fold - 1) - 1 <= N_RB_MAX // 2        # L=138 은 첫 갈래
+    above = not ((fold - 1) <= N_RB_MAX // 2)      # L=139 는 두 번째 갈래
+    hit = below and above
+    ok &= hit
+    print(f"  접힘 경계 L=138은 첫 갈래, L=139는 두 번째 갈래  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+    eq("첫 갈래 최대 RIV (L=138, 시작=137)", riv(137, 138), 37812, 0)
+    eq("두 번째 갈래 최대 RIV (L=139, 시작=0)", riv(0, 139), 37949, 0)
+
+    # 자료의 주장: 549는 첫 갈래가 폭 2에서 건너뛴 자리이고, 폭 275가 그 자리를 채운다
+    first_branch = {riv(s, L) for L in range(1, fold) for s in range(0, N_RB_MAX - L + 1)}
+    eq("폭 2가 만드는 최대 RIV", riv(273, 2), 548, 0)
+    eq("폭 3이 만드는 최소 RIV", riv(0, 3), 550, 0)
+    eq("폭 275의 RIV (그 사이 빈자리)", riv(0, 275), 549, 0)
+    hit = 549 not in first_branch
+    ok &= hit
+    print(f"  549를 첫 갈래는 만들지 못한다  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[05] DCI 주파수 자원 할당 비트 — TS 38.212 §7.3.1.2.2 / TS 38.214 §5.1.2.2")
+    print(f"  {'BWP 폭':>8} {'타입0':>7} {'타입1':>7}   게시값")
+    for n, p_t0, p_t1 in [(24, 12, 9), (48, 12, 11), (51, 13, 11), (133, 17, 14), (273, 18, 16)]:
+        t1 = math.ceil(math.log2(n * (n + 1) / 2))
+        t0 = math.ceil(n / rbg_size(n))            # 시작 RB가 P의 배수인 경우
+        hit = t0 == p_t0 and t1 == p_t1
+        ok &= hit
+        print(f"  {n:>5} RB {t0:>6}비트 {t1:>6}비트   {'✓' if hit else '✗ 불일치'}")
+    eq("273 → 51 RB로 좁힐 때 절약 [비트]",
+       math.ceil(math.log2(273 * 274 / 2)) - math.ceil(math.log2(51 * 52 / 2)), 5, 0)
+
+    print("\n[05] 대역폭 ↔ RB ↔ FFT — TS 38.101-1 Table 5.3.2-1, 30 kHz")
+    print(f"  {'대역':>7} {'RB':>5} {'점유':>10} {'FFT':>7} {'표본화':>11}   게시값")
+    for bw, occ_pub, fft_pub, fs_pub in [(10, 8.64, 512, 15.36), (20, 18.36, 1024, 30.72),
+                                         (50, 47.88, 2048, 61.44), (100, 98.28, 4096, 122.88)]:
+        rb = RB_AT_30K[bw]
+        occ = rb * 12 * 30 / 1000                  # MHz
+        nfft = fft_size(rb)
+        fs = nfft * 30 / 1000                      # MHz
+        hit = (abs(occ - occ_pub) < 0.005 and nfft == fft_pub and abs(fs - fs_pub) < 0.005
+               and occ < bw)                       # 점유 대역이 채널을 넘지 않는가
+        ok &= hit
+        print(f"  {bw:>4} MHz {rb:>5} {occ:>8.2f} MHz {nfft:>7} {fs:>8.2f} MHz   {'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 주장: 대역은 5.35배 줄었는데 표본화율은 4배만 줄어든다 (FFT가 2의 거듭제곱이라)
+    wide, narrow = fft_size(273), fft_size(51)
+    eq("표본화율 비 100→20 MHz", wide / narrow, 4.0, 0.005)
+    eq("FFT 일감 비 N·log2N", (wide * math.log2(wide)) / (narrow * math.log2(narrow)), 4.8, 0.005)
+    eq("RB 비 273/51", 273 / 51, 5.35, 0.005)
+    ok &= (273 / 51) > (wide / narrow)
+    print(f"  RB 비가 표본화율 비보다 크다(2의 거듭제곱 계단)  "
+          f"{'✓' if (273/51) > (wide/narrow) else '✗ 자료의 주장과 다름'}")
+
+    print("\n[05] BWP 전환 지연 — TS 38.133 §8.6.2 Table 8.6.2-1")
+    print(f"  {'μ':>2} {'슬롯':>9} {'타입1':>16} {'타입2':>16}   게시값")
+    for mu, (t1_pub_ms, t2_pub_ms) in [(0, (1.00, 3.00)), (1, (1.00, 2.50)),
+                                       (2, (0.75, 2.25)), (3, (0.75, 2.25))]:
+        slot = 1 / 2**mu
+        n1, n2 = BWP_DELAY[mu]
+        a, b = n1 * slot, n2 * slot
+        hit = abs(a - t1_pub_ms) < 0.005 and abs(b - t2_pub_ms) < 0.005
+        ok &= hit
+        print(f"  {mu:>2} {slot:>7.3f}ms {n1:>7}슬롯 {a:>5.2f}ms {n2:>7}슬롯 {b:>5.2f}ms   "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 핵심 주장: 슬롯 수는 μ에 따라 늘지만 실제 시간은 바닥을 친다 (06의 N1과 반대)
+    for typ, floor_pub in [(1, 0.75), (2, 2.25)]:
+        idx = 0 if typ == 1 else 1
+        times = [BWP_DELAY[mu][idx] / 2**mu for mu in sorted(BWP_DELAY)]
+        slots = [BWP_DELAY[mu][idx] for mu in sorted(BWP_DELAY)]
+        rising = all(slots[i] < slots[i + 1] for i in range(len(slots) - 1))
+        flat = abs(times[-1] - times[-2]) < 1e-9        # μ=2와 μ=3이 같은 시간
+        hit = rising and flat and abs(min(times) - floor_pub) < 1e-9
+        ok &= hit
+        print(f"  타입{typ}: 슬롯 수 단조 증가 {slots} · 시간 바닥 {min(times):.2f} ms "
+              f"(게시 {floor_pub}) · μ=2,3 동일  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[05] 설정 개수와 초기 BWP")
+    # maxNrofBWPs = 4 와 DCI BWP 지시자 2비트가 서로 맞는가 (TS 38.331 / TS 38.212 §7.3.1)
+    eq("BWP 지시자 2비트가 가리키는 수", 2**2, 4, 0)
+    # CORESET#0 폭(24·48·96 RB)이 275 격자 안의 창문으로 성립하는가 — 초기 BWP가 여기서 나온다
+    fits = all(1 <= n <= N_RB_MAX and 0 <= riv(0, n) <= 37949 for n in (24, 48, 96))
+    ok &= fits
+    print(f"  CORESET#0 폭 24·48·96 RB가 275 격자 위 창문으로 성립  {'✓' if fits else '✗'}")
 
     return ok
 
