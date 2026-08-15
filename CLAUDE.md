@@ -86,10 +86,8 @@
 
 ## 7. 로드맵 (작성 예정)
 
-- 04 SSB와 초기 접속 — 단말은 셀을 어떻게 찾는가
-- 05 BWP(Bandwidth Part) — 왜 대역을 쪼개서 쓰는가
-- 06 HARQ와 재전송 타이밍 — K0/K1/K2
-- 07 빔포밍과 빔 관리 — FR2가 다른 이유
-- 08 스케줄링과 DCI — 자원이 실제로 배정되는 과정
-- 09 채널 코딩 — LDPC와 Polar
-- 10 5G 코어와 세션 — PDU Session, QoS Flow
+- 09 스케줄링과 DCI — 자원이 실제로 배정되는 과정
+- 10 채널 코딩 — LDPC와 Polar
+- 11 5G 코어와 세션 — PDU Session, QoS Flow
+
+08까지 작성 완료. 목록은 루트 `index.html` 참조.

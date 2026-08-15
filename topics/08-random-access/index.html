@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 랜덤 액세스 절차 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>08 / 랜덤 액세스 절차</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">08 · random access procedure</p>
+  <h1>이름을 받으러 가는데<br><em>이름이</em> 없다</h1>
+  <p class="lead"><a href="../04-ssb-initial-access/index.html">04</a>에서 단말은 셀을 찾고 자기 빔까지 골랐습니다. 그런데 아직 이름도, 보낼 허가도, 언제 쏴야 할지도 없습니다. 아무것도 없는 상태에서 <strong>처음 입을 여는 절차</strong> — 그리고 같은 순간에 입을 연 다른 단말과 뒤엉키지 않는 방법이 랜덤 액세스입니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>아무것도 없는 채로 입을 열기</h2>
+  <p>04에서 본 4단계 그림은 <a href="../04-ssb-initial-access/index.html">거기서 이미 훑었습니다.</a> 이 자료는 그 그림이 <strong>왜 그 모양이어야 했는지</strong>를 봅니다. 먼저 단말이 가진 것과 없는 것을 정리해 봅시다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>프리앰블을 쏘기 직전 단말의 상태</caption>
+    <thead><tr><th>가진 것</th><th>없는 것</th></tr></thead>
+    <tbody>
+      <tr><td>하향 동기 · 셀 ID <span class="src">SSB에서</span></td>
+          <td><strong>이름(C-RNTI)</strong> — 기지국이 자기를 부를 방법</td></tr>
+      <tr><td>SIB1의 랜덤 액세스 설정</td>
+          <td><strong>상향 그랜트</strong> — 무엇이든 보낼 허가</td></tr>
+      <tr><td>자기에게 맞는 SSB 인덱스 <span class="src">= 빔, <a href="../07-beamforming/index.html">07</a></span></td>
+          <td><strong>타이밍 어드밴스</strong> — 언제 쏴야 제때 닿는지</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>없는 것 세 가지가 서로 물려 있습니다. 이름을 받으려면 뭔가 보내야 하는데, 보내려면 그랜트가 있어야 하고, 그랜트를 받으려면 이름이 있어야 합니다. <a href="../04-ssb-initial-access/index.html">04의 닭과 달걀</a>이 한 겹 더 있는 셈입니다.</p>
+
+  <p>규격의 해법은 <strong>이름 없이도 쏠 수 있는 신호를 하나 만들어 두는 것</strong>입니다. 그게 프리앰블입니다. 여기서부터 이 자료의 비유를 시작합니다.</p>
+
+  <div class="note">
+    <strong>깜깜한 강당에서 구호 외치기.</strong> 이름을 모르는 사람들이 앞쪽을 향해 소리를 지릅니다.
+    모두 <strong>같은 구호</strong>를 쓰되 <strong>시작 박자를 다르게</strong> 합니다 — 누구는 0박에, 누구는 3박에.
+    앞에 선 사람은 소리가 <strong>언제 도착했는지</strong>로 누가 외쳤는지를 가려냅니다.
+    이 자료의 절반은 "박자를 몇 개로 나눌 것인가"에 관한 이야기입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>같은 구호, 다른 박자 — 자도프-추와 순환 시프트</h2>
+  <p>프리앰블은 <strong>자도프-추(Zadoff–Chu) 시퀀스</strong>입니다. 두 가지 성질 때문에 뽑혔습니다.</p>
+
+  <ul>
+    <li><strong>진폭이 일정합니다.</strong> 모든 표본의 크기가 같아 전력증폭기를 최대로 밀 수 있습니다 — 가장 멀리 보내야 하는 신호에 딱 맞습니다.</li>
+    <li><strong>자기 자신을 밀어 놓으면 완전히 직교합니다.</strong> 같은 시퀀스를 순환 이동시킨 것끼리는 상관값이 <strong>정확히 0</strong>입니다. 이게 "같은 구호, 다른 박자"입니다.</li>
+  </ul>
+
+  <!-- 유도: L_RA = 839 (소수), 시퀀스 길이 = 1/Δf_RA = 1/1.25kHz = 800 μs
+       한 표본 = 800/839 = 0.95352 μs
+       서로 다른 루트끼리의 교차상관 = 1/√839 = 0.03452 → 20log10 = −29.24 dB
+       839×1.25 kHz = 1.0488 MHz ≤ 6 RB @15 kHz(1.08 MHz)  → 긴 포맷은 6 RB를 쓴다
+       139×15 kHz = 2.085 MHz ≤ 12 RB @15 kHz(2.16 MHz)    → 짧은 포맷은 12 RB -->
+  <div class="stats">
+    <div><span class="n">839</span><span class="t">긴 포맷의 시퀀스 길이 · 소수 <span class="src">TS 38.211 §6.3.3.1</span></span></div>
+    <div><span class="n">0</span><span class="t">같은 루트, 다른 시프트끼리의 상관값</span></div>
+    <div><span class="n">−29.2</span><span class="t">다른 루트끼리의 상관값 [dB] · 1/√839</span></div>
+    <div><span class="n">64</span><span class="t">한 자리에서 필요한 프리앰블 수</span></div>
+  </div>
+
+  <p>두 번째와 세 번째 숫자의 차이가 이 절의 전부입니다. <strong>같은 구호를 다른 박자로 쓰면 완벽하게 구별</strong>되지만, <strong>다른 구호를 쓰면 −29 dB만큼 서로에게 잡음</strong>이 됩니다. 그러니 되도록 <strong>구호 하나로 64가지를 다 만들고 싶습니다.</strong></p>
+
+  <p>문제는 박자 간격입니다. <strong>멀리 있는 사람의 소리는 늦게 도착합니다.</strong> 간격이 좁으면 "멀리서 0박에 외친 사람"과 "가까이서 1박에 외친 사람"이 구별되지 않습니다. 그래서 간격은 <strong>왕복 전파 지연보다 넓어야</strong> 합니다. 그 간격이 <strong>N<sub>CS</sub></strong>입니다.</p>
+
+  <p>아래에서 간격을 바꿔 보세요. 왼쪽 원이 <strong>구호 하나에서 뽑아낼 수 있는 박자의 수</strong>이고, 오른쪽이 <strong>그 간격이 허용하는 거리</strong>입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="t1 d1">
+      <title id="t1">순환 시프트 간격이 프리앰블 수와 셀 반경을 동시에 정하는 구조</title>
+      <desc id="d1">왼쪽 원은 839 표본짜리 순환 시퀀스를 시프트 간격으로 나눈 것으로, 조각 하나가 프리앰블 하나다. 간격을 넓히면 조각 수가 줄어 루트 시퀀스를 더 많이 써야 한다. 오른쪽은 프리앰블 포맷의 보호 구간이 허용하는 반경과 순환 시프트가 허용하는 반경을 나란히 그린 막대이며, 셀 반경은 둘 중 짧은 쪽으로 정해진다.</desc>
+      <g id="ncsGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="ncsIdx">시프트 간격 설정</label>
+    <input type="range" id="ncsIdx" min="0" max="15" step="1" value="12" aria-describedby="ncsOut">
+    <span class="segmented" id="fmtPick" role="group" aria-label="프리앰블 포맷 선택"></span>
+    <span class="readout" id="ncsOut"></span>
+  </div>
+
+  <div class="verdict" id="ncsBox">
+    <span class="tag" id="ncsTag"></span>
+    <span class="why" id="ncsWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="ncsVal">—</span><span class="t">N<sub>CS</sub> · 시프트 간격 [표본]</span></div>
+    <div><span class="n" id="ncsPer">—</span><span class="t">구호(루트) 하나에서 나오는 프리앰블</span></div>
+    <div><span class="n" id="ncsRoot">—</span><span class="t">64개를 채우는 데 필요한 루트 수</span></div>
+    <div><span class="n" id="ncsR">—</span><span class="t">이 조합이 감당하는 셀 반경</span></div>
+  </div>
+  <p class="caption">거리 축은 실제 비율입니다. 반경은 <strong>지연 확산을 0으로 둔 상한</strong>이며, 실제로는 다중경로 지연만큼 더 빼야 합니다. N<sub>CS</sub> 표는 제한 없는 집합(unrestricted set) 기준입니다 — 고속 이동 단말용 제한 집합은 값이 다릅니다.</p>
+
+  <!-- 유도: 한 표본 = 800/839 μs.  시프트 시간 = N_CS × 800/839 μs
+       반경 = c × 시프트시간 / 2   (왕복이므로 ÷2),  c = 299.792458 m/μs
+       루트당 프리앰블 = ⌊839 / N_CS⌋,  필요 루트 = ⌈64 / 루트당⌉
+         N_CS  13 → ⌊839/13⌋ = 64 → 루트 1개,  반경  1.86 km
+         N_CS 119 → ⌊839/119⌋ = 7 → 루트 10개, 반경 17.01 km
+         N_CS 419 → ⌊839/419⌋ = 2 → 루트 32개, 반경 59.89 km -->
+  <div class="note">
+    <strong>가장 좁은 간격이 정확히 64를 준다.</strong> N<sub>CS</sub> = 13일 때 ⌊839 / 13⌋ = <strong>64</strong> —
+    구호 하나로 필요한 프리앰블이 딱 채워집니다. 표에서 0 다음으로 작은 값이 하필 13인 것이 우연으로 보이지 않는 이유입니다.
+    대신 이때 감당하는 반경은 <strong>1.86 km</strong>뿐입니다. 셀을 키우려면 간격을 벌려야 하고,
+    간격을 벌리면 구호를 여러 개 써야 하고, 구호끼리는 −29 dB로 서로를 방해합니다.
+    <strong>큰 셀은 프리앰블 검출 품질로 대가를 치릅니다.</strong>
+    <span class="src">TS 38.211 §6.3.3.1 Table 6.3.3.1-5</span>
+  </div>
+  <!-- VERIFY: N_CS 표의 정확한 번호(Table 6.3.3.1-5)와 제한 없는 집합 열의 16개 값 —
+       TS 38.211 원문 대조 필요. 값 자체는 verify-numbers.py 가 자기일관성(⌊839/N_CS⌋ 등)만 검사한다. -->
+
+  <h3>벽이 둘이다</h3>
+  <p>위 그림의 오른쪽에서 이미 봤을 겁니다. 셀 반경을 막는 것이 <strong>두 개</strong>입니다.</p>
+
+  <ul>
+    <li><strong>포맷의 보호 구간</strong> — 프리앰블이 정해진 칸을 넘어 흘러넘치지 않을 최대 거리</li>
+    <li><strong>순환 시프트 간격</strong> — 박자끼리 헷갈리지 않을 최대 거리</li>
+  </ul>
+
+  <p>셀 반경은 <strong>둘 중 짧은 쪽</strong>으로 정해집니다. 그래서 포맷만 길게 잡아도, N<sub>CS</sub>만 넓게 잡아도 소용이 없습니다.</p>
+
+  <!-- 유도: 포맷별 보호 구간 = 전체 길이 − CP − 시퀀스,  반경 = c × 보호구간 / 2
+       κ=64, Tc=1/(480000·4096) — 04와 같은 상수
+       포맷 0: CP 3168κ=103.12 μs, 시퀀스 24576κ=800 μs, 1 ms → 보호 96.88 μs → 14.52 km
+       포맷 1: CP 21024κ=684.38,  시퀀스 2×24576κ=1600,  3 ms → 보호 715.62 → 107.27 km
+       포맷 2: CP 4688κ=152.60,   시퀀스 4×24576κ=3200,  3.5 ms → 보호 147.40 → 22.09 km
+       포맷 3: CP 3168κ=103.12,   시퀀스 4×6144κ=800,    1 ms → 보호 96.88 → 14.52 km (Δf 5 kHz) -->
+  <div class="table-scroll">
+  <table>
+    <caption>긴 프리앰블 포맷 · L<sub>RA</sub> = 839 · TS 38.211 §6.3.3.1 Table 6.3.3.1-1</caption>
+    <thead><tr><th class="num">포맷</th><th class="num">Δf</th><th class="num">CP</th><th class="num">시퀀스</th>
+      <th class="num">전체</th><th class="num">보호 구간</th><th class="num">보호 구간이 허용하는 반경</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">1.25 kHz</td><td class="num">103.12 μs</td><td class="num">800 μs</td>
+          <td class="num">1 ms</td><td class="num">96.88 μs</td><td class="num">14.52 km</td></tr>
+      <tr><td class="num">1</td><td class="num">1.25 kHz</td><td class="num">684.38 μs</td><td class="num">1600 μs · 2회</td>
+          <td class="num">3 ms</td><td class="num">715.62 μs</td><td class="num">107.27 km</td></tr>
+      <tr><td class="num">2</td><td class="num">1.25 kHz</td><td class="num">152.60 μs</td><td class="num">3200 μs · 4회</td>
+          <td class="num">3.5 ms</td><td class="num">147.40 μs</td><td class="num">22.09 km</td></tr>
+      <tr><td class="num">3</td><td class="num">5 kHz</td><td class="num">103.12 μs</td><td class="num">800 μs · 4회</td>
+          <td class="num">1 ms</td><td class="num">96.88 μs</td><td class="num">14.52 km</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">포맷 0의 값은 <a href="../04-ssb-initial-access/index.html">04</a>에서 검산한 것과 같습니다. 반복 횟수가 늘어나는 포맷 2·3은 거리가 아니라 <strong>에너지</strong>를 버는 쪽입니다 — 같은 시퀀스를 여러 번 겹쳐 받아 약한 신호를 살립니다. 포맷 3은 부반송파 간격이 4배라 도플러에 강해 고속 이동용입니다.</p>
+
+  <div class="note">
+    <strong>가장 큰 셀에서는 시프트를 아예 안 쓴다.</strong> N<sub>CS</sub> 표의 첫 값은 <strong>0</strong>인데,
+    이건 "순환 시프트를 쓰지 않는다"는 뜻입니다. 그러면 구호 하나가 프리앰블 하나가 되어 <strong>루트 64개</strong>가 필요하지만,
+    박자 간격 때문에 생기는 거리 제약이 <strong>사라집니다.</strong>
+    포맷 1의 보호 구간 107 km를 온전히 쓰려면 이 선택지밖에 없습니다 —
+    표에서 가장 넓은 간격 419조차 59.9 km에서 막히기 때문입니다.
+  </div>
+
+  <div class="note">
+    <strong>짧은 포맷.</strong> FR2와 작은 셀에서는 L<sub>RA</sub> = 139짜리 짧은 포맷을 씁니다.
+    일반 OFDM 심볼 위에 얹히므로 부반송파 간격이 데이터와 같고(15·30·60·120 kHz), 슬롯 안에 여러 번 들어갑니다.
+    대역은 <strong>12 RB</strong>를 쓰는데, 긴 포맷이 6 RB인 것과 대비됩니다 — 139 × 15 kHz = 2.085 MHz가 12 RB(2.16 MHz)에 들어갑니다.
+    <span class="src">TS 38.211 §6.3.3.2</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>어디에 대고 외치는가 — RACH 기회와 빔</h2>
+  <p>프리앰블을 아무 때나 쏘는 것이 아닙니다. 규격은 <strong>RACH 기회(RACH Occasion, RO)</strong> — 프리앰블을 받아 주는 시간·주파수 칸 — 를 미리 정해 SIB1으로 알려줍니다. 단말은 그 칸 안에서만 외칩니다.</p>
+
+  <p>여기서 <a href="../07-beamforming/index.html">07</a>이 돌아옵니다. FR2의 기지국은 <strong>한 방향씩 돌아가며</strong> 듣습니다. 단말이 아무 RO에나 외치면 기지국이 그때 다른 쪽을 보고 있을 수 있습니다. 그래서 규격은 <strong>SSB와 RO를 묶습니다.</strong></p>
+
+  <div class="note">
+    <strong>어느 프리앰블을 골랐는지가 곧 어느 빔인지를 말한다.</strong> 단말은 04에서 고른 자기 SSB에 대응하는
+    RO와 프리앰블 묶음 안에서만 고릅니다. 그러면 기지국은 프리앰블을 검출하는 순간
+    <strong>이 단말이 몇 번 빔에 있는지</strong>를 함께 알게 됩니다 — 별도로 물어볼 필요가 없습니다.
+    응답(Msg2)도 그 빔으로 쏘면 됩니다.
+    <span class="src">TS 38.213 §8.1 · <code>ssb-perRACH-OccasionAndCB-PreamblesPerSSB</code></span>
+  </div>
+
+  <p>대가가 있어 보입니다. SSB 여러 개가 RO 하나를 나눠 쓰면 <strong>64개를 쪼개 가져야</strong> 하니까요. 8개로 나누면 빔마다 8개뿐입니다. 충돌이 훨씬 잦아질 것 같습니다. 아래에서 직접 확인해 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="t2 d2">
+      <title id="t2">SSB마다 프리앰블을 나눠 가질 때의 충돌 확률</title>
+      <desc id="d2">위쪽은 64개의 프리앰블을 빔 수만큼의 묶음으로 나눈 그림이고, 아래쪽은 단말들이 빔에 나뉘어 붙는 모습이다. 단말이 빔에 고르게 퍼지면 충돌 확률은 빔 수와 무관하게 같고, 한 빔에 몰릴 때만 나빠진다.</desc>
+      <g id="beamGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="rbBeams">RO 하나를 나눠 쓰는 SSB</label>
+    <input type="range" id="rbBeams" min="0" max="3" step="1" value="3" aria-describedby="rbOut">
+    <label for="rbUe">동시에 시도하는 단말</label>
+    <input type="range" id="rbUe" min="2" max="40" step="1" value="16" aria-describedby="rbOut">
+    <span class="readout" id="rbOut"></span>
+  </div>
+
+  <div class="verdict" id="rbBox">
+    <span class="tag" id="rbTag"></span>
+    <span class="why" id="rbWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="rbPer">—</span><span class="t">빔 하나가 갖는 프리앰블</span></div>
+    <div><span class="n" id="rbUni">—</span><span class="t">고르게 퍼졌을 때 충돌 확률</span></div>
+    <div><span class="n" id="rbFlat">—</span><span class="t">빔을 안 나눴다면</span></div>
+    <div><span class="n" id="rbHot">—</span><span class="t">전부 한 빔에 몰렸을 때</span></div>
+  </div>
+  <p class="caption">"충돌"은 <strong>특정 단말 하나가</strong> 다른 누군가와 같은 자리·같은 프리앰블을 고를 확률입니다. 단말이 빔에 고르게 퍼진다고 가정했습니다.</p>
+
+  <!-- 유도: 다른 단말 하나가 나와 충돌하려면 (같은 빔) ∧ (같은 프리앰블)
+       빔 B개, 빔당 프리앰블 64/B 이면
+         P = (1/B) × (B/64) = 1/64        ← B가 약분되어 사라진다
+       따라서 단말이 고르게 퍼지는 한 충돌 확률은 빔 수와 무관하다:
+         P(특정 단말 충돌) = 1 − (1 − 1/64)^(k−1)
+         k=10 → 13.21%   k=40 → 45.89%   (B = 1, 2, 4, 8 전부 동일)
+       손해는 쏠릴 때 난다. 한 빔에 k대가 몰리면 프리앰블은 64/B개뿐:
+         k=10, 프리앰블 8개 → 69.9%   (64개였다면 13.2%) -->
+  <div class="note">
+    <strong>나눠도 손해가 아니다 — 고르게 퍼져 있는 한.</strong> 다른 단말이 나와 부딪히려면
+    <strong>같은 빔</strong>이면서 <strong>같은 프리앰블</strong>이어야 합니다. 빔이 B개면 앞의 확률은 1/B로 줄고,
+    빔당 프리앰블이 64/B개니 뒤의 확률은 B/64로 늘어납니다. 곱하면 <strong>(1/B) × (B/64) = 1/64</strong> —
+    <strong>B가 약분되어 사라집니다.</strong> 위 슬라이더로 빔 수만 바꿔 보면 확률이 꿈쩍도 하지 않습니다.
+  </div>
+
+  <div class="note">
+    <strong>그럼 언제 손해가 나는가.</strong> <strong>쏠릴 때</strong>입니다. 단말이 한 빔에 몰리면
+    그 빔의 프리앰블 8개를 두고 전부가 경쟁합니다 — 10대가 몰리면 충돌 확률이 <strong>69.9%</strong>로,
+    64개를 함께 쓸 때의 13.2%보다 훨씬 나쁩니다. 위 슬라이더에서 마지막 칸이 그 값입니다.
+    창가·출입구처럼 사람이 몰리는 방향의 빔이 유독 붐비는 이유가 이것이고,
+    망이 빔별 프리앰블 몫을 따로 잡을 수 있게 해 둔 이유이기도 합니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>왜 하필 네 번인가</h2>
+  <p>이제 핵심 질문입니다. 프리앰블을 받았으면 기지국이 바로 이름을 주면 되지 않나요? <strong>왜 두 번을 더 오가야 합니까.</strong></p>
+
+  <p>답은 <strong>Msg2가 구별할 수 있는 한계</strong>에 있습니다. 응답(RAR)은 프리앰블 번호(RAPID)까지는 구별합니다 — 같은 칸에서 <strong>다른</strong> 프리앰블을 고른 둘은 서로 다른 응답을 받아 아무 문제가 없습니다.</p>
+
+  <p>그런데 <strong>같은 칸에서 같은 프리앰블</strong>을 고른 둘은 어떨까요. 기지국이 받은 것은 <strong>완전히 동일한 신호 하나</strong>입니다. 두 단말이 있었다는 사실조차 모릅니다. 그래서 응답도 하나만 나가고, <strong>둘 다 그것을 자기 것으로 받습니다.</strong> 같은 TC-RNTI, 같은 그랜트.</p>
+
+  <div class="note">
+    <strong>Msg2는 경합을 해소할 수 없다.</strong> 해소하려면 둘을 구별해야 하는데,
+    Msg2 시점에 기지국이 가진 정보는 <strong>"어느 칸에서 몇 번 프리앰블이 왔다"</strong>가 전부입니다.
+    그게 같은 두 단말은 이 시점에 <strong>구별 가능한 차이가 없습니다.</strong>
+    구별은 단말이 <strong>자기 식별자를 실어 보낸 뒤에야</strong> 가능해집니다 — 그게 Msg3이고,
+    그 결과를 알려주는 것이 Msg4입니다. 네 단계는 <strong>줄일 수 없어서 넷</strong>입니다.
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <caption>각 단계가 하는 일 · TS 38.321 §5.1.1–5.1.5</caption>
+    <thead><tr><th>메시지</th><th>싣는 것</th><th>이 단계에서 새로 가능해지는 것</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Msg1</strong> 프리앰블</td><td>64가지 중 하나 · 신원 없음</td>
+          <td>기지국이 <strong>거리</strong>와 <strong>빔</strong>을 안다</td></tr>
+      <tr><td><strong>Msg2</strong> RAR</td><td>TA · 상향 그랜트 · TC-RNTI <span class="src">→ <a href="../04-ssb-initial-access/index.html">04</a></span></td>
+          <td>단말이 <strong>보낼 수 있게</strong> 된다. 아직 누구인지는 모른다</td></tr>
+      <tr><td><strong>Msg3</strong> RRC 요청</td><td><strong>단말의 식별자</strong> · HARQ 적용 <span class="src">→ <a href="../06-harq-timing/index.html">06</a></span></td>
+          <td>기지국이 <strong>둘을 구별</strong>할 수 있게 된다</td></tr>
+      <tr><td><strong>Msg4</strong> 경합 해소</td><td>받은 식별자를 <strong>그대로 되돌려준다</strong></td>
+          <td>단말이 <strong>자기가 이겼는지</strong> 안다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Msg4가 "이겼다"가 아니라 <strong>식별자를 그대로 되읊는</strong> 형태인 것이 요점입니다. 진 단말은 되돌아온 식별자가 자기 것이 아님을 보고 <strong>스스로</strong> 물러납니다 — 기지국은 진 단말의 존재를 끝내 모릅니다.</p>
+
+  <h3>두 번으로 줄이기</h3>
+  <p>Rel-16의 2단계 방식은 <strong>Msg1과 Msg3을 한꺼번에</strong> 보냅니다. 프리앰블 뒤에 PUSCH를 붙여 식별자까지 실어 보내는 것입니다(MsgA). 기지국은 검출과 동시에 누구인지 알므로 응답과 경합 해소를 한 번에 보냅니다(MsgB).</p>
+
+  <p>대신 <strong>그랜트를 받기 전에</strong> PUSCH를 쏘는 것이라 자원을 미리 잡아 둬야 하고, 타이밍 어드밴스도 없이 보내야 합니다. 그래서 <strong>작은 셀에서 유리</strong>합니다 — 왕복 지연이 짧아 TA 없이도 어긋남이 작기 때문입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t3 d3">
+      <title id="t3">4단계와 2단계 랜덤 액세스의 지연 예산 비교</title>
+      <desc id="d3">같은 시간 축 위에 4단계 절차와 2단계 절차를 나란히 그렸다. 4단계는 프리앰블, 응답 창, 메시지3 준비, 경합 해소 타이머가 차례로 이어지고, 2단계는 프리앰블과 PUSCH를 한 번에 보낸 뒤 응답 창 하나만 기다린다.</desc>
+      <g id="raGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="raWin">응답 창</label>
+    <input type="range" id="raWin" min="0" max="3" step="1" value="1" aria-describedby="raOut">
+    <label for="raCrt">경합 해소 타이머</label>
+    <input type="range" id="raCrt" min="0" max="3" step="1" value="0" aria-describedby="raOut">
+    <span class="segmented" id="raScs" role="group" aria-label="부반송파 간격 선택"></span>
+    <span class="readout" id="raOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="ra4">—</span><span class="t">4단계 · 최악 지연</span></div>
+    <div><span class="n" id="ra2">—</span><span class="t">2단계 · 최악 지연</span></div>
+    <div><span class="n" id="raSave">—</span><span class="t">줄어드는 시간</span></div>
+    <div><span class="n" id="raPct">—</span><span class="t">줄어드는 비율</span></div>
+  </div>
+  <p class="caption">시간 축은 실제 비율이며 두 줄이 <strong>같은 축</strong>을 씁니다. 이것은 <strong>설정값이 정하는 최악 지연 예산</strong>이지 평균이 아닙니다 — 대개 응답은 창이 끝나기 전에 오고 경합 해소도 타이머보다 빨리 끝납니다. 창과 타이머의 길이는 규격이 정한 선택지이고, 어느 값을 쓸지는 망이 정합니다.</p>
+
+  <div class="note">
+    <strong>줄어드는 것은 경합 해소 타이머다.</strong> 위에서 값을 바꿔 보면 절약분의 대부분이
+    <strong>Msg3 준비와 경합 해소 구간</strong>에서 나온다는 것이 보입니다.
+    2단계가 빠른 이유는 왕복을 줄여서라기보다 <strong>"이겼는지 확인하는 시간"을 없애서</strong>입니다 —
+    식별자를 처음부터 실어 보냈으니 확인할 것이 없기 때문입니다.
+    <span class="src">TS 38.331 <code>ra-ResponseWindow</code> · <code>ra-ContentionResolutionTimer</code></span>
+  </div>
+  <!-- VERIFY: ra-ResponseWindow 와 ra-ContentionResolutionTimer 의 열거값 전체 —
+       TS 38.331 ASN.1 원문 대조 필요. 본문은 흔히 쓰이는 값만 선택지로 제시했다. -->
+</section>
+
+<section class="wrap">
+  <h2>안 들리면 더 크게 — 전력 램핑</h2>
+  <p>프리앰블은 <strong>답이 없으면 실패한 것인지도 알 수 없습니다.</strong> 기지국이 못 들은 것인지, 충돌한 것인지, 응답을 자기가 놓친 것인지 구별할 방법이 없습니다.</p>
+
+  <p>그래서 단말은 단순한 규칙을 씁니다. <strong>답이 없으면 조금 더 크게 다시 외칩니다.</strong></p>
+
+  <!-- 유도: 마지막 시도까지의 누적 증가 = (시도 횟수 − 1) × 램핑 단계
+       2 dB × 10회 → 18 dB,  4 dB × 10회 → 36 dB,  2 dB × 20회 → 38 dB
+       송신 전력 = min(P_CMAX, 목표수신전력 + 경로손실 + 누적 램핑) -->
+  <div class="table-scroll">
+  <table>
+    <caption>전력 램핑 · TS 38.321 §5.1.3 · TS 38.331 <code>RACH-ConfigGeneric</code></caption>
+    <thead><tr><th>파라미터</th><th class="num">선택지</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td><code>preambleReceivedTargetPower</code></td><td class="num">−202 … −60 dBm</td>
+          <td>기지국이 <strong>받고 싶은</strong> 전력. 단말은 여기에 경로손실을 더해 쏜다</td></tr>
+      <tr><td><code>powerRampingStep</code></td><td class="num">0 · 2 · 4 · 6 dB</td>
+          <td>한 번 실패할 때마다 올리는 양</td></tr>
+      <tr><td><code>preambleTransMax</code></td><td class="num">3 … 200회</td>
+          <td>여기까지 실패하면 상위계층에 문제를 알린다</td></tr>
+      <tr><td><code>ra-ResponseWindow</code></td><td class="num">1 … 80 슬롯</td>
+          <td>응답을 기다리는 시간. 지나면 실패로 친다</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">2 dB 단계로 10번까지 시도하면 마지막 시도는 첫 시도보다 <strong>18 dB</strong> 큽니다 — (10 − 1) × 2. 다만 단말의 최대 출력에서 잘리므로 무한정 오르지는 않습니다.</p>
+
+  <div class="note">
+    <strong>충돌했을 때는 크게 외쳐도 소용없다.</strong> 램핑은 <strong>안 들린 경우</strong>의 처방입니다.
+    충돌한 경우에는 더 크게 외쳐도 상대도 같이 커질 뿐입니다. 그래서 다른 장치가 하나 더 있습니다 —
+    <strong>백오프</strong>입니다. 기지국은 RAR에 백오프 지시자를 실어 "다음 시도까지 이 범위 안에서 무작위로 기다려라"라고 알립니다.
+    <strong>무작위</strong>인 것이 핵심입니다. 정해진 시간을 기다리면 충돌한 둘이 나란히 또 충돌합니다.
+    <span class="src">TS 38.321 §5.1.4</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>경쟁이 없을 때</h2>
+  <p>지금까지는 전부 <strong>경합 기반</strong>이었습니다. 단말이 프리앰블을 <strong>무작위로</strong> 골랐기 때문에 부딪힐 수 있었습니다.</p>
+
+  <p>그런데 기지국이 이미 그 단말을 <strong>알고 있는</strong> 경우가 있습니다. 그럴 때는 프리앰블을 하나 <strong>지정해 줍니다.</strong> 그 프리앰블은 그 단말만 쓰므로 충돌이 원천적으로 없고, <strong>Msg3·Msg4가 통째로 사라집니다.</strong> 구별할 필요가 없으니까요.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>경합 없는 랜덤 액세스가 쓰이는 곳</caption>
+    <thead><tr><th>상황</th><th>왜 이름이 이미 있는가</th></tr></thead>
+    <tbody>
+      <tr><td><strong>핸드오버</strong></td>
+          <td>이전 셀이 새 셀에 미리 알려 두고, 단말에게 전용 프리앰블을 내려준다. 이동 중 끊김을 최소화해야 한다</td></tr>
+      <tr><td><strong>빔 실패 복구</strong></td>
+          <td>셀은 멀쩡하고 빔만 끊겼다. 단말은 이미 이름이 있고 후보 빔도 알고 있다 <span class="src">→ <a href="../07-beamforming/index.html">07</a></span></td></tr>
+      <tr><td>하향 데이터 도착 · 상향 동기 상실</td>
+          <td>연결은 있으나 타이밍 어드밴스가 만료됐다. TA만 다시 받으면 된다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>07의 빔 실패 복구가 여기서 만난다.</strong> 07에서 "끊기는 순간 미리 알고 있던 다음 빔으로 넘어간다"고 했는데,
+    <strong>그 넘어가는 수단이 바로 전용 프리앰블</strong>입니다. 후보 빔마다 프리앰블이 하나씩 지정돼 있어서,
+    그 프리앰블을 쏘는 것 자체가 <strong>"저 빔으로 바꿔 주세요"라는 말</strong>이 됩니다.
+    경합 기반이었다면 복구에 네 단계가 필요했을 텐데, 전용이라 <strong>두 단계로 끝납니다.</strong>
+  </div>
+
+  <p>결국 랜덤 액세스의 "랜덤"은 <strong>단말이 누구인지 모를 때만</strong> 필요한 것입니다. 알면 지정하면 되고, 지정하면 절반이 사라집니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>프리앰블은 <strong>같은 구호를 다른 박자로</strong> 외치는 것이다. 같은 루트의 순환 시프트끼리는 완벽히 직교하지만(상관 0), 박자 간격이 <strong>왕복 전파 지연보다 넓어야</strong> 하므로 셀이 커질수록 한 루트에서 뽑을 수 있는 가짓수가 준다. 큰 셀은 루트를 여러 개 써야 하고 루트끼리는 −29 dB로 서로를 방해한다 — <strong>셀 크기와 검출 품질은 같은 자원을 두고 다툰다.</strong></li>
+    <li>네 단계는 <strong>줄일 수 없어서 넷</strong>이다. 같은 칸에서 같은 프리앰블을 고른 두 단말은 Msg2 시점까지 <strong>구별 가능한 차이가 없다.</strong> 식별자를 실어 보내야(Msg3) 구별되고, 되읊어 줘야(Msg4) 진 쪽이 스스로 물러난다. 이름을 아는 경우(핸드오버·빔 실패 복구)에는 뒤의 둘이 통째로 사라진다.</li>
+    <li>빔마다 프리앰블을 쪼개도 <strong>충돌 확률은 그대로다</strong> — 같은 빔일 확률 1/B와 같은 프리앰블일 확률 B/64가 곱해지며 B가 약분되기 때문이다. 손해는 나눠서가 아니라 <strong>한 빔에 몰릴 때</strong> 난다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../07-beamforming/index.html">← 07 빔포밍과 빔 관리</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+  var C_MPUS=299.792458;                      // m/μs
+
+  /* ══════════════ SVG 1 · 순환 시프트와 두 개의 벽 ══════════════
+     L_RA = 839, 시퀀스 = 1/1.25 kHz = 800 μs → 한 표본 800/839 = 0.95352 μs
+     시프트 시간 = N_CS × 0.95352 μs,  반경 = c × 시프트시간 / 2 (왕복이므로 ÷2)
+     루트당 프리앰블 = ⌊839/N_CS⌋,  필요 루트 = ⌈64/루트당⌉
+     포맷 보호 구간 = 전체 − CP − 시퀀스 (04에서 검산한 κ·Tc 상수를 그대로 씀)
+     셀 반경 = min(보호 구간 한계, 시프트 한계) */
+  var L_RA=839, T_SEQ=800.0, T_SAMP=T_SEQ/L_RA;
+  var NCS=[0,13,15,18,22,26,32,38,46,59,76,93,119,167,279,419];   // 제한 없는 집합
+  var FMT=[                                    // 라벨, 보호구간[μs]
+    {label:'포맷 0', gt:96.88},
+    {label:'포맷 1', gt:715.62},
+    {label:'포맷 2', gt:147.40},
+    {label:'포맷 3', gt:96.88}
+  ];
+  var fmtSel=0, KM_MAX=120;
+  var NG=document.getElementById('ncsGrid');
+  var CCX=250, CCY=210, CCR=108;               // 왼쪽 원
+  var DX=520, DW=540;                          // 오른쪽 거리축
+  var ncsIdx=document.getElementById('ncsIdx');
+  function kmx(km){ return DX+Math.min(km,KM_MAX)/KM_MAX*DW; }
+
+  var syncFmt=mkSeg(document.getElementById('fmtPick'),FMT,
+    function(){return fmtSel;}, function(v){fmtSel=v;}, function(){drawNCS();});
+
+  function drawNCS(){
+    var n=NCS[parseInt(ncsIdx.value,10)], f=FMT[fmtSel];
+    var per=n===0?1:Math.floor(L_RA/n);
+    var roots=Math.ceil(64/per);
+    var rShift=n===0?Infinity:C_MPUS*(n*T_SAMP)/2/1000;   // km
+    var rGuard=C_MPUS*f.gt/2/1000;
+    var radius=Math.min(rShift,rGuard);
+    var shiftBinds=rShift<rGuard;
+    clear(NG);
+
+    /* ── 왼쪽 · 순환 시퀀스를 시프트로 나눈 원 ── */
+    NG.appendChild(txt(CCX,34,'구호 하나(루트) 안의 박자','rowlab','var(--ink-soft)'));
+    NG.appendChild(el('circle',{cx:CCX,cy:CCY,r:CCR,fill:'#fff',stroke:'var(--hair)','stroke-width':1}));
+    if(n===0){
+      NG.appendChild(el('circle',{cx:CCX,cy:CCY,r:CCR,fill:'var(--ul-bg)',stroke:'var(--ul)','stroke-width':1.6}));
+      NG.appendChild(txt(CCX,CCY+5,'시프트 없음','celllab','var(--ul)'));
+    } else {
+      for(var i=0;i<per;i++){
+        var a0=i/per*2*Math.PI-Math.PI/2, a1=(i+1)/per*2*Math.PI-Math.PI/2;
+        var big=(a1-a0)>Math.PI?1:0;
+        NG.appendChild(el('path',{
+          d:'M'+CCX+' '+CCY+' L'+(CCX+CCR*Math.cos(a0)).toFixed(2)+' '+(CCY+CCR*Math.sin(a0)).toFixed(2)
+            +' A'+CCR+' '+CCR+' 0 '+big+' 1 '+(CCX+CCR*Math.cos(a1)).toFixed(2)+' '+(CCY+CCR*Math.sin(a1)).toFixed(2)+' Z',
+          fill:i===0?'var(--ul-bg)':'#fff',stroke:i===0?'var(--ul)':'var(--hair)',
+          'stroke-width':i===0?1.6:(per>24?0.4:0.8)}));
+      }
+    }
+    NG.appendChild(txt(CCX,CCY+CCR+28,per+'개 × 루트 '+roots+'개 = '+(per*roots)+'  (필요 64)',
+      'celllab','var(--ink)'));
+    NG.appendChild(txt(CCX,CCY+CCR+48,
+      roots===1?'구호 하나로 충분하다':'구호 '+roots+'개가 서로 −29 dB로 방해한다',
+      'dimlab','var(--ink-soft)'));
+
+    /* ── 오른쪽 · 두 개의 벽 ── */
+    NG.appendChild(txt(DX,34,'셀 반경을 막는 두 벽','rowlab','var(--ink-soft)','start'));
+    [0,30,60,90,120].forEach(function(km){
+      NG.appendChild(el('line',{x1:kmx(km),y1:80,x2:kmx(km),y2:246,stroke:'var(--hair)','stroke-width':1}));
+      NG.appendChild(txt(kmx(km),68,km===KM_MAX?km+' km':km,'dimlab','var(--ink-soft)'));
+    });
+
+    /* 행 라벨은 축 왼쪽 바깥에 — 축 안에 두면 눈금선과 셀 반경 표시선이 글자를 가로지른다 */
+    function bar(y,val,label,bind){
+      var w=Math.max(3,kmx(Math.min(val,KM_MAX))-DX);
+      NG.appendChild(el('rect',{x:DX,y:y,width:w,height:30,
+        fill:'var(--ul-bg)',stroke:'var(--ul)','stroke-width':bind?1.8:0.9,
+        'stroke-dasharray':bind?'':'4 3'}));
+      var over=val>KM_MAX;
+      NG.appendChild(txt(DX+w+10,y+20,
+        (val===Infinity?'제한 없음':val.toFixed(2)+' km')+(over?' →':''),
+        'celllab',bind?'var(--ul)':'var(--ink-soft)','start'));
+      NG.appendChild(txt(DX-12,y+20,label,'dimlab','var(--ink-soft)','end'));
+    }
+    bar(96, rGuard, '포맷의 보호 구간', !shiftBinds);
+    bar(168, rShift, '순환 시프트 간격', shiftBinds);
+
+    /* 결정된 반경 */
+    NG.appendChild(el('line',{x1:kmx(radius),y1:52,x2:kmx(radius),y2:268,
+      stroke:'var(--alert)','stroke-width':2}));
+    NG.appendChild(txt(Math.min(kmx(radius),DX+DW-70),286,
+      '셀 반경 '+radius.toFixed(2)+' km','celllab','var(--alert)'));
+    NG.appendChild(txt(DX,320,'실선이 먼저 막는 쪽 · 굵은 세로선이 실제 상한',
+      'dimlab','var(--ink-soft)','start'));
+
+    /* 읽을거리 */
+    document.getElementById('ncsOut').textContent='N_CS '+n+' · '+f.label;
+    document.getElementById('ncsVal').textContent=n===0?'0':n;
+    document.getElementById('ncsPer').textContent=per+'개';
+    document.getElementById('ncsRoot').textContent=roots+'개';
+    document.getElementById('ncsR').textContent=radius.toFixed(2)+' km';
+
+    var box=document.getElementById('ncsBox');
+    box.className='verdict '+(roots===1?'ok':'bad');
+    document.getElementById('ncsTag').textContent=roots===1?'구호 하나로 끝':'구호를 더 써야 한다';
+    document.getElementById('ncsWhy').textContent=roots===1
+      ? '⌊839 / '+n+'⌋ = '+per+' — 루트 하나에서 64개가 나옵니다. 프리앰블끼리 완벽히 직교하지만 감당하는 반경은 '
+        +radius.toFixed(2)+' km입니다.'
+      : (n===0
+        ? '시프트를 쓰지 않으므로 거리 제약이 사라지는 대신 루트가 64개 필요합니다. 서로 −29 dB로 방해하지만, 포맷의 보호 구간 '
+          +rGuard.toFixed(2)+' km를 온전히 쓸 수 있는 유일한 선택지입니다.'
+        : '루트 하나에서 '+per+'개뿐이라 '+roots+'개를 써야 합니다. '
+          +(shiftBinds
+            ? '지금은 시프트 간격이 먼저 막아 반경이 '+radius.toFixed(2)+' km입니다 — 간격을 더 벌리면 늘어납니다.'
+            : '지금은 포맷의 보호 구간이 먼저 막습니다 — 간격을 더 벌려도 반경은 '+radius.toFixed(2)+' km에서 늘지 않고 루트만 늘어납니다.'));
+  }
+  ncsIdx.addEventListener('input',drawNCS);
+  drawNCS();
+
+  /* ══════════════ SVG 2 · 빔별 프리앰블 분할과 충돌 ══════════════
+     다른 단말 하나가 나와 충돌 = (같은 빔 1/B) ∧ (같은 프리앰블 B/64) = 1/64  ← B가 약분된다
+     P(특정 단말 충돌) = 1 − (1 − 1/64)^(k−1)  — 빔 수와 무관
+     쏠린 경우: 한 빔에 k대가 몰리면 프리앰블은 64/B개뿐 → 1 − (1 − B/64)^(k−1) */
+  var BEAMS=[1,2,4,8];
+  var BG=document.getElementById('beamGrid');
+  var rbBeams=document.getElementById('rbBeams'), rbUe=document.getElementById('rbUe');
+
+  function drawBeam(){
+    var B=BEAMS[parseInt(rbBeams.value,10)], k=parseInt(rbUe.value,10);
+    var per=64/B;
+    var pUni=1-Math.pow(1-(1/B)*(1/per),k-1);   // 고르게 퍼졌을 때
+    var pFlat=1-Math.pow(1-1/64,k-1);           // 빔을 안 나눴을 때
+    var pHot=1-Math.pow(1-1/per,k-1);           // 전부 한 빔에 몰렸을 때
+    clear(BG);
+
+    /* 위 · 프리앰블 64개를 B묶음으로 */
+    BG.appendChild(txt(0,34,'프리앰블 64개','rowlab',null,'start'));
+    var PX=150, PW=910, cw=PW/64;
+    for(var i=0;i<64;i++){
+      var grp=Math.floor(i/per), mine=(grp===0);
+      BG.appendChild(el('rect',{x:PX+i*cw+0.6,y:44,width:cw-1.2,height:34,
+        fill:mine?'var(--ul-bg)':'#fff',stroke:mine?'var(--ul)':'var(--hair)','stroke-width':mine?1.2:0.6}));
+    }
+    for(var g=1;g<B;g++){
+      BG.appendChild(el('line',{x1:PX+g*per*cw,y1:38,x2:PX+g*per*cw,y2:84,
+        stroke:'var(--ink)','stroke-width':1.6}));
+    }
+    BG.appendChild(txt(PX+per*cw/2,102,'내 빔 몫 '+per+'개','celllab','var(--ul)'));
+    if(B>1) BG.appendChild(txt(PX+(64+per)/2*cw,102,'다른 빔 '+(B-1)+'개가 나눠 갖는다','celllab','var(--ink-soft)'));
+
+    /* 아래 · 단말이 빔에 나뉘어 붙는다 */
+    BG.appendChild(txt(0,164,'단말 '+k+'대','rowlab',null,'start'));
+    var bw=PW/B;
+    for(var b=0;b<B;b++){
+      var mineB=(b===0);
+      BG.appendChild(el('rect',{x:PX+b*bw+3,y:140,width:bw-6,height:96,
+        fill:mineB?'var(--ul-bg)':'#fff',stroke:mineB?'var(--ul)':'var(--hair)','stroke-width':mineB?1.4:0.8}));
+      /* 이 빔에 붙는 단말 수 — 나머지를 앞 빔부터 배분 */
+      var cnt=Math.floor(k/B)+(b<k%B?1:0);
+      var cols=Math.max(1,Math.ceil(Math.sqrt(cnt*bw/60)));
+      for(var u=0;u<cnt;u++){
+        var cx=PX+b*bw+12+(u%cols)*Math.min(16,(bw-24)/cols)+6;
+        var cy=158+Math.floor(u/cols)*16;
+        if(cy>228) break;
+        BG.appendChild(el('circle',{cx:cx,cy:cy,r:4,fill:mineB?'var(--ul)':'var(--ink-soft)'}));
+      }
+      BG.appendChild(txt(PX+b*bw+bw/2,252,cnt+'대','celllab','var(--ink-soft)'));
+    }
+    BG.appendChild(txt(PX+PW/2,286,
+      '같은 빔일 확률 1/'+B+' × 같은 프리앰블일 확률 '+B+'/64 = 1/64 — 빔 수가 약분되어 사라진다',
+      'dimlab','var(--ink-soft)'));
+
+    document.getElementById('rbOut').textContent='SSB '+B+'개 · 단말 '+k+'대';
+    document.getElementById('rbPer').textContent=per+'개';
+    document.getElementById('rbUni').textContent=(pUni*100).toFixed(2)+'%';
+    document.getElementById('rbFlat').textContent=(pFlat*100).toFixed(2)+'%';
+    document.getElementById('rbHot').textContent=(pHot*100).toFixed(1)+'%';
+
+    var same=Math.abs(pUni-pFlat)<1e-12;
+    var box=document.getElementById('rbBox');
+    box.className='verdict '+(same?'ok':'bad');
+    document.getElementById('rbTag').textContent=same?'나눠도 그대로':'달라졌다';
+    document.getElementById('rbWhy').textContent=same
+      ? 'SSB를 '+B+'개로 나눠도 충돌 확률은 '+(pUni*100).toFixed(2)+'% 로, 나누지 않았을 때와 정확히 같습니다. '
+        +'빔 수만 바꿔 보면 이 숫자가 꿈쩍도 하지 않습니다. 다만 '+k+'대가 전부 한 빔에 몰리면 '
+        +(pHot*100).toFixed(1)+'% 까지 오릅니다.'
+      : '계산이 어긋났습니다 — 확인이 필요합니다.';
+  }
+  [rbBeams,rbUe].forEach(function(s){ s.addEventListener('input',drawBeam); });
+  drawBeam();
+
+  /* ══════════════ SVG 3 · 4단계 vs 2단계 지연 예산 ══════════════
+     규격이 정하는 것은 창과 타이머의 "선택지"이고 어느 값을 쓸지는 망이 정한다.
+     아래는 설정값이 정하는 최악 예산이지 평균이 아니다 — 캡션에 명시.
+       4단계 = 프리앰블(1 ms) + 응답 창 + Msg3 준비(2슬롯 가정) + 경합 해소 타이머
+       2단계 = 프리앰블+PUSCH(2 ms) + 응답 창
+     Msg3 준비 2슬롯은 규격값이 아니라 그림을 위한 가정이며 캡션에서 구분한다. */
+  var WIN=[10,20,40,80], CRT=[8,16,32,64];     // 슬롯 / 서브프레임(=ms)
+  var SCS=[{label:'15 kHz',mu:0},{label:'30 kHz',mu:1},{label:'60 kHz',mu:2}];
+  var scsSel=1;
+  var RG2=document.getElementById('raGrid');
+  var raWin=document.getElementById('raWin'), raCrt=document.getElementById('raCrt');
+  var syncScs=mkSeg(document.getElementById('raScs'),SCS,
+    function(){return scsSel;}, function(v){scsSel=v;}, function(){drawRA();});
+
+  function drawRA(){
+    var slot=1/Math.pow(2,SCS[scsSel].mu);      // ms
+    var win=WIN[parseInt(raWin.value,10)]*slot; // 응답 창 [ms]
+    var crt=CRT[parseInt(raCrt.value,10)];      // 경합 해소 타이머 [ms]
+    var msg3=2*slot;                            // Msg3 준비 (그림을 위한 가정)
+    /* [긴 라벨, 짧은 라벨, 길이(ms), 색] — 칸 폭에 따라 라벨을 골라 넣는다 */
+    var seg4=[['Msg1 프리앰블','Msg1',1,'var(--ul)'],['응답 창','창',win,'var(--gp)'],
+              ['Msg3 준비','Msg3',msg3,'var(--ul)'],['경합 해소 타이머','경합 해소',crt,'var(--gp)']];
+    var seg2=[['MsgA 프리앰블+PUSCH','MsgA',2,'var(--ul)'],['응답 창','창',win,'var(--gp)']];
+    var t4=seg4.reduce(function(a,s){return a+s[2];},0);
+    var t2=seg2.reduce(function(a,s){return a+s[2];},0);
+    var axis=Math.ceil(Math.max(t4,t2)/10)*10;
+    clear(RG2);
+
+    var AX2=170, AW2=890, px=AW2/axis;
+    var step=(axis>60?20:10);
+    for(var m=0;m<=axis;m+=step){
+      RG2.appendChild(el('line',{x1:AX2+m*px,y1:44,x2:AX2+m*px,y2:230,stroke:'var(--hair)','stroke-width':1}));
+      RG2.appendChild(txt(AX2+m*px,36,m===axis?m+' ms':m,'dimlab','var(--ink-soft)'));
+    }
+
+    function row(y,segs,total,label){
+      RG2.appendChild(txt(0,y+30,label,'rowlab',null,'start'));
+      var x=AX2;
+      segs.forEach(function(s){
+        var w=s[2]*px;
+        RG2.appendChild(el('rect',{x:x,y:y,width:w,height:46,
+          fill:s[3]==='var(--ul)'?'var(--ul-bg)':'var(--gp-bg)',
+          stroke:s[3],'stroke-width':1.1}));
+        /* 글자가 칸을 넘지 않도록 폭에 맞는 라벨을 고른다 (모노 11px ≈ 글자당 7.2px) */
+        var pick=w>s[0].length*7.2+8?s[0]:(w>s[1].length*7.2+8?s[1]:null);
+        if(pick) RG2.appendChild(txt(x+w/2,y+28,pick,'celllab',s[3]));
+        x+=w;
+      });
+      RG2.appendChild(txt(x+10,y+30,total.toFixed(1)+' ms','celllab','var(--ink)','start'));
+    }
+    row(60, seg4, t4, '4단계');
+    row(150, seg2, t2, '2단계');
+    RG2.appendChild(txt(AX2+AW2/2,262,
+      '초록 = 실제로 보내는 구간 · 흙색 = 기다리는 구간','dimlab','var(--ink-soft)'));
+
+    document.getElementById('raOut').textContent=
+      '창 '+WIN[parseInt(raWin.value,10)]+'슬롯 · 타이머 '+crt+' ms';
+    document.getElementById('ra4').textContent=t4.toFixed(1)+' ms';
+    document.getElementById('ra2').textContent=t2.toFixed(1)+' ms';
+    document.getElementById('raSave').textContent=(t4-t2).toFixed(1)+' ms';
+    document.getElementById('raPct').textContent=((t4-t2)/t4*100).toFixed(0)+'%';
+  }
+  [raWin,raCrt].forEach(function(s){ s.addEventListener('input',drawRA); });
+  drawRA();
+})();
+</script>
+</body>
+</html>
