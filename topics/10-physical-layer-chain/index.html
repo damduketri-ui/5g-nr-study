@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 전송 블록에서 전파까지 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>10 / 전송 블록에서 전파까지</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">10 · transport block to waveform</p>
+  <h1>MAC이 건넨 상자가<br><em>전파가</em> 되기까지</h1>
+  <p class="lead">슬롯마다 MAC이 물리계층에 <strong>전송 블록</strong>을 하나(많으면 둘) 내려놓습니다. 그것이 안테나에서 전파로 나가기까지 여러 단계를 지나는데, 단계마다 <strong>"몇 개인가"가 바뀝니다.</strong> 하나였던 것이 150개가 되고 다시 하나가 되고 넷으로 갈라집니다. 그 계단을 따라가면 <strong>레이어</strong>와 <strong>안테나 포트</strong>가 무엇인지도 함께 풀립니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>MAC이 건네는 것</h2>
+  <p>물리계층이 받는 것은 <strong>전송 블록(Transport Block, TB)</strong> 하나입니다. 그냥 비트 뭉치입니다 — 안에 무엇이 들었는지 물리계층은 모릅니다.</p>
+
+  <p>크기는 MAC이 정하는 게 아닙니다. <strong>스케줄러가 잡아 준 자원과 변조·부호율이 먼저 정해지고</strong>, 거기 딱 맞는 크기가 계산되어 나옵니다. "이만큼 담을 수 있으니 이만큼 주세요"인 셈입니다.</p>
+
+  <!-- 유도: TBS — TS 38.214 §5.1.3.2
+       N_RE' = 12·N_symb − N_DMRS − N_oh,  N_RE = min(156, N_RE')·n_PRB
+       N_info = N_RE · R · Qm · ν
+       273 RB · 14심볼 · DMRS 12RE · N_oh 0 · MCS27(Qm=8, R=948/1024) · ν=4
+         N_RE' = 168 − 12 = 156 → N_RE = 156 × 273 = 42,588
+         N_info = 42588 × 0.9258 × 8 × 4 = 1,262,167
+         n = max(3, ⌊log2 N_info⌋ − 6) = 14,  N_info' = 2^14 × round(N_info/2^14) = 1,261,568
+         N_info' > 8424 → C = ⌈1261568/8424⌉ = 150,  TBS = 8·150·⌈N_info'/1200⌉ − 24 = 1,262,376
+       0.5 ms 슬롯(30 kHz) 환산 → 2.525 Gbps -->
+  <div class="stats">
+    <div><span class="n">42,588</span><span class="t">쓸 수 있는 자원 요소 · 273 RB × 156</span></div>
+    <div><span class="n">1.26M</span><span class="t">그때의 전송 블록 크기 [비트]</span></div>
+    <div><span class="n">2.53</span><span class="t">0.5 ms 슬롯 환산 [Gbps]</span></div>
+    <div><span class="n">1~2</span><span class="t">슬롯당 전송 블록 수</span></div>
+  </div>
+  <p class="caption">100 MHz · 30 kHz · 14심볼 · 256QAM(MCS 27) · 4레이어 기준입니다. <span class="src">TS 38.214 §5.1.3.2</span></p>
+
+  <div class="note">
+    <strong>오케스트라에 곡이 하나 도착했다고 합시다.</strong> 이 자료는 그 곡이 소리가 되기까지를 따라갑니다 —
+    너무 길면 <strong>악장으로 나누고</strong>, 정해진 <strong>연주 시간에 맞춰</strong> 늘이거나 줄이고,
+    음표로 적고, <strong>파트로 가르고</strong>, 파트마다 <strong>악보를 나눠 줍니다.</strong>
+    마지막에 그 악보를 <strong>몇 명이 연주할지</strong>는 — 뒤에서 보겠지만 — 규격이 정하지 않습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>사슬 한눈에</h2>
+  <p>아래에서 자원과 변조를 바꿔 보세요. 단계마다 개수가 어떻게 변하는지, 그리고 <strong>어느 숫자가 어느 숫자를 정하는지</strong>가 보입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="t1 d1">
+      <title id="t1">전송 블록이 자원 요소에 놓이기까지 단계별 개수</title>
+      <desc id="d1">위쪽 줄은 비트를 다루는 단계로 전송 블록, CRC 부착, 코드블록 분할, 부호화, 레이트 매칭, 스크램블링이 이어진다. 아래쪽 줄은 심볼을 다루는 단계로 변조, 레이어 매핑, 안테나 포트 매핑, 자원 요소 매핑이 이어진다. 맨 아래는 레이트 매칭이 만들어야 할 비트 수가 자원에서 거꾸로 정해진다는 검산이다.</desc>
+      <g id="chainGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="chRb">자원블록</label>
+    <input type="range" id="chRb" min="24" max="273" step="1" value="273" aria-describedby="chOut">
+    <label for="chNu">레이어</label>
+    <input type="range" id="chNu" min="1" max="8" step="1" value="4" aria-describedby="chOut">
+    <span class="segmented" id="chMod" role="group" aria-label="변조 방식 선택"></span>
+    <span class="readout" id="chOut"></span>
+  </div>
+
+  <div class="verdict" id="chBox">
+    <span class="tag" id="chTag"></span>
+    <span class="why" id="chWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="chTbs">—</span><span class="t">전송 블록 크기 [비트]</span></div>
+    <div><span class="n" id="chCb">—</span><span class="t">코드블록 개수</span></div>
+    <div><span class="n" id="chG">—</span><span class="t">레이트 매칭이 만들 비트 수</span></div>
+    <div><span class="n" id="chRate">—</span><span class="t">그래서 나오는 실효 부호율</span></div>
+  </div>
+  <p class="caption">14심볼 · DMRS 12 RE · 추가 오버헤드 없음으로 잡았습니다. 전송 블록 크기는 <span class="src">TS 38.214 §5.1.3.2</span>의 절차를 그대로 계산한 값입니다.</p>
+
+  <!-- 유도: G = N_RE × ν × Qm  (TS 38.212 §5.4.2.1의 레이트 매칭 출력 총량)
+       273 RB · ν=4 · Qm=8 → 42,588 × 4 × 8 = 1,362,816 비트
+       변조 심볼 = G / Qm = 170,352,  레이어당 = 170,352 / 4 = 42,588 = N_RE  ← 정확히 일치
+       실효 부호율 = (TBS + CRC 부착분) / G -->
+  <div class="note">
+    <strong>부호율이 비트 수를 정하는 게 아니라, 자원이 정한다.</strong> 흔히 거꾸로 생각하기 쉽습니다.
+    실제 순서는 이렇습니다 — 스케줄러가 <strong>자원 요소 개수</strong>를 정하면,
+    거기에 레이어 수와 변조 차수를 곱한 값이 <strong>레이트 매칭이 만들어 내야 할 비트 수</strong>가 됩니다.
+    <strong>G = N<sub>RE</sub> × ν × Q<sub>m</sub></strong>. 부호율은 그 결과로 따라 나오는 몫일 뿐입니다.
+    <a href="../06-harq-timing/index.html">06의 순환 버퍼</a>가 "필요한 만큼 꺼내 쓰는" 구조였던 이유가 이것입니다 —
+    <strong>필요한 양이 매번 다르기 때문</strong>입니다.
+    <span class="src">TS 38.212 §5.4.2.1</span>
+  </div>
+
+  <p>연주 시간이 정해져 있으니 곡을 늘이거나 줄여 <strong>거기에 맞추는</strong> 것과 같습니다. 곡이 시간을 정하는 게 아닙니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>비트를 다루는 구간</h2>
+
+  <div class="table-scroll">
+  <table>
+    <caption>전송 블록이 변조기에 닿기 전까지</caption>
+    <thead><tr><th>단계</th><th>하는 일</th><th>개수의 변화</th></tr></thead>
+    <tbody>
+      <tr><td><strong>전송 블록 CRC</strong> <span class="src">TS 38.212 §7.2.1</span></td>
+          <td>블록 전체에 24비트 검사값을 붙인다</td><td>1 → 1 (24비트 늘어남)</td></tr>
+      <tr><td><strong>코드블록 분할</strong> <span class="src">§5.2.2</span></td>
+          <td>8448비트를 넘으면 쪼개고 <strong>조각마다 다시 24비트</strong>를 붙인다</td>
+          <td><strong>1 → 여러 개</strong></td></tr>
+      <tr><td><strong>LDPC 부호화</strong> <span class="src">§5.3.2</span></td>
+          <td>조각마다 패리티를 붙여 순환 버퍼를 채운다 <span class="src">→ <a href="../06-harq-timing/index.html">06</a></span></td>
+          <td>개수 그대로, 길이 증가</td></tr>
+      <tr><td><strong>레이트 매칭</strong> <span class="src">§5.4.2</span></td>
+          <td>자원이 요구하는 만큼만 꺼내 쓴다. RV가 시작점을 정한다</td>
+          <td>길이가 <strong>자원에 맞춰진다</strong></td></tr>
+      <tr><td><strong>코드블록 연결</strong> <span class="src">§5.5</span></td>
+          <td>조각들을 다시 한 줄로 잇는다</td><td><strong>여러 개 → 1</strong></td></tr>
+      <tr><td><strong>스크램블링</strong> <span class="src">TS 38.211 §7.3.1.1</span></td>
+          <td>셀·단말마다 다른 수열로 비트를 뒤섞는다</td><td>1 → 1 (길이 그대로)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>CRC가 <strong>두 번</strong> 붙는 것이 눈에 띕니다. 블록 전체에 한 번, 조각마다 또 한 번. 낭비처럼 보이지만 이유가 있습니다.</p>
+
+  <div class="note">
+    <strong>조각마다 붙는 CRC는 "일찍 포기하기" 위한 것이다.</strong> 복호기는 조각을 하나씩 풉니다.
+    조각 하나가 깨진 것을 <strong>그 자리에서</strong> 알 수 있으면 나머지를 푸는 수고를 아낄 수 있습니다.
+    블록 전체 CRC는 그 뒤에 <strong>최종 확인</strong>을 맡습니다 — 조각별 검사를 모두 통과하고도 틀릴 수 있기 때문입니다.
+    <a href="../06-harq-timing/index.html">06의 CBG 재전송</a>이 성립하는 것도 조각별 CRC 덕분입니다.
+  </div>
+
+  <!-- 스크램블링 초기값 c_init = n_RNTI·2^15 + q·2^14 + n_ID  (TS 38.211 §7.3.1.1)
+       n_RNTI 16비트가 2^15 자리부터, 코드워드 번호 q가 2^14 자리, n_ID(0…1023)가 하위 10비트
+       세 값의 자리가 겹치지 않아 셀·단말·코드워드마다 서로 다른 수열이 나온다 -->
+  <div class="note">
+    <strong>왜 굳이 뒤섞는가.</strong> 옆 셀이 같은 자원에 같은 패턴을 쏘면 간섭이 <strong>구조를 가진 신호</strong>로 들어옵니다.
+    구조가 있으면 복호기가 그것을 신호로 착각할 수 있습니다. 뒤섞으면 옆 셀의 신호가 <strong>잡음처럼</strong> 보이고,
+    잡음은 다루기가 훨씬 쉽습니다. 초기값이
+    <strong>c<sub>init</sub> = n<sub>RNTI</sub>·2<sup>15</sup> + q·2<sup>14</sup> + n<sub>ID</sub></strong>인 것은
+    단말·코드워드·셀이 <strong>각자 다른 자리</strong>를 차지해 서로 겹치지 않게 하기 위해서입니다.
+    <span class="src">TS 38.211 §7.3.1.1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>심볼이 되고, 갈라지는 곳</h2>
+  <p>비트 줄이 <strong>변조</strong>를 지나면 복소수 심볼이 됩니다. 몇 비트를 한 심볼에 싣느냐가 <strong>변조 차수 Q<sub>m</sub></strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>하향에서 쓰는 변조 · TS 38.211 §7.3.1.2</caption>
+    <thead><tr><th class="num">방식</th><th class="num">Q<sub>m</sub></th><th class="num">성상점</th><th>성격</th></tr></thead>
+    <tbody>
+      <tr><td class="num">QPSK</td><td class="num">2</td><td class="num">4</td><td>가장 튼튼하다. 셀 가장자리·제어채널</td></tr>
+      <tr><td class="num">16QAM</td><td class="num">4</td><td class="num">16</td><td>—</td></tr>
+      <tr><td class="num">64QAM</td><td class="num">6</td><td class="num">64</td><td>—</td></tr>
+      <tr><td class="num">256QAM</td><td class="num">8</td><td class="num">256</td><td>가장 빠르다. 신호가 아주 좋아야 한다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>그다음이 <strong>레이어 매핑</strong>입니다. 여기서 하나였던 줄이 <strong>여러 갈래로 갈라집니다.</strong> 방식은 단순합니다 — 심볼을 <strong>레이어에 번갈아 가며</strong> 나눠 놓습니다.</p>
+
+  <p><a href="../09-precoding-codebook/index.html">09에서 본 것</a>이 여기서 이어집니다. 레이어는 <strong>공간적으로 구별되는 통로</strong>이고, 몇 개를 쓸지가 랭크입니다. 그런데 코드워드는 레이어와 개수가 다릅니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="t2 d2">
+      <title id="t2">전송 블록에서 물리 안테나까지 개수가 바뀌는 계단</title>
+      <desc id="d2">위에서부터 전송 블록, 코드워드, 레이어, 안테나 포트, 물리 안테나 순으로 상자가 놓인다. 랭크가 5 이상이면 전송 블록과 코드워드가 두 개로 갈라진다. 안테나 포트와 물리 안테나 사이에는 규격이 정의를 멈추는 경계선이 그어져 있고, 그 아래는 흐리게 표시된다.</desc>
+      <g id="cardGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="cdRank">랭크 (레이어 수)</label>
+    <input type="range" id="cdRank" min="1" max="8" step="1" value="4" aria-describedby="cdOut">
+    <span class="readout" id="cdOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="cdTb">—</span><span class="t">전송 블록 · 코드워드</span></div>
+    <div><span class="n" id="cdLy">—</span><span class="t">레이어</span></div>
+    <div><span class="n" id="cdSym">—</span><span class="t">레이어 하나가 나르는 심볼</span></div>
+    <div><span class="n" id="cdPort">—</span><span class="t">안테나 포트 · 예시</span></div>
+  </div>
+  <p class="caption">심볼 수는 위 그림의 자원 설정(273 RB · 14심볼)을 그대로 쓴 값입니다. 안테나 포트 수는 <strong>예시</strong>입니다 — 레이어 수가 포트 수를 정하지 않습니다.</p>
+
+  <div class="note">
+    <strong>랭크 5부터 상자가 둘이 된다.</strong> 레이어가 4개까지는 전송 블록 하나를 나눠 싣지만,
+    5개부터는 <strong>독립된 전송 블록 두 개</strong>가 됩니다. 레이어가 많아지면 강한 것과 약한 것의 차이가 벌어져서,
+    변조·부호율과 <a href="../06-harq-timing/index.html">HARQ</a>를 <strong>따로 굴리는 편이 낫기</strong> 때문입니다.
+    한쪽만 실패하면 그쪽만 다시 보내면 됩니다.
+    <span class="src">TS 38.211 §7.3.1.3</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>안테나 포트 — 규격이 정의를 멈추는 곳</h2>
+  <p>여기가 이 자료에서 가장 헷갈리는 대목이고, 동시에 가장 중요한 대목입니다.</p>
+
+  <p><strong>안테나 포트는 안테나가 아닙니다.</strong> 규격의 정의를 그대로 옮기면 이렇습니다.</p>
+
+  <div class="note">
+    <strong>어떤 안테나 포트 위의 심볼이 지나온 채널을, <em>같은 안테나 포트 위의 다른 심볼</em>이 지나온 채널로부터
+    유추할 수 있도록 안테나 포트를 정의한다.</strong>
+    <span class="src">TS 38.211 §4.4.1</span>
+  </div>
+
+  <p>동어반복처럼 들리지만 아닙니다. 이 문장이 말하는 것은 딱 하나입니다 — <strong>안테나 포트란 "채널이 같다고 봐도 되는 묶음"이다.</strong></p>
+
+  <p>왜 그런 묶음이 필요할까요. 수신기는 채널을 <strong>직접 볼 수 없습니다.</strong> 미리 아는 신호(기준신호)를 받아서 <strong>얼마나 변형됐는지</strong>로 채널을 추정할 뿐입니다. 그런데 그렇게 잰 값을 <strong>데이터에 적용해도 되는지</strong>는 별개 문제입니다. 기준신호와 데이터가 서로 다른 길로 왔다면 잰 값은 쓸모가 없으니까요.</p>
+
+  <p>그래서 규격은 아예 <strong>"같은 길로 왔다고 약속하는 단위"</strong>를 만들어 이름을 붙였습니다. 그것이 안테나 포트입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 290" role="img" aria-labelledby="t3 d3">
+      <title id="t3">같은 안테나 포트의 기준신호와 데이터는 같은 채널을 겪는다</title>
+      <desc id="d3">왼쪽은 같은 안테나 포트에 실린 기준신호와 데이터가 같은 채널을 지나므로, 기준신호로 잰 값을 데이터에 그대로 적용할 수 있음을 보여준다. 오른쪽은 다른 안테나 포트라 채널이 다르고, 따라서 포트마다 따로 재야 함을 보여준다.</desc>
+
+      <defs>
+        <marker id="chArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink)"/>
+        </marker>
+      </defs>
+
+      <!-- 왼쪽 · 같은 포트 -->
+      <text x="30" y="34" class="celllab" fill="var(--ink)" text-anchor="start">같은 안테나 포트</text>
+      <rect x="30" y="52" width="120" height="40" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="90" y="77" class="celllab" fill="var(--dl)">기준신호</text>
+      <rect x="30" y="112" width="120" height="40" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="90" y="137" class="celllab" fill="var(--dl)">데이터</text>
+
+      <line x1="158" y1="72" x2="290" y2="100" stroke="var(--ink)" stroke-width="1.4" marker-end="url(#chArr)"/>
+      <line x1="158" y1="132" x2="290" y2="104" stroke="var(--ink)" stroke-width="1.4" marker-end="url(#chArr)"/>
+      <rect x="300" y="82" width="110" height="44" fill="#fff" stroke="var(--ink)" stroke-width="1.4"/>
+      <text x="355" y="109" class="celllab" fill="var(--ink)">같은 채널</text>
+
+      <line x1="416" y1="104" x2="470" y2="104" stroke="var(--ink)" stroke-width="1.4" marker-end="url(#chArr)"/>
+      <text x="482" y="98" class="celllab" fill="var(--ul)" text-anchor="start">기준신호로 잰 값을</text>
+      <text x="482" y="118" class="celllab" fill="var(--ul)" text-anchor="start">데이터에 그대로 쓴다</text>
+
+      <!-- 오른쪽 · 다른 포트 -->
+      <text x="30" y="196" class="celllab" fill="var(--ink)" text-anchor="start">다른 안테나 포트</text>
+      <rect x="30" y="214" width="120" height="40" fill="#fff" stroke="var(--ink-soft)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <text x="90" y="239" class="celllab" fill="var(--ink-soft)">다른 포트의 데이터</text>
+
+      <line x1="158" y1="234" x2="290" y2="234" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#chArr)"/>
+      <rect x="300" y="212" width="110" height="44" fill="#fff" stroke="var(--alert)" stroke-width="1.4"/>
+      <text x="355" y="239" class="celllab" fill="var(--alert)">다른 채널</text>
+
+      <line x1="416" y1="234" x2="470" y2="234" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#chArr)"/>
+      <text x="482" y="228" class="celllab" fill="var(--alert)" text-anchor="start">그 포트의 기준신호로</text>
+      <text x="482" y="248" class="celllab" fill="var(--alert)" text-anchor="start">따로 재야 한다</text>
+
+      <text x="30" y="278" class="dimlab" text-anchor="start">그래서 포트 수만큼 기준신호가 필요하고, 기준신호는 그만큼 자원을 먹는다</text>
+    </svg>
+  </div>
+
+  <p>여기서 중요한 따름결과가 나옵니다. <strong>포트를 늘리면 기준신호도 늘어납니다.</strong> 포트마다 채널을 따로 재야 하니까요. 그래서 포트 수는 공짜가 아니고, <a href="../09-precoding-codebook/index.html">09에서 본 32포트</a>가 그냥 정해진 숫자가 아니라 <strong>비용과 맞바꾼 값</strong>이라는 것도 여기서 설명됩니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>하향 안테나 포트 번호 대역 · TS 38.211</caption>
+    <thead><tr><th class="num">번호</th><th>무엇의 포트인가</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1000 ~</td><td>PDSCH의 DMRS — 데이터와 짝을 이루는 기준신호</td></tr>
+      <tr><td class="num">2000 ~</td><td>PDCCH의 DMRS — 제어채널용</td></tr>
+      <tr><td class="num">3000 ~</td><td>CSI-RS — 채널 상태를 재라고 쏘는 신호 <span class="src">→ <a href="../09-precoding-codebook/index.html">09</a></span></td></tr>
+      <tr><td class="num">4000</td><td>SS/PBCH 블록 <span class="src">→ <a href="../04-ssb-initial-access/index.html">04</a></span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">번호가 1000 단위로 갈라져 있는 것은 <strong>서로 다른 신호끼리 포트 번호가 헷갈리지 않게</strong> 하기 위해서입니다. 같은 번호대 안에서만 "같은 포트인가"를 따집니다.</p>
+  <!-- VERIFY: 포트 번호 대역의 정확한 상한(예: PDSCH DMRS 1000–1011, CSI-RS 3000–3031)과
+       상향 포트 번호 — TS 38.211의 각 매핑 절 원문 대조 필요. 본문은 시작 번호만 제시했다. -->
+
+  <div class="note">
+    <strong>그래서 규격은 물리 안테나를 모른다.</strong> TS 38.211이 정의하는 마지막 단위가 안테나 포트입니다.
+    포트를 <strong>실제 안테나 몇 개에 어떻게 태울지</strong>는 규격 밖 — 장비 제조사의 몫입니다.
+    <a href="../07-beamforming/index.html">07에서 본 256소자 배열</a>이 CSI-RS 포트 32개만 내보이는 것이 가능한 이유가 이것입니다.
+    단말은 <strong>포트 32개짜리 셀</strong>을 볼 뿐, 뒤에 안테나가 몇 개 있는지 알지 못하고 알 필요도 없습니다.
+    <strong>안테나 포트는 물건이 아니라 약속입니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>격자에 놓고 파형으로</h2>
+  <p>남은 일은 두 가지입니다. <strong>어디에 놓을지</strong> 정하고, <strong>파형으로 바꾸는</strong> 것.</p>
+
+  <p>자원 요소 매핑은 규칙이 정해져 있습니다. 스케줄러가 잡아 준 자원블록 안에서, <strong>기준신호와 제어채널이 쓰는 자리를 피해</strong> 주파수 방향으로 먼저 채우고 그다음 시간 방향으로 넘어갑니다.</p>
+
+  <!-- 유도: 1 RB · 1 슬롯 = 12 부반송파 × 14 심볼 = 168 RE
+       DMRS 1심볼 2CDM그룹 → 12 RE를 쓰므로 데이터 156 RE (92.9%)
+       DMRS 2심볼 2CDM그룹 → 24 RE, 데이터 144 RE (85.7%)
+       TBS 계산의 min(156, ·) 상한이 여기서 나온다 -->
+  <div class="stats">
+    <div><span class="n">168</span><span class="t">1 RB · 1 슬롯의 자원 요소 · 12 × 14</span></div>
+    <div><span class="n">156</span><span class="t">DMRS 1심볼을 뺀 데이터 몫</span></div>
+    <div><span class="n">92.9%</span><span class="t">그때 데이터가 차지하는 비율</span></div>
+    <div><span class="n">144</span><span class="t">DMRS를 2심볼로 늘리면</span></div>
+  </div>
+  <p class="caption">전송 블록 크기 계산에 나오는 <strong>min(156, ·)</strong> 상한이 여기서 나옵니다 — 자원블록 하나가 데이터에 내줄 수 있는 최대치입니다. 이동이 빠르면 채널이 빨리 변해 DMRS를 더 촘촘히 넣어야 하고, 그만큼 데이터 몫이 줄어듭니다.</p>
+
+  <p>마지막이 <strong>OFDM 신호 생성</strong>입니다. 주파수 축에 늘어놓은 심볼들을 시간 축 파형으로 되돌리고(IFFT), 앞에 <a href="../03-cyclic-prefix/index.html">순환 전치</a>를 붙입니다. <a href="../01-frame-numerology/index.html">01의 뉴머롤로지</a>가 정한 부반송파 간격과 심볼 길이가 여기서 실제 파형이 됩니다.</p>
+
+  <div class="note">
+    <strong>사슬은 안테나 포트마다 따로 도는 게 아니다.</strong> 변조까지는 코드워드 하나에 대해 한 줄로 진행되지만,
+    레이어 매핑 이후로는 <strong>레이어 수만큼</strong>, 프리코딩 이후로는 <strong>포트 수만큼</strong> 병렬입니다.
+    그리고 IFFT는 <strong>포트마다 한 번씩</strong> 돕니다 — <a href="../05-bandwidth-part/index.html">05에서 본 FFT 일감</a>이
+    포트 수에 비례해 늘어난다는 뜻이고, 이것이 기지국 쪽 처리 부담의 큰 몫입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>사슬은 <strong>개수가 바뀌는 계단</strong>이다. 전송 블록 1개 → 코드블록 수백 개 → 다시 1줄 → 레이어 여러 갈래 → 포트 여러 개. 각 화살표가 왜 개수를 바꾸는지를 알면 물리계층 처리의 대부분이 설명된다.</li>
+    <li><strong>자원이 비트 수를 정하고 부호율은 따라온다.</strong> G = N<sub>RE</sub> × ν × Q<sub>m</sub>이 레이트 매칭이 만들어 낼 양이고, 전송 블록 크기는 거기서 거꾸로 계산된다. 순환 버퍼가 "필요한 만큼 꺼내 쓰는" 구조인 이유다.</li>
+    <li><strong>안테나 포트는 물건이 아니라 약속이다.</strong> "이 심볼들은 같은 채널을 겪는다고 봐도 된다"는 선언이고, 그래야 기준신호로 잰 값을 데이터에 쓸 수 있다. 규격은 여기까지만 정의하고 실제 안테나 개수는 모른다 — 그래서 256소자 장비가 포트 32개짜리 셀로 보일 수 있다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../09-precoding-codebook/index.html">← 09 프리코딩과 코드북</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function comma(n){ return n.toLocaleString('en-US'); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+
+  /* ══════════════ 공통 · 전송 블록 크기 (TS 38.214 §5.1.3.2) ══════════
+     N_RE' = 12·N_symb − N_DMRS − N_oh,   N_RE = min(156, N_RE')·n_PRB
+     N_info = N_RE · R · Qm · ν
+     N_info > 3824 이면
+       n = max(3, ⌊log2 N_info⌋ − 6),  N_info' = max(3840, 2^n·round(N_info/2^n))
+       R > 1/4 이고 N_info' > 8424 → C = ⌈N_info'/8424⌉, TBS = 8C·⌈N_info'/(8C)⌉ − 24
+     여기서는 14심볼 · DMRS 12 RE · N_oh 0 으로 고정한다. */
+  var N_SYMB=14, N_DMRS=12, N_OH=0, CB_MAX=8448, CRC=24;
+  var MODS=[{label:'QPSK',qm:2,R:0.37},{label:'16QAM',qm:4,R:0.60},
+            {label:'64QAM',qm:6,R:0.85},{label:'256QAM',qm:8,R:948/1024}];
+
+  function nre(rb){ return Math.min(156, 12*N_SYMB - N_DMRS - N_OH) * rb; }
+  function tbs(rb,nu,qm,R){
+    var ninfo=nre(rb)*R*qm*nu;
+    if(ninfo<=3824){                                   // 표 조회 구간은 근사로 처리
+      var n0=Math.max(3,Math.floor(Math.log2(ninfo))-6);
+      return Math.max(24, 8*Math.ceil(ninfo/8)-24);
+    }
+    var n=Math.max(3,Math.floor(Math.log2(ninfo))-6);
+    var nq=Math.max(3840, Math.pow(2,n)*Math.round(ninfo/Math.pow(2,n)));
+    var C;
+    if(R<=0.25){ C=Math.ceil(nq/3816); return 8*C*Math.ceil(nq/(8*C))-24; }
+    if(nq>8424){ C=Math.ceil(nq/8424); return 8*C*Math.ceil(nq/(8*C))-24; }
+    return 8*Math.ceil((nq+24)/8)-24;
+  }
+  function cbCount(b){ return b<=CB_MAX?1:Math.ceil(b/(CB_MAX-CRC)); }
+
+  /* ══════════════ SVG 1 · 사슬 계단 ══════════════════════════════════
+     핵심: G = N_RE × ν × Qm 가 "레이트 매칭이 만들어야 할 비트 수"이고,
+     부호율은 그 결과로 따라 나온다. 사슬이 닫히는지(레이어당 심볼 = N_RE)를 함께 보인다. */
+  var CG=document.getElementById('chainGrid');
+  var chRb=document.getElementById('chRb'), chNu=document.getElementById('chNu');
+  var modSel=3;
+  var syncMod=mkSeg(document.getElementById('chMod'),MODS,
+    function(){return modSel;}, function(v){modSel=v;}, function(){drawChain();});
+
+  function box(g,x,y,w,h,title,val,unit,strong){
+    g.appendChild(el('rect',{x:x,y:y,width:w,height:h,
+      fill:strong?'var(--dl-bg)':'#fff',stroke:strong?'var(--dl)':'var(--hair)',
+      'stroke-width':strong?1.6:1}));
+    g.appendChild(txt(x+w/2,y+20,title,'dimlab','var(--ink-soft)'));
+    g.appendChild(txt(x+w/2,y+44,val,'celllab',strong?'var(--dl)':'var(--ink)'));
+    if(unit) g.appendChild(txt(x+w/2,y+62,unit,'dimlab','var(--ink-soft)'));
+  }
+  function arrow(g,x1,y,x2){
+    g.appendChild(el('path',{d:'M'+x1+' '+y+' L'+x2+' '+y,
+      stroke:'var(--ink-soft)','stroke-width':1.2,'marker-end':'url(#cArr)'}));
+  }
+
+  function drawChain(){
+    var rb=parseInt(chRb.value,10), nu=parseInt(chNu.value,10), m=MODS[modSel];
+    var N=nre(rb), t=tbs(rb,nu,m.qm,m.R);
+    var B=t+CRC, C=cbCount(B), Bp=B+(C>1?C*CRC:0);
+    var G=N*nu*m.qm, sym=G/m.qm;
+    clear(CG);
+
+    CG.appendChild(el('defs',{})).appendChild(el('marker',{id:'cArr',viewBox:'0 0 10 10',
+      refX:9,refY:5,markerWidth:6,markerHeight:6,orient:'auto'}))
+      .appendChild(el('path',{d:'M0 0 L10 5 L0 10 z',fill:'var(--ink-soft)'}));
+
+    /* ── 위 · 비트 구간 ── */
+    CG.appendChild(txt(0,32,'비트를 다루는 구간','rowlab',null,'start'));
+    var BW=148, GAP=22, X0=48, Y1=48;
+    var bits=[
+      ['전송 블록', comma(t), '비트', false],
+      ['+ 블록 CRC', comma(B), '비트', false],
+      ['코드블록', C+'개', '각 '+comma(Math.round(Bp/C))+' 비트', false],
+      ['부호화', C+'개', '순환 버퍼', false],
+      ['레이트 매칭', comma(G), '비트 ← 자원이 정함', true],
+      ['스크램블', comma(G), '비트', false]
+    ];
+    bits.forEach(function(b,i){
+      var x=X0+i*(BW+GAP);
+      box(CG,x,Y1,BW,76,b[0],b[1],b[2],b[3]);
+      if(i<bits.length-1) arrow(CG,x+BW+3,Y1+38,x+BW+GAP-4);
+    });
+
+    /* ── 아래 · 심볼 구간 ── */
+    CG.appendChild(txt(0,192,'심볼을 다루는 구간','rowlab',null,'start'));
+    var Y2=208;
+    var syms=[
+      ['변조 · '+m.label, comma(sym), '심볼', false],
+      ['레이어 매핑', nu+'갈래', '각 '+comma(sym/nu)+' 심볼', true],
+      ['안테나 포트 매핑', '프리코딩', '포트로 옮긴다', false],
+      ['자원 요소 매핑', comma(N), '개/레이어', true]
+    ];
+    syms.forEach(function(s,i){
+      var x=X0+i*(BW+GAP)*1.5;
+      box(CG,x,Y2,BW*1.35,76,s[0],s[1],s[2],s[3]);
+      if(i<syms.length-1) arrow(CG,x+BW*1.35+3,Y2+38,x+(BW+GAP)*1.5-4);
+    });
+
+    /* ── 닫힘 검산 ── */
+    var closed=(sym/nu===N);
+    CG.appendChild(el('rect',{x:X0,y:312,width:1004,height:56,
+      fill:closed?'var(--ul-bg)':'var(--alert-bg)',
+      stroke:closed?'var(--ul)':'var(--alert)','stroke-width':1.4}));
+    CG.appendChild(txt(X0+502,336,
+      'G = N_RE × ν × Q_m = '+comma(N)+' × '+nu+' × '+m.qm+' = '+comma(G)+' 비트',
+      'celllab',closed?'var(--ul)':'var(--alert)'));
+    CG.appendChild(txt(X0+502,356,
+      closed?'레이어 하나가 나르는 심볼 '+comma(sym/nu)+'개가 자원 요소 '+comma(N)+'개와 정확히 같다 — 사슬이 닫힌다'
+            :'개수가 맞지 않는다',
+      'dimlab','var(--ink-soft)'));
+
+    /* ── 읽을거리 ── */
+    var eff=Bp/G;
+    document.getElementById('chOut').textContent=rb+' RB · '+nu+'레이어 · '+m.label;
+    document.getElementById('chTbs').textContent=comma(t);
+    document.getElementById('chCb').textContent=C+'개';
+    document.getElementById('chG').textContent=comma(G);
+    document.getElementById('chRate').textContent=eff.toFixed(3);
+
+    var box2=document.getElementById('chBox');
+    box2.className='verdict '+(closed?'ok':'bad');
+    document.getElementById('chTag').textContent=closed?'사슬이 닫힌다':'어긋난다';
+    document.getElementById('chWhy').textContent=closed
+      ? '자원 요소 '+comma(N)+'개에 레이어 '+nu+'개와 '+m.qm+'비트 변조를 곱하면 '+comma(G)
+        +'비트. 레이트 매칭은 정확히 그만큼을 만들어 내고, 전송 블록 '+comma(t)
+        +'비트를 코드블록 '+C+'개로 나눠 채웁니다. 실효 부호율 '+eff.toFixed(3)
+        +'은 정해서 넣은 값이 아니라 이 나눗셈의 결과입니다.'
+      : '계산이 어긋났습니다 — 확인이 필요합니다.';
+  }
+  [chRb,chNu].forEach(function(s){ s.addEventListener('input',drawChain); });
+  drawChain();
+
+  /* ══════════════ SVG 2 · 카디널리티 계단 ══════════════════════════
+     전송 블록·코드워드 = 랭크 ≤ 4면 1개, ≥ 5면 2개 (TS 38.211 §7.3.1.3)
+     레이어 = 랭크.  안테나 포트 수는 레이어 수가 정하지 않는다(예시로만 표시).
+     물리 안테나는 규격 밖 — 경계선 아래를 흐리게 그린다. */
+  var DG=document.getElementById('cardGrid');
+  var cdRank=document.getElementById('cdRank');
+  var PORT_EX=8, PHY_EX=192;                 // 예시값 — 규격이 정하는 값이 아니다
+
+  function drawCard(){
+    var r=parseInt(cdRank.value,10), cw=(r<=4?1:2);
+    var symPerLayer=nre(273)                 // 위 그림과 같은 자원 설정
+    clear(DG);
+
+    var rows=[
+      ['전송 블록', cw, 'MAC이 건넨 것', 'var(--dl)'],
+      ['코드워드', cw, '부호화된 한 줄', 'var(--dl)'],
+      ['레이어', r, '공간적으로 구별되는 통로', 'var(--dl)'],
+      ['안테나 포트', PORT_EX, '채널이 같다고 보는 묶음 · 예시', 'var(--dl)'],
+      ['물리 안테나', PHY_EX, '규격이 정의하지 않는다 · 예시', 'var(--ink-soft)']
+    ];
+    /* 물리 안테나 행만 아래로 더 띄운다 — 그 사이에 "규격은 여기까지" 선이 들어간다 */
+    var Y0=40, RH=58, LX=170, CXX=340, CW2=460;   // 상자 줄이 오른쪽 설명(x=890)을 넘지 않게
+    rows.forEach(function(row,i){
+      var y=Y0+i*RH+(i===4?26:0), off=(i===4);
+      DG.appendChild(txt(0,y+26,row[0],'rowlab',null,'start'));
+      /* 개수만큼 칸을 그린다 (많으면 묶어서) */
+      var n=row[1], shown=Math.min(n,20), cw3=Math.min(18,(CW2-20)/shown);
+      for(var k=0;k<shown;k++){
+        DG.appendChild(el('rect',{x:CXX+k*(cw3+3),y:y+6,width:cw3,height:26,
+          fill:off?'#fff':'var(--dl-bg)',stroke:row[3],'stroke-width':off?0.8:1.2,
+          opacity:off?0.45:1}));
+      }
+      if(n>shown) DG.appendChild(txt(CXX+shown*(cw3+3)+8,y+26,'…','celllab',row[3],'start'));
+      DG.appendChild(txt(LX,y+26,n+'개','celllab',off?'var(--ink-soft)':'var(--dl)','start'));
+      DG.appendChild(txt(890,y+26,row[2],'dimlab','var(--ink-soft)','start'));
+    });
+
+    /* 규격이 멈추는 선 — 안테나 포트와 물리 안테나 사이의 빈 띠에 놓는다 */
+    var yline=Y0+4*RH+6;
+    DG.appendChild(el('line',{x1:0,y1:yline,x2:1090,y2:yline,
+      stroke:'var(--alert)','stroke-width':1.6,'stroke-dasharray':'7 5'}));
+    DG.appendChild(txt(4,yline-8,'규격은 여기까지 정의한다','celllab','var(--alert)','start'));
+
+    DG.appendChild(txt(0,Y0+5*RH+44,
+      '랭크가 5 이상이면 전송 블록과 코드워드가 둘로 갈라진다 — 강한 레이어와 약한 레이어를 따로 굴리기 위해서',
+      'dimlab','var(--ink-soft)','start'));
+
+    document.getElementById('cdOut').textContent='랭크 '+r+' · 코드워드 '+cw+'개';
+    document.getElementById('cdTb').textContent=cw+'개';
+    document.getElementById('cdLy').textContent=r+'개';
+    document.getElementById('cdSym').textContent=comma(symPerLayer);
+    document.getElementById('cdPort').textContent=PORT_EX+'개';
+  }
+  cdRank.addEventListener('input',drawCard);
+  drawCard();
+})();
+</script>
+</body>
+</html>

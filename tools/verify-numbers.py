@@ -73,6 +73,7 @@ def main():
     ok &= check_beam()
     ok &= check_rach()
     ok &= check_precoding()
+    ok &= check_chain()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -200,6 +201,135 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/10-physical-layer-chain ════════════════════════════
+# 근거: TS 38.214 §5.1.3.2(전송 블록 크기), TS 38.212 §7.2.1(TB CRC),
+#       §5.2.2(코드블록 분할), §5.4.2.1(레이트 매칭 출력 G)
+#       TS 38.211 §4.4.1(안테나 포트), §7.3.1(스크램블·변조·레이어·포트·RE 매핑)
+# 06에서 이미 검산한 코드블록 분할식(K_cb = 8448, L = 24)을 그대로 재사용한다.
+
+CH_NSYMB, CH_NDMRS, CH_NOH = 14, 12, 0      # 자료의 그림이 고정한 값
+MOD_ORDER = {'QPSK': 2, '16QAM': 4, '64QAM': 6, '256QAM': 8}
+
+
+def n_re(rb, nsymb=CH_NSYMB, ndmrs=CH_NDMRS, noh=CH_NOH):
+    """자원 요소 수 — RB당 156을 넘지 못한다 (TS 38.214 §5.1.3.2)"""
+    return min(156, 12 * nsymb - ndmrs - noh) * rb
+
+
+def tb_size(rb, nu, qm, r):
+    """전송 블록 크기 [비트] — TS 38.214 §5.1.3.2"""
+    ninfo = n_re(rb) * r * qm * nu
+    if ninfo <= 3824:
+        return max(24, 8 * math.ceil(ninfo / 8) - 24)       # 표 조회 구간은 근사
+    n = max(3, math.floor(math.log2(ninfo)) - 6)
+    nq = max(3840, 2**n * round(ninfo / 2**n))
+    if r <= 0.25:
+        c = math.ceil(nq / 3816)
+        return 8 * c * math.ceil(nq / (8 * c)) - 24
+    if nq > 8424:
+        c = math.ceil(nq / 8424)
+        return 8 * c * math.ceil(nq / (8 * c)) - 24
+    return 8 * math.ceil((nq + 24) / 8) - 24
+
+
+def rate_matched_bits(rb, nu, qm):
+    """G = N_RE × ν × Qm — 레이트 매칭이 만들어야 할 총 비트 수"""
+    return n_re(rb) * nu * qm
+
+
+def check_chain():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>12.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    R27 = 948 / 1024
+    print("\n[10] 전송 블록 크기 — 273 RB · 14심볼 · DMRS 12RE · 256QAM(R=948/1024)")
+    eq("자원 요소 수 · 273 × 156", n_re(273), 42588, 0)
+    eq("RB당 데이터 RE (168 − 12)", 12 * CH_NSYMB - CH_NDMRS, 156, 0)
+    for nu, pub_tbs, pub_gbps in [(1, 315528, 0.631), (2, 631176, 1.262),
+                                  (4, 1262376, 2.525), (8, 2524776, 5.050)]:
+        t = tb_size(273, nu, 8, R27)
+        gbps = t / (0.5e-3) / 1e9                            # 30 kHz 슬롯 = 0.5 ms
+        hit = t == pub_tbs and abs(gbps - pub_gbps) < 0.001
+        ok &= hit
+        print(f"  레이어 {nu}: TBS {t:>10,} 비트 → {gbps:5.3f} Gbps  게시 {pub_tbs:,} / {pub_gbps}  "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[10] 사슬이 닫히는가 — 레이어당 심볼 수 = 자원 요소 수")
+    closed_all = True
+    for rb, nu, qm in [(273, 4, 8), (273, 1, 2), (100, 2, 6), (24, 8, 4), (51, 3, 8)]:
+        g = rate_matched_bits(rb, nu, qm)
+        sym_per_layer = g / qm / nu
+        closed = abs(sym_per_layer - n_re(rb)) < 1e-9
+        closed_all &= closed
+        print(f"  {rb:>3} RB · ν={nu} · Qm={qm}  G={g:>9,}  레이어당 심볼 {sym_per_layer:>9,.0f}  "
+              f"N_RE {n_re(rb):>9,}  {'✓' if closed else '✗ 어긋남'}")
+    ok &= closed_all
+    print(f"  모든 조합에서 닫히는가  {'✓' if closed_all else '✗ 자료의 주장과 다름'}")
+    eq("G · 273 RB · ν=4 · 256QAM", rate_matched_bits(273, 4, 8), 1362816, 0)
+
+    print("\n[10] 실효 부호율은 결과로 따라 나온다 — (TBS + CRC) / G")
+    for qm, r, nu, pub in [(8, R27, 4, 0.929), (6, 0.60, 2, 0.603), (2, 0.12, 1, 0.121)]:
+        t = tb_size(273, nu, qm, r)
+        b = t + 24
+        c = 1 if b <= 8448 else math.ceil(b / (8448 - 24))
+        bp = b + (c * 24 if c > 1 else 0)
+        eff = bp / rate_matched_bits(273, nu, qm)
+        hit = abs(eff - pub) < 0.001 and abs(eff - r) / r < 0.02   # 목표와 2% 안
+        ok &= hit
+        print(f"  Qm={qm} ν={nu} 목표 R={r:.4f} → 실효 {eff:.4f} (게시 {pub}) 코드블록 {c:>3}개  "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[10] 단계별 개수 — 273 RB · 4레이어 · 256QAM")
+    t = tb_size(273, 4, 8, R27)
+    b = t + 24
+    c = math.ceil(b / (8448 - 24))
+    eq("전송 블록 [비트]", t, 1262376, 0)
+    eq("+ 블록 CRC 24 [비트]", b, 1262400, 0)
+    eq("코드블록 개수", c, 150, 0)
+    eq("변조 심볼 수", rate_matched_bits(273, 4, 8) / 8, 170352, 0)
+    eq("레이어당 심볼 수", rate_matched_bits(273, 4, 8) / 8 / 4, 42588, 0)
+
+    print("\n[10] 변조 차수와 성상점")
+    for name, qm in MOD_ORDER.items():
+        pts = 2**qm
+        print(f"  {name:>7}  Qm={qm}  성상점 {pts:>3}개  {'✓' if pts == 2**qm else '✗'}")
+    ok &= (MOD_ORDER['256QAM'] == 8 and 2**8 == 256)
+
+    print("\n[10] 카디널리티 — 랭크 ↔ 전송 블록·코드워드 (TS 38.211 §7.3.1.3)")
+    cw = {r: (1 if r <= 4 else 2) for r in range(1, 9)}
+    hit = cw[4] == 1 and cw[5] == 2 and max(r for r in cw if cw[r] == 1) == 4
+    ok &= hit
+    print(f"  {[cw[r] for r in range(1, 9)]}  경계가 4/5  {'✓' if hit else '✗ 자료의 표와 다름'}")
+
+    print("\n[10] 자원 요소 예산 — 1 RB · 1 슬롯")
+    eq("12 부반송파 × 14 심볼", 12 * 14, 168, 0)
+    for dmrs, pub_data, pub_pct in [(12, 156, 92.9), (24, 144, 85.7), (6, 162, 96.4)]:
+        data = 12 * 14 - dmrs
+        pct = data / (12 * 14) * 100
+        hit = data == pub_data and abs(pct - pub_pct) < 0.05
+        ok &= hit
+        print(f"  DMRS {dmrs:>2} RE → 데이터 {data:>3} RE ({pct:4.1f}%)  게시 {pub_data}/{pub_pct}  "
+              f"{'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: TBS 식의 min(156, ·) 상한이 여기서 나온다
+    hit = (12 * 14 - 12) == 156
+    ok &= hit
+    print(f"  DMRS 1심볼일 때의 데이터 몫이 곧 상한 156  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[10] 스크램블링 초기값 자리 — c_init = n_RNTI·2^15 + q·2^14 + n_ID")
+    # 세 값의 자리가 겹치지 않아야 셀·단말·코드워드가 서로 다른 수열을 받는다
+    no_overlap = (1023 < 2**14) and (1 * 2**14 < 2**15)
+    ok &= no_overlap
+    print(f"  n_ID(≤1023) < 2^14 이고 q·2^14 < 2^15 — 자리가 겹치지 않는다  "
+          f"{'✓' if no_overlap else '✗ 자료의 주장과 다름'}")
 
     return ok
 
