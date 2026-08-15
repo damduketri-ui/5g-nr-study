@@ -86,8 +86,8 @@
 
 ## 7. 로드맵 (작성 예정)
 
-- 09 스케줄링과 DCI — 자원이 실제로 배정되는 과정
-- 10 채널 코딩 — LDPC와 Polar
-- 11 5G 코어와 세션 — PDU Session, QoS Flow
+- 10 스케줄링과 DCI — 자원이 실제로 배정되는 과정
+- 11 채널 코딩 — LDPC와 Polar
+- 12 5G 코어와 세션 — PDU Session, QoS Flow
 
-08까지 작성 완료. 목록은 루트 `index.html` 참조.
+09까지 작성 완료. 목록은 루트 `index.html` 참조.

@@ -72,6 +72,7 @@ def main():
     ok &= check_bwp()
     ok &= check_beam()
     ok &= check_rach()
+    ok &= check_precoding()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -199,6 +200,152 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/09-precoding-codebook ══════════════════════════════
+# 이 자료도 07처럼 절반이 안테나·정보이론이다. 규격에서 온 것은 포트 배치와
+# 코드워드↔레이어 매핑뿐이고, 용량·손실 계산은 모델이며 본문에 그렇게 표기했다.
+# 근거: TS 38.214 §5.2.1(CSI 보고), §5.2.2.2(Type I/II 코드북·포트 배치)
+#       TS 38.211 §7.3.1.3(코드워드↔레이어)
+
+RANK_MAX = 4                    # 이 자료의 그림이 다루는 범위
+
+# TS 38.214 §5.2.2.2 — (포트 수, (N1,N2), (O1,O2))
+PORT_LAYOUT = [
+    (4,  (2, 1), (4, 1)),
+    (8,  (2, 2), (4, 4)),
+    (16, (4, 2), (4, 4)),
+    (32, (4, 4), (4, 4)),
+    (32, (16, 1), (4, 1)),
+]
+
+
+def eig_profile(rho, rmax=RANK_MAX):
+    """고유값 λi ∝ ρ^(i−1), 총 채널 전력을 고정하려고 Σλi = rmax 로 정규화"""
+    raw = [rho**i for i in range(rmax)]
+    s = sum(raw)
+    return [x * rmax / s for x in raw]
+
+
+def capacity(r, snr, lam):
+    """C(r) = Σ log2(1 + (SNR/r)·λi) — 정보이론 상한, 규격값 아님"""
+    return sum(math.log2(1 + (snr / r) * lam[i]) for i in range(r))
+
+
+def best_rank(snr_db, rho, rmax=RANK_MAX):
+    lam = eig_profile(rho, rmax)
+    caps = [capacity(r, 10**(snr_db / 10), lam) for r in range(1, rmax + 1)]
+    return caps.index(max(caps)) + 1, caps
+
+
+def af_db(x, n):
+    """배열 인자 [dB]. x는 DFT 눈금 단위 (1 눈금 = 직교 빔 간격)"""
+    if abs(x) < 1e-12:
+        return 0.0
+    return 20 * math.log10(abs(math.sin(math.pi * x) / (n * math.sin(math.pi * x / n))))
+
+
+def check_precoding():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<40} {got:>10.6g}  게시 {want:<9} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[09] 랭크는 높을수록 좋은가 — C(r) = Σ log2(1 + (SNR/r)·λi)")
+    # 자료의 주장 1: 고유값이 균등하면 항상 최대 랭크가 이긴다
+    uniform_ok = all(best_rank(db, 1.0)[0] == RANK_MAX for db in range(-10, 31))
+    ok &= uniform_ok
+    print(f"  쏠림 없음(ρ=1)이면 −10…30 dB 전 구간에서 랭크 {RANK_MAX}가 이긴다  "
+          f"{'✓' if uniform_ok else '✗ 자료의 주장과 다름'}")
+
+    # 자료의 주장 2: 쏠릴수록 낮은 랭크가 이기는 구간이 생기고, 전환점이 뒤로 밀린다
+    print(f"  {'ρ':>6}  랭크 전환점 [dB]")
+    prev_first = None
+    mono = True
+    for rho, pub in [(0.5, [0, 7, 12]), (0.3, [3, 11, 18]), (0.1, [7, 20, 32])]:
+        seq = [best_rank(db, rho)[0] for db in range(-20, 41)]
+        bnd = [(-20 + i) for i in range(1, len(seq)) if seq[i] != seq[i - 1]]
+        hit = bnd == pub
+        ok &= hit
+        if prev_first is not None:
+            mono &= bnd[0] > prev_first
+        prev_first = bnd[0]
+        print(f"  {rho:>6}  {bnd}  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    ok &= mono
+    print(f"  쏠릴수록 랭크를 올릴 수 있는 SNR이 뒤로 밀린다  {'✓' if mono else '✗ 자료의 주장과 다름'}")
+
+    # 낮은 SNR·강한 쏠림에서 랭크 1이 이기는지 (자료의 핵심 문장)
+    r1, caps = best_rank(0, 0.1)
+    eq("0 dB · ρ=0.1 에서 이길 랭크", r1, 1, 0)
+    eq("  그때 랭크 4로 갔을 때의 손해 [%]", (caps[0] - caps[3]) / caps[0] * 100, 51.9, 0.5)
+
+    print("\n[09] 왜 과표본화 4배인가 — AF(1/(2O)) [dB]")
+    print(f"  {'N':>4} " + "".join(f"{'O='+str(o):>10}" for o in (1, 2, 4, 8)))
+    for n in (4, 8, 16, 64):
+        row = [af_db(1 / (2 * o), n) for o in (1, 2, 4, 8)]
+        print(f"  {n:>4} " + "".join(f"{v:>9.2f}dB" for v in row))
+    # 자료가 게시한 값은 큰 N 극한 기준
+    for o, pub in [(1, -3.92), (2, -0.91), (4, -0.22), (8, -0.06)]:
+        got = af_db(1 / (2 * o), 64)
+        hit = abs(got - pub) < 0.005
+        ok &= hit
+        print(f"  O={o}  최악 손실 {got:6.2f} dB  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    eq("O=1 극한 20log10(2/π) [dB]", 20 * math.log10(2 / math.pi), -3.92, 0.005)
+    # 자료의 주장: O=4가 "손실이 무시할 만해지는 첫 지점"
+    claim = af_db(1 / 8, 64) > -0.5 and af_db(1 / 4, 64) < -0.5
+    ok &= claim
+    print(f"  O=4는 0.5 dB 안에 들고 O=2는 못 든다  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+    # 전력으로 환산한 O=1의 손실 (본문의 "60%가 날아간다")
+    eq("O=1에서 날아가는 전력 [%]", (1 - 10**(af_db(0.5, 64) / 10)) * 100, 59.5, 0.5)
+
+    print("\n[09] 포트 배치와 빔 격자 — P = 2·N1·N2 (이중편파)")
+    for p, (n1, n2), (o1, o2) in PORT_LAYOUT:
+        beams = n1 * o1 * n2 * o2
+        bits = math.ceil(math.log2(beams))
+        hit = 2 * n1 * n2 == p
+        ok &= hit
+        print(f"  P={p:>2}  (N1,N2)=({n1},{n2}) (O1,O2)=({o1},{o2})  "
+              f"격자 {n1*o1}×{n2*o2} = {beams:>3}개 → {bits}비트  {'✓' if hit else '✗ 포트 수 불일치'}")
+    # 자료의 주장: 같은 32포트라도 배치에 따라 격자와 비트가 다르다
+    square = [x for x in PORT_LAYOUT if x[0] == 32 and x[1] == (4, 4)][0]
+    line = [x for x in PORT_LAYOUT if x[0] == 32 and x[1] == (16, 1)][0]
+    b_sq = square[1][0] * square[2][0] * square[1][1] * square[2][1]
+    b_ln = line[1][0] * line[2][0] * line[1][1] * line[2][1]
+    hit = b_sq == 256 and b_ln == 64 and math.ceil(math.log2(b_sq)) - math.ceil(math.log2(b_ln)) == 2
+    ok &= hit
+    print(f"  같은 32포트: (4,4)→{b_sq}개 / (16,1)→{b_ln}개, 번호가 2비트 차이  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[09] 채널을 통째로 보내면 — 100 MHz · 30 kHz · 32포트 · 4수신")
+    sc, rb, ports, nrx, bits_c = 273 * 12, 273, 32, 4, 16
+    per_sc = sc * ports * nrx * bits_c
+    per_rb = rb * ports * nrx * bits_c
+    eq("부반송파마다 [Mbit]", per_sc / 1e6, 6.71, 0.005)
+    eq("자원블록마다 [Mbit]", per_rb / 1e6, 0.56, 0.005)
+    eq("광대역 PMI 10비트 대비 배수 (자원블록)", per_rb / 10, 55910, 1)
+
+    print("\n[09] Type I / Type II 규모 — 계수 개수 기준 (정확한 PMI 인코딩 아님)")
+    eq("Type I · 32포트 (4,4) [비트]", math.ceil(math.log2(256)) + 2, 10, 0)
+    for L, pub in [(2, 24), (3, 36), (4, 48)]:
+        got = 2 * L * (3 + 3)                    # 편파 2개 × 빔 L개, 진폭 3 + 위상 3
+        hit = got == pub
+        ok &= hit
+        print(f"  Type II L={L}  계수 {2*L}개 → {got:>3}비트  게시 {pub:<4} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[09] 코드워드 ↔ 레이어 — TS 38.211 §7.3.1.3")
+    # 게시한 매핑을 자료와 같은 형태로 적어 두고, 경계가 4/5에 있는지를 검사한다
+    cw = {r: (1 if r <= 4 else 2) for r in range(1, 9)}
+    boundary = (cw[4] == 1 and cw[5] == 2
+                and sorted(set(cw.values())) == [1, 2]
+                and max(r for r in cw if cw[r] == 1) == 4)
+    ok &= boundary
+    print(f"  랭크→코드워드 {[cw[r] for r in range(1, 9)]}  경계가 4/5  "
+          f"{'✓' if boundary else '✗ 자료의 표와 다름'}")
 
     return ok
 
