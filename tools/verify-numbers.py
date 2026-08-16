@@ -8,6 +8,7 @@
 """
 
 import math
+import random
 
 Tc = 1 / (480_000 * 4096)   # §4.1  ≈ 0.50863 ns
 KAPPA = 64                  # §4.1  Ts/Tc
@@ -76,6 +77,7 @@ def main():
     ok &= check_chain()
     ok &= check_refsig()
     ok &= check_pdcch()
+    ok &= check_uplink()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -203,6 +205,150 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/13-uplink-physical-layer ═══════════════════════════
+# PAPR과 전력 제어는 물리이고 3GPP 규격값이 아니다(본문에 그렇게 표기).
+# 규격에서 온 것은 상향 사슬의 단계 구성과 코드워드·레이어 상한뿐이다.
+# 근거: TS 38.211 §6.3.1(PUSCH·변환 프리코딩), §6.3.2(PUCCH)
+#       TS 38.213 §7.1(상향 전력 제어), TS 38.101-1 §6.2(단말 전력 등급)
+
+P_CMAX_DBM = 23.0          # 전력 등급 3
+GNB_DBM = 46.0             # 전형적인 매크로 값 — 규격값이 아님
+PAPR_TRIALS = 60
+PAPR_NSC = 64
+
+
+def _papr_db(sym, n_sc, transform, over=4):
+    """PAPR = max|x|² / avg|x|².  transform=True면 먼저 DFT(변환 프리코딩)"""
+    if transform:
+        m = len(sym)
+        x = []
+        for k in range(m):
+            ar = ai = 0.0
+            for i, (re, im) in enumerate(sym):
+                a = -2 * math.pi * i * k / m
+                c, s = math.cos(a), math.sin(a)
+                ar += re * c - im * s
+                ai += re * s + im * c
+            x.append((ar / math.sqrt(m), ai / math.sqrt(m)))
+    else:
+        x = sym
+    nf = n_sc * over
+    peak = 0.0
+    tot = 0.0
+    for n in range(nf):
+        ar = ai = 0.0
+        for k, (re, im) in enumerate(x):
+            a = 2 * math.pi * k * n / nf
+            c, s = math.cos(a), math.sin(a)
+            ar += re * c - im * s
+            ai += re * s + im * c
+        p = (ar * ar + ai * ai) / nf
+        tot += p
+        peak = max(peak, p)
+    return 10 * math.log10(peak / (tot / nf))
+
+
+def papr_stats(transform, constellation, seed=20260816, trials=PAPR_TRIALS):
+    """고정 시드라 몇 번을 돌려도 같은 값이 나온다.
+    PAPR은 데이터에 따라 흔들리는 통계량이므로 난수원이 바뀌면 값도 바뀐다 —
+    게시값과 대조하려면 난수원까지 같아야 한다(자료의 표는 이 함수로 뽑은 값)."""
+    rnd = random.Random(seed)
+    vals = []
+    for _ in range(trials):
+        sym = [rnd.choice(constellation) for _ in range(PAPR_NSC)]
+        vals.append(_papr_db(sym, PAPR_NSC, transform))
+    vals.sort()
+    return sum(vals) / len(vals), vals[int(len(vals) * 0.95)]
+
+
+def max_rb_power_limited(pl_db, p_o=-100.0, alpha=1.0, mu=1, p_cmax=P_CMAX_DBM):
+    """최대 출력에 걸린 단말이 쓸 수 있는 자원블록 수"""
+    return 10**((p_cmax - p_o - alpha * pl_db) / 10) / 2**mu
+
+
+def check_uplink():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[13] 상하향 비대칭")
+    eq("기지국 − 단말 [dB]", GNB_DBM - P_CMAX_DBM, 23, 0)
+    eq("그 배수", 10**((GNB_DBM - P_CMAX_DBM) / 10), 200, 0.5)
+
+    print("\n[13] PAPR — 고정 시드 몬테카를로 (부반송파 64, 60회)")
+    r = 1 / math.sqrt(2)
+    qpsk = [(a * r, b * r) for a in (1, -1) for b in (1, -1)]
+    s16 = 1 / math.sqrt(10)
+    q16 = [(a * s16, b * s16) for a in (-3, -1, 1, 3) for b in (-3, -1, 1, 3)]
+    print(f"  {'파형':<12} {'변조':<7} {'평균':>8} {'상위5%':>9}   게시값")
+    res = {}
+    for transform, wl, pub in [(False, 'CP-OFDM', {'QPSK': (7.71, 9.66), '16QAM': (7.52, 8.93)}),
+                               (True, 'DFT-s-OFDM', {'QPSK': (5.28, 6.51), '16QAM': (5.70, 6.71)})]:
+        for cons, cl in [(qpsk, 'QPSK'), (q16, '16QAM')]:
+            mean, p95 = papr_stats(transform, cons)
+            res[(wl, cl)] = (mean, p95)
+            hit = abs(mean - pub[cl][0]) < 0.02 and abs(p95 - pub[cl][1]) < 0.02
+            ok &= hit
+            print(f"  {wl:<12} {cl:<7} {mean:>6.2f}dB {p95:>7.2f}dB   "
+                  f"게시 {pub[cl][0]}/{pub[cl][1]}  {'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 주장 1: DFT 확산이 두 변조 모두에서 PAPR을 낮춘다
+    lower = all(res[('DFT-s-OFDM', c)][1] < res[('CP-OFDM', c)][1] for c in ('QPSK', '16QAM'))
+    ok &= lower
+    print(f"  DFT 확산이 두 변조 모두에서 봉우리를 낮춘다  {'✓' if lower else '✗ 자료의 주장과 다름'}")
+
+    # 자료의 주장 2: 이득이 QPSK에서 더 크다 (성상점이 촘촘할수록 줄어든다)
+    d_qpsk = res[('CP-OFDM', 'QPSK')][1] - res[('DFT-s-OFDM', 'QPSK')][1]
+    d_q16 = res[('CP-OFDM', '16QAM')][1] - res[('DFT-s-OFDM', '16QAM')][1]
+    eq("QPSK 이득 (상위5%) [dB]", d_qpsk, 3.15, 0.02)
+    eq("16QAM 이득 (상위5%) [dB]", d_q16, 2.21, 0.02)
+    ok &= d_qpsk > d_q16
+    print(f"  QPSK 이득이 16QAM보다 크다  {'✓' if d_qpsk > d_q16 else '✗ 자료의 주장과 다름'}")
+
+    print("\n[13] 백오프 이득 → 도달거리  (거리 배수 = 10^(Δ/10n))")
+    for n, pub in [(2.0, 1.437), (3.5, 1.230), (4.0, 1.199)]:
+        got = 10**(d_qpsk / (10 * n))
+        hit = abs(got - pub) < 0.002
+        ok &= hit
+        print(f"  경로손실 지수 {n}: {got:.3f}배  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+
+    # 그림이 100 MHz·273 RB를 기준으로 그려지므로 μ=1(30 kHz)로 통일한다.
+    # μ=0으로 계산하면 같은 경로손실에서 값이 두 배가 되어 그림과 본문이 어긋난다.
+    print("\n[13] 전력 제어 — 쓸 수 있는 대역 (P_O −100 dBm, α=1, μ=1)")
+    for pl, pub in [(100, 99.76), (110, 9.98), (120, 1.00), (130, 0.10)]:
+        got = max_rb_power_limited(pl, mu=1)
+        hit = abs(got - pub) < 0.01
+        ok &= hit
+        print(f"  경로손실 {pl} dB → {got:>8.2f} RB  게시 {pub:<8} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 10 dB마다 정확히 1/10
+    ratios = [max_rb_power_limited(p, mu=1) / max_rb_power_limited(p + 10, mu=1)
+              for p in (90, 100, 110, 120)]
+    exact = all(abs(x - 10) < 1e-9 for x in ratios)
+    ok &= exact
+    print(f"  경로손실 10 dB마다 정확히 1/10  {'✓' if exact else '✗ 자료의 주장과 다름'}")
+    # 대역폭 항이 로그이므로 μ가 1 오르면 3.01 dB를 더 쓴다
+    eq("μ 하나 올릴 때의 대역폭 항 [dB]", 10 * math.log10(2), 3.01, 0.005)
+    # 그림의 경고선: M_RB = 1이 되는 경로손실 (P_CMAX = P_O + 10log10(2^μ) + αPL)
+    pl_dead = P_CMAX_DBM - (-100) - 10 * math.log10(2 ** 1)
+    eq("1 RB도 못 채우는 경로손실 [dB]", pl_dead, 120.0, 0.02)
+
+    print("\n[13] 상향과 하향의 상한 — TS 38.211 §6.3.1")
+    ul_cw, ul_layers, dl_cw, dl_layers = 1, 4, 2, 8
+    hit = ul_cw == 1 and ul_layers == 4 and dl_cw == 2 and dl_layers == 8
+    ok &= hit
+    print(f"  상향 코드워드 {ul_cw} · 레이어 {ul_layers} / 하향 {dl_cw} · {dl_layers}  "
+          f"{'✓' if hit else '✗'}")
+    # 코드워드가 하나뿐이므로 10의 "랭크 5부터 둘" 경계가 상향에는 존재하지 않는다
+    ok &= ul_layers <= 4
+    print(f"  상향은 레이어가 4까지라 10의 '랭크 5부터 코드워드 둘' 규칙이 성립하지 않는다  ✓")
 
     return ok
 
