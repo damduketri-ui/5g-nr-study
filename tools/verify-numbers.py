@@ -74,6 +74,7 @@ def main():
     ok &= check_rach()
     ok &= check_precoding()
     ok &= check_chain()
+    ok &= check_refsig()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -201,6 +202,139 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/11-reference-signals ═══════════════════════════════
+# 표본화 쪽은 물리이고(3GPP 규격값 아님), 규격에서 온 것은 DMRS 배치 구조뿐이다.
+# 10이 근거 없이 쓴 N_DMRS = 12 와 min(156, ·) 을 여기서 갚는지 함께 검사한다.
+# 근거: TS 38.211 §7.4.1.1(PDSCH DMRS), §7.4.1.2(PT-RS), §7.4.1.5(CSI-RS), §6.4.1.4(SRS)
+
+C_LIGHT_MS = 299_792_458.0      # m/s
+
+# 타입별 CDM 묶음이 쓰는 부반송파 (자원블록 하나, 심볼 하나 기준)
+DMRS_GROUPS = {
+    1: [[0, 2, 4, 6, 8, 10], [1, 3, 5, 7, 9, 11]],          # comb-2
+    2: [[0, 1, 6, 7], [2, 3, 8, 9], [4, 5, 10, 11]],        # 두 개씩 묶어 세 군데
+}
+
+
+def doppler_hz(v_kmh, fc_hz):
+    return (v_kmh / 3.6) * fc_hz / C_LIGHT_MS
+
+
+def fd_max_hz(slot_ms, n_dmrs):
+    """말뚝 간격 T = 슬롯/n 일 때 나이퀴스트 한계 f_d,max = 1/(2T)"""
+    return 1 / (2 * (slot_ms / 1000 / n_dmrs))
+
+
+def v_max_kmh(slot_ms, n_dmrs, fc_hz):
+    return fd_max_hz(slot_ms, n_dmrs) * C_LIGHT_MS / fc_hz * 3.6
+
+
+def max_delay_us(pilot_spacing_sc, mu):
+    """파일럿 간격이 부반송파 몇 개일 때 구별 가능한 최대 지연 [μs] = 1/Δf"""
+    return 1 / (pilot_spacing_sc * 15_000 * 2**mu) * 1e6
+
+
+def dmrs_re(dtype, n_sym):
+    return sum(len(g) for g in DMRS_GROUPS[dtype]) * n_sym
+
+
+def dmrs_ports(dtype, n_sym):
+    """묶음마다 부호 2개, 심볼이 2개 이상이면 시간 부호로 다시 2배"""
+    return len(DMRS_GROUPS[dtype]) * 2 * (2 if n_sym >= 2 else 1)
+
+
+def check_refsig():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[11] 시간 방향 — 도플러와 말뚝 간격")
+    eq("120 km/h @3.5 GHz 도플러 [Hz]", doppler_hz(120, 3.5e9), 389, 0.5)
+    eq("120 km/h @28 GHz 도플러 [Hz]", doppler_hz(120, 28e9), 3113, 1)
+    # 자료의 주장: 같은 속도라도 28 GHz에서 정확히 8배 빠르다
+    ratio = doppler_hz(120, 28e9) / doppler_hz(120, 3.5e9)
+    ok &= abs(ratio - 8) < 1e-9
+    print(f"  28 GHz 도플러가 3.5 GHz의 8배  차 {abs(ratio-8):.1e}  "
+          f"{'✓' if abs(ratio-8) < 1e-9 else '✗ 자료의 주장과 다름'}")
+
+    print(f"  {'슬롯':>8} {'DMRS':>5} {'f_d,max':>9} {'3.5 GHz':>10} {'28 GHz':>10}   게시값")
+    for slot, mu_lab, n, p35, p28 in [(0.5, '30 kHz', 1, 308, None), (0.5, '30 kHz', 2, 617, None),
+                                      (0.5, '30 kHz', 4, 1233, None),
+                                      (0.125, '120 kHz', 1, None, 154), (0.125, '120 kHz', 2, None, 308),
+                                      (0.125, '120 kHz', 4, None, 617)]:
+        v35 = v_max_kmh(slot, n, 3.5e9)
+        v28 = v_max_kmh(slot, n, 28e9)
+        hit = ((p35 is None or abs(v35 - p35) < 1) and (p28 is None or abs(v28 - p28) < 1))
+        ok &= hit
+        print(f"  {slot:>6}ms {n:>5} {fd_max_hz(slot, n):>7.0f}Hz {v35:>8.0f}km/h {v28:>8.0f}km/h   "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 핵심 장면: 500 km/h는 말뚝 하나로 놓치고 둘이면 따라간다
+    fd500 = doppler_hz(500, 3.5e9)
+    breaks = fd500 > fd_max_hz(0.5, 1)
+    saved = fd500 <= fd_max_hz(0.5, 2)
+    ok &= breaks and saved
+    print(f"  500 km/h @3.5 GHz: 도플러 {fd500:.0f} Hz — 1심볼({fd_max_hz(0.5,1):.0f} Hz) 놓치고 "
+          f"2심볼({fd_max_hz(0.5,2):.0f} Hz) 따라간다  {'✓' if breaks and saved else '✗ 자료의 주장과 다름'}")
+    # 28 GHz에서 120 km/h는 μ=1로는 못 버티고 μ=3이면 버틴다
+    fd120_28 = doppler_hz(120, 28e9)
+    hit = fd120_28 > fd_max_hz(0.5, 1) and fd120_28 <= fd_max_hz(0.125, 1)
+    ok &= hit
+    print(f"  120 km/h @28 GHz: 30 kHz로는 못 버티고 120 kHz면 버틴다  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[11] 주파수 방향 — CP가 먼저 막는가")
+    print(f"  {'μ':>2} {'타입1 최대지연':>14} {'타입2 최대지연':>14} {'일반 CP':>9}   여유(타입1/타입2)")
+    margins1, margins2 = [], []
+    for mu in (0, 1, 2, 3):
+        d1 = max_delay_us(2, mu)          # comb-2 → 간격 2 부반송파
+        d2 = max_delay_us(6, mu)          # 타입 2 → 묶음 간격 6 부반송파
+        c = cp(mu)
+        margins1.append(d1 / c)
+        margins2.append(d2 / c)
+        hit = d1 > c and d2 > c
+        ok &= hit
+        print(f"  {mu:>2} {d1:>12.2f}μs {d2:>12.2f}μs {c:>7.3f}μs   "
+              f"{d1/c:5.2f}배 / {d2/c:5.2f}배  {'✓ CP가 먼저' if hit else '✗ 말뚝이 먼저'}")
+    # 자료의 주장: 여유 배수가 μ와 무관한 상수 64/9 (그리고 타입2는 64/27)
+    const1 = max(margins1) - min(margins1) < 1e-9
+    const2 = max(margins2) - min(margins2) < 1e-9
+    ok &= const1 and const2
+    print(f"  여유 배수가 μ와 무관하게 일정  타입1 {margins1[0]:.6f} · 타입2 {margins2[0]:.6f}  "
+          f"{'✓' if const1 and const2 else '✗ 자료의 주장과 다름'}")
+    eq("타입1 여유 배수 = 64/9", margins1[0], 64 / 9, 1e-9)
+    eq("타입2 여유 배수 = 64/27", margins2[0], 64 / 27, 1e-9)
+
+    print("\n[11] DMRS 배치 — 자원 요소와 포트 수")
+    print(f"  {'타입':>5} {'심볼':>5} {'RE':>5} {'오버헤드':>9} {'데이터 RE':>10} {'포트':>5}   게시값")
+    for dtype, nsym, pub_re, pub_port in [(1, 1, 12, 4), (1, 2, 24, 8), (1, 4, 48, 8),
+                                          (2, 1, 12, 6), (2, 2, 24, 12)]:
+        re = dmrs_re(dtype, nsym)
+        ports = dmrs_ports(dtype, nsym)
+        hit = re == pub_re and ports == pub_port
+        ok &= hit
+        print(f"  {dtype:>5} {nsym:>5} {re:>5} {re/168*100:>8.1f}% {168-re:>10} {ports:>5}   "
+              f"{'✓' if hit else '✗ 불일치'}")
+    # 두 타입이 같은 12 RE로 서로 다른 포트 수를 준다 — 자료의 트레이드오프 주장
+    hit = dmrs_re(1, 1) == dmrs_re(2, 1) and dmrs_ports(2, 1) > dmrs_ports(1, 1)
+    ok &= hit
+    print(f"  같은 12 RE로 타입2가 포트를 더 준다 ({dmrs_ports(1,1)} → {dmrs_ports(2,1)})  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[11] 10의 빚을 갚는가 — N_DMRS = 12 와 min(156, ·)")
+    # 10이 쓴 값이 '타입 1 · 1심볼 · 2 CDM 묶음'과 같아야 한다
+    hit = dmrs_re(1, 1) == CH_NDMRS and (12 * CH_NSYMB - dmrs_re(1, 1)) == 156
+    ok &= hit
+    print(f"  타입1 1심볼 = {dmrs_re(1,1)} RE = 10의 N_DMRS({CH_NDMRS})  → 데이터 "
+          f"{12*CH_NSYMB - dmrs_re(1,1)} RE = TBS 상한 156  {'✓' if hit else '✗ 두 자료가 어긋남'}")
 
     return ok
 

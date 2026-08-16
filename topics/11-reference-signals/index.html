@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>11 참조신호 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>11 / 참조신호</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">11 · reference signals</p>
+  <h1>채널을 재려면<br><em>말뚝을</em> 박아야 한다</h1>
+  <p class="lead"><a href="../10-physical-layer-chain/index.html">10</a>에서 안테나 포트가 존재하는 이유를 <strong>"기준신호로 잰 값을 데이터에 쓰기 위해서"</strong>라고 했습니다. 그럼 그 재는 일은 실제로 어떻게 하고, <strong>얼마나 촘촘히</strong> 해야 하며, 얼마나 비쌀까요. 10이 근거 없이 썼던 <code>N_DMRS = 12</code>도 여기서 갚습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>왜 재야 하는가</h2>
+  <p>무선 채널이 하는 일은 단순합니다. 보낸 신호에 <strong>어떤 복소수를 곱합니다.</strong> 크기가 줄고 위상이 돌아갑니다. 부반송파마다 다른 값이 곱해지고, 시간이 지나면 그 값도 바뀝니다.</p>
+
+  <p>수신기는 받은 값만 압니다. 곱해진 값을 모르면 원래 신호를 되돌릴 수 없습니다. 미지수가 둘인데 식이 하나입니다.</p>
+
+  <p>그래서 <strong>답을 아는 문제를 하나 섞어 보냅니다.</strong> 송신기와 수신기가 <strong>미리 약속한 신호</strong>를 자원 몇 칸에 실어 보내면, 수신기는 받은 값을 약속한 값으로 나눠 <strong>곱해진 복소수를 알아냅니다.</strong> 그게 참조신호이고, 이 자료의 비유로는 <strong>측량 말뚝</strong>입니다.</p>
+
+  <div class="note">
+    <strong>땅의 높낮이를 재는 일과 같습니다.</strong> 측량하는 사람은 온 땅을 다 재지 않습니다.
+    <strong>말뚝을 몇 개 박아 그 자리만 재고</strong>, 사이는 이어서 짐작합니다.
+    말뚝이 촘촘할수록 지형을 정확히 그리지만 <strong>박는 데 드는 품</strong>이 커집니다.
+    땅이 완만하면 성기게 박아도 되고, 울퉁불퉁하면 촘촘히 박아야 합니다.
+    이 자료의 나머지는 전부 <strong>"얼마나 촘촘히 박을 것인가"</strong>입니다.
+  </div>
+
+  <p>그리고 여기서 <a href="../10-physical-layer-chain/index.html">10의 안테나 포트</a>가 왜 그렇게 정의됐는지가 분명해집니다. <strong>말뚝으로 잰 값을 옆의 데이터에 적용하려면, 그 둘이 같은 땅 위에 있어야 합니다.</strong> "같은 채널을 겪는다고 봐도 되는 묶음"이라는 정의가 바로 그 약속입니다.</p>
+
+  <p>땅은 <strong>두 방향</strong>으로 울퉁불퉁합니다. 주파수 방향과 시간 방향. 두 방향의 요구가 서로 다르므로 따로 봅니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>시간 방향 — 도플러가 정한다</h2>
+  <p>단말이 움직이면 채널이 변합니다. 얼마나 빨리 변하는지는 <strong>도플러 주파수</strong>가 정합니다.</p>
+
+  <!-- 유도: f_d = v · f_c / c  (v [m/s], c = 299,792,458 m/s)
+       파일럿 간격 T 로 채널을 표본화하면 나이퀴스트 한계는 f_d,max = 1/(2T)
+       DMRS 심볼이 슬롯당 n개면 T = 슬롯길이 / n
+         μ=1(0.5 ms) n=1 → T=0.5 ms → f_d,max 1000 Hz → 3.5 GHz에서 308 km/h
+         μ=1        n=2 → T=0.25 ms → 2000 Hz → 617 km/h
+         μ=3(0.125 ms) n=1 → 4000 Hz → 28 GHz에서 154 km/h -->
+  <div class="note">
+    <strong>f<sub>d</sub> = v · f<sub>c</sub> / c</strong> — 속도와 반송파 주파수에 함께 비례합니다.
+    시속 120 km면 3.5 GHz에서 389 Hz지만, <strong>28 GHz에서는 3,113 Hz</strong>입니다.
+    같은 속도라도 고주파에서는 채널이 <strong>여덟 배 빨리</strong> 변합니다.
+    <span class="src">물리 관계 · 3GPP 규격값이 아님</span>
+  </div>
+
+  <p>말뚝을 시간 간격 T마다 박으면, 표본화 정리에 따라 <strong>f<sub>d</sub> = 1/(2T)</strong>까지만 따라갈 수 있습니다. 그보다 빨리 변하면 <strong>말뚝 사이에서 벌어진 일을 놓칩니다.</strong></p>
+
+  <p>아래에서 속도를 올려 보세요. 파란 선이 <strong>실제 채널</strong>, 점선이 <strong>말뚝으로 복원한 채널</strong>입니다. 어느 순간부터 둘이 갈라집니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 360" role="img" aria-labelledby="t1 d1">
+      <title id="t1">속도가 오르면 말뚝 사이에서 채널을 놓친다</title>
+      <desc id="d1">가로축은 두 슬롯 분량의 시간이다. 파란 곡선은 도플러에 따라 출렁이는 실제 채널이고, 점은 DMRS가 놓인 자리이며, 점선은 그 점들을 이어 복원한 채널이다. 속도를 올리면 실제 곡선이 빨라져 점 사이에서 벌어진 변화를 복원선이 따라가지 못하고 둘이 갈라진다.</desc>
+      <g id="dopGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="rsSpeed">속도</label>
+    <input type="range" id="rsSpeed" min="3" max="600" step="1" value="120" aria-describedby="rsOut">
+    <span class="segmented" id="rsBand" role="group" aria-label="주파수 대역 선택"></span>
+    <span class="segmented" id="rsSym" role="group" aria-label="슬롯당 DMRS 심볼 수 선택"></span>
+    <span class="readout" id="rsOut"></span>
+  </div>
+
+  <div class="verdict" id="rsBox">
+    <span class="tag" id="rsTag"></span>
+    <span class="why" id="rsWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="rsFd">—</span><span class="t">도플러 주파수</span></div>
+    <div><span class="n" id="rsLimit">—</span><span class="t">이 말뚝 간격이 감당하는 한계</span></div>
+    <div><span class="n" id="rsVmax">—</span><span class="t">따라갈 수 있는 최고 속도</span></div>
+    <div><span class="n" id="rsErr">—</span><span class="t">복원 오차 · 최대</span></div>
+  </div>
+  <p class="caption">채널을 <strong>단일 정현파</strong>로 단순화해 그렸습니다 — 실제 채널은 여러 경로가 겹친 불규칙한 파형이지만, 표본화가 언제 깨지는지를 보이는 데는 이 형태가 가장 분명합니다. 말뚝은 슬롯 안에 고르게 놓은 것으로 그렸고 <strong>실제 DMRS 심볼 위치는 할당 길이에 따라 규격 표가 정합니다.</strong> 복원선은 말뚝을 <strong>직선으로 이은 것</strong>이라 실제 수신기보다 비관적입니다 — 실제로는 여러 말뚝을 함께 보며 더 매끄럽게 잇습니다.</p>
+
+  <!-- 유도: v_max = f_d,max · c / f_c,  f_d,max = 1/(2T)
+       3.5 GHz  μ=1  1심볼  308 km/h · 2심볼  617 km/h · 4심볼 1233 km/h
+       28  GHz  μ=3  1심볼  154 km/h · 2심볼  308 km/h · 4심볼  617 km/h -->
+  <div class="table-scroll">
+  <table>
+    <caption>슬롯당 DMRS 심볼 수가 감당하는 최고 속도 · f<sub>d,max</sub> = 1/(2T), v = f<sub>d</sub>·c/f<sub>c</sub></caption>
+    <thead><tr><th class="num">DMRS 심볼</th><th class="num">말뚝 간격</th><th class="num">f<sub>d,max</sub></th>
+      <th class="num">3.5 GHz · 30 kHz</th><th class="num">28 GHz · 120 kHz</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1 (기본)</td><td class="num">슬롯 전체</td><td class="num">1,000 / 4,000 Hz</td>
+          <td class="num">308 km/h</td><td class="num">154 km/h</td></tr>
+      <tr><td class="num">2</td><td class="num">슬롯의 1/2</td><td class="num">2,000 / 8,000 Hz</td>
+          <td class="num">617 km/h</td><td class="num">308 km/h</td></tr>
+      <tr><td class="num">4</td><td class="num">슬롯의 1/4</td><td class="num">4,000 / 16,000 Hz</td>
+          <td class="num">1,233 km/h</td><td class="num">617 km/h</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">f<sub>d,max</sub> 열은 30 kHz(0.5 ms 슬롯) / 120 kHz(0.125 ms 슬롯) 순입니다. 규격이 <code>dmrs-AdditionalPosition</code>으로 말뚝을 더 박을 수 있게 해 둔 이유가 이 표입니다. <span class="src">TS 38.211 §7.4.1.1 · TS 38.331</span></p>
+
+  <div class="note">
+    <strong>이 표의 속도는 이론적 천장이지 실용 한계가 아니다.</strong> 위 그림에서 속도를 <strong>308 km/h 근처</strong>로 올려 보면
+    나이퀴스트 한계 안인데도 복원선이 크게 어긋납니다. 표본화 정리가 보장하는 것은
+    <strong>"이상적으로 보간하면 되살릴 수 있다"</strong>는 것이지 <strong>점을 직선으로 이어도 된다</strong>는 뜻이 아니기 때문입니다.
+    한계에 바짝 붙으면 말뚝이 하필 파형의 영점에 걸려 <strong>봉우리를 통째로 놓치는</strong> 일이 생깁니다.
+    그래서 실제 설계는 한계의 <strong>절반쯤에서 이미 말뚝을 더 박습니다</strong> — 규격이 심볼 수 선택지를 넉넉히 둔 이유이기도 합니다.
+  </div>
+
+  <div class="note">
+    <strong>FR2가 넓은 부반송파 간격을 쓰는 또 하나의 이유.</strong> 28 GHz에서 시속 120 km면 도플러가 3,113 Hz입니다.
+    30 kHz 슬롯(0.5 ms)에 말뚝 하나로는 1,000 Hz까지밖에 못 따라가니 <strong>한참 모자랍니다.</strong>
+    그런데 120 kHz면 슬롯이 0.125 ms로 짧아져 같은 말뚝 하나로 <strong>4,000 Hz</strong>까지 갑니다.
+    <a href="../01-frame-numerology/index.html">01에서 본 "슬롯이 짧아진다"</a>가 여기서 <strong>채널 추적 능력</strong>으로 되돌아옵니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>주파수 방향 — 그런데 CP가 먼저 막는다</h2>
+  <p>같은 문제가 주파수 축에도 있습니다. 반사파가 여러 경로로 오면 채널이 <strong>부반송파마다 다릅니다.</strong> 지연 확산이 클수록 주파수 방향으로 빨리 출렁입니다.</p>
+
+  <p>말뚝을 부반송파 간격 Δf마다 박으면, 같은 표본화 정리로 <strong>지연 1/Δf</strong>까지만 구별할 수 있습니다. DMRS 타입 1은 <strong>부반송파 하나 걸러 하나씩</strong>(comb-2) 박으므로 Δf는 부반송파 간격의 두 배입니다.</p>
+
+  <!-- 유도: 최대 분해 지연 = 1/Δf_pilot,  comb-2 이므로 Δf_pilot = 2 · SCS
+       30 kHz → Δf = 60 kHz → 최대 지연 16.67 μs
+       일반 CP(30 kHz) = 2.344 μs  → 여유 7.11배
+       두 값 모두 2^-μ 로 줄어들므로 μ가 약분되어 여유 배수가 일정하다:
+         (1/(2·15000·2^μ)) / (144·64·2^-μ·Tc) = 480000·4096 / (30000·144·64) = 64/9 = 7.111… -->
+  <div class="stats">
+    <div><span class="n">60</span><span class="t">comb-2 말뚝 간격 · 30 kHz 기준 [kHz]</span></div>
+    <div><span class="n">16.7</span><span class="t">그때 구별 가능한 최대 지연 [μs]</span></div>
+    <div><span class="n">2.34</span><span class="t">같은 조건의 일반 CP 길이 [μs]</span></div>
+    <div><span class="n">64/9</span><span class="t">여유 배수 · μ와 무관한 상수</span></div>
+  </div>
+
+  <div class="note">
+    <strong>주파수 방향은 걱정할 일이 아니다.</strong> comb-2 말뚝이 구별할 수 있는 지연은 <strong>CP 길이의 정확히 64/9배</strong>(약 7.1배)입니다.
+    그런데 <a href="../03-cyclic-prefix/index.html">03에서 봤듯</a> CP보다 긴 지연은 <strong>애초에 심볼 간 간섭이 되어 못 씁니다.</strong>
+    즉 <strong>말뚝이 모자라기 전에 CP가 먼저 막습니다.</strong>
+    그리고 이 배수는 μ가 바뀌어도 그대로입니다 — 말뚝 간격과 CP 길이가 <strong>둘 다 2<sup>−μ</sup>로 줄어</strong> μ가 약분되기 때문입니다.
+    <span class="src">(1/(2·SCS)) ÷ (144κ·2<sup>−μ</sup>·T<sub>c</sub>) = 480000·4096 / (30000·144·64) = 64/9</span>
+  </div>
+
+  <p>그래서 이 자료의 무게중심은 <strong>시간 방향</strong>에 있습니다. 주파수 방향의 말뚝은 <strong>포트를 몇 개까지 구별할 것인가</strong>라는 다른 문제를 푸는 데 쓰입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>DMRS — 데이터 옆에 박는 말뚝</h2>
+  <p>DMRS는 <strong>데이터와 같은 자원 안에서</strong> 함께 실려 갑니다. 같은 프리코딩을 지나므로 <a href="../09-precoding-codebook/index.html">09에서 본 프리코딩</a>까지 포함한 <strong>최종 채널</strong>을 잽니다. 단말은 프리코딩 행렬이 무엇이었는지 알 필요가 없습니다 — 결과만 재면 되니까요.</p>
+
+  <p>배치는 두 가지 타입이 있고, 여기서 <strong>주파수 방향 말뚝이 포트 수와 맞바꿔집니다.</strong></p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="t2 d2">
+      <title id="t2">자원블록 하나 위의 DMRS 배치</title>
+      <desc id="d2">가로 14개 심볼, 세로 12개 부반송파로 이루어진 자원블록 격자다. 타입 1은 부반송파를 하나 걸러 쓰는 빗살 모양으로 두 개의 코드 분할 묶음을 만들고, 타입 2는 부반송파 두 개씩 묶어 세 개의 묶음을 만든다. 추가 심볼을 늘리면 칠해지는 칸이 늘어 데이터 몫이 줄어든다.</desc>
+      <g id="gridRB"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="dmType" role="group" aria-label="DMRS 타입 선택"></span>
+    <span class="segmented" id="dmPos" role="group" aria-label="DMRS 심볼 수 선택"></span>
+    <span class="readout" id="dmOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="dmRe">—</span><span class="t">DMRS가 먹는 자원 요소</span></div>
+    <div><span class="n" id="dmOv">—</span><span class="t">자원블록에서 차지하는 비율</span></div>
+    <div><span class="n" id="dmPort">—</span><span class="t">구별할 수 있는 최대 포트</span></div>
+    <div><span class="n" id="dmData">—</span><span class="t">데이터에 남는 자원 요소</span></div>
+  </div>
+  <p class="caption">DMRS 심볼 위치는 <strong>예시</strong>입니다 — 실제 위치는 할당 길이와 매핑 타입에 따라 규격 표가 정합니다. 색이 진할수록 앞쪽 CDM 묶음입니다. <span class="src">TS 38.211 §7.4.1.1</span></p>
+
+  <div class="note">
+    <strong>10이 쓴 12가 여기서 나온다.</strong> <a href="../10-physical-layer-chain/index.html">10</a>은 전송 블록 크기를 계산하면서
+    <code>N_DMRS = 12 RE</code>를 근거 없이 썼습니다. 그것이 바로 <strong>타입 1 · 1심볼 · 2 CDM 묶음</strong>입니다.
+    자원블록 하나의 168 RE에서 12를 빼면 <strong>156</strong> — 10에 나오던 TBS 식의 <code>min(156, ·)</code> 상한이 이 숫자입니다.
+    <strong>자원블록 하나가 데이터에 내줄 수 있는 최대치</strong>란, 말뚝을 가장 적게 박았을 때 남는 몫이라는 뜻이었습니다.
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <caption>타입 1과 타입 2 · 1심볼 기준</caption>
+    <thead><tr><th>—</th><th class="num">타입 1</th><th class="num">타입 2</th></tr></thead>
+    <tbody>
+      <tr><td>부반송파 쓰는 법</td><td class="num">하나 걸러 하나 (comb-2)</td><td class="num">둘씩 묶어 세 군데</td></tr>
+      <tr><td>CDM 묶음</td><td class="num">2개</td><td class="num">3개</td></tr>
+      <tr><td>먹는 자원 요소</td><td class="num">12 RE</td><td class="num">12 RE</td></tr>
+      <tr><td><strong>최대 포트</strong></td><td class="num">4 (2심볼이면 8)</td><td class="num"><strong>6 (2심볼이면 12)</strong></td></tr>
+      <tr><td>말뚝 간격</td><td class="num">2 부반송파</td><td class="num">6 부반송파</td></tr>
+      <tr><td>CP 대비 여유</td><td class="num"><strong>64/9 ≈ 7.1배</strong></td><td class="num">64/27 ≈ 2.4배</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">같은 12 RE로 타입 2가 포트를 <strong>1.5배</strong> 더 줍니다. 대신 말뚝이 뭉쳐 있어 주파수 여유가 7.1배에서 2.4배로 줄어듭니다 — 그래도 CP보다는 넉넉하므로, <strong>포트가 많이 필요한 다중 사용자 전송에서 타입 2를 씁니다.</strong></p>
+</section>
+
+<section class="wrap">
+  <h2>나머지 셋</h2>
+  <p>DMRS는 <strong>지금 이 데이터를 복조하기 위한</strong> 말뚝입니다. 그런데 재야 할 것이 그것만은 아닙니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>네 가지 참조신호 · 무엇을 재려고 박는 말뚝인가</caption>
+    <thead><tr><th>신호</th><th>방향</th><th>재는 것</th><th>왜 따로 필요한가</th></tr></thead>
+    <tbody>
+      <tr><td><strong>DMRS</strong> <span class="src">§7.4.1.1</span></td><td>하향·상향</td>
+          <td>지금 받는 데이터의 <strong>최종 채널</strong></td>
+          <td>데이터와 같은 프리코딩을 지나야 하므로 <strong>데이터 옆에</strong> 있어야 한다</td></tr>
+      <tr><td><strong>CSI-RS</strong> <span class="src">§7.4.1.5</span></td><td>하향</td>
+          <td>아직 쓰지 않은 <strong>후보 채널</strong></td>
+          <td>"다음에 뭘 쓸지" 정하려면 <strong>안 쓰는 빔·포트도</strong> 재야 한다 <span class="src">→ <a href="../09-precoding-codebook/index.html">09</a></span></td></tr>
+      <tr><td><strong>SRS</strong> <span class="src">§6.4.1.4</span></td><td>상향</td>
+          <td>기지국이 보는 <strong>상향 채널</strong></td>
+          <td>TDD면 상호성으로 하향까지 짐작할 수 있다 <span class="src">→ <a href="../09-precoding-codebook/index.html">09</a></span></td></tr>
+      <tr><td><strong>PT-RS</strong> <span class="src">§7.4.1.2</span></td><td>하향·상향</td>
+          <td>심볼마다 도는 <strong>공통 위상 오차</strong></td>
+          <td>발진기 위상 잡음은 <strong>주파수에 비례해</strong> 커진다 — FR2에서 필요해진다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>PT-RS는 말뚝이 아니라 나침반이다.</strong> 다른 셋이 "어느 지점의 땅이 얼마나 높은가"를 재는 반면,
+    PT-RS는 <strong>모든 부반송파가 함께 도는 위상</strong> 하나만 잽니다. 그래서 주파수 방향으로는 아주 성기게(자원블록 두세 개마다 하나)
+    깔되 <strong>시간 방향으로는 촘촘히</strong> 깝니다. <a href="../07-beamforming/index.html">07에서 본 28 GHz</a>에서
+    발진기 위상 잡음이 커지는데, 256QAM처럼 성상점이 빽빽한 변조는 <strong>위상이 조금만 돌아도 무너지기</strong> 때문입니다.
+  </div>
+
+  <p>넷을 나란히 놓으면 규칙이 보입니다. <strong>재는 대상이 다르면 말뚝도 따로 박아야 합니다.</strong> 그리고 말뚝은 전부 자원을 먹습니다 — <a href="../10-physical-layer-chain/index.html">10</a>의 사슬에서 데이터가 쓸 수 있는 자원 요소가 줄어든다는 뜻입니다.</p>
+
+  <div class="note">
+    <strong>포트를 늘리면 말뚝밭이 된다.</strong> <a href="../10-physical-layer-chain/index.html">10에서</a> "포트를 늘리면 기준신호도 늘어난다"고 했는데,
+    그 값이 여기서 구체적으로 나옵니다. 포트 8개를 구별하려면 타입 1로 <strong>2심볼 24 RE</strong>가 들어
+    자원블록의 <strong>14.3%</strong>를 먹습니다. <a href="../09-precoding-codebook/index.html">09의 32포트 CSI-RS</a>는
+    또 별도의 자원을 씁니다. <strong>공간을 많이 쓸수록 재는 값이 비싸집니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>참조신호는 <strong>답을 아는 문제</strong>다. 미리 약속한 값을 몇 칸에 실어 보내고, 받은 값을 그것으로 나눠 채널을 알아낸다. 그 값을 옆 데이터에 쓸 수 있게 <strong>"같은 채널"이라고 약속한 묶음</strong>이 <a href="../10-physical-layer-chain/index.html">10의 안테나 포트</a>다.</li>
+    <li>말뚝 간격은 <strong>시간 방향이 문제고 주파수 방향은 아니다.</strong> 주파수 쪽은 comb-2가 CP의 64/9배까지 감당해 <a href="../03-cyclic-prefix/index.html">CP가 먼저 막는다</a>. 시간 쪽은 도플러가 정하는데, 3.5 GHz에서 말뚝 하나로 308 km/h까지다 — 그보다 빠르면 말뚝을 더 박아야 한다.</li>
+    <li>말뚝은 <strong>전부 자원을 먹는다.</strong> 10이 쓰던 <code>N_DMRS = 12</code>와 <code>min(156, ·)</code>는 "말뚝을 가장 적게 박았을 때 데이터에 남는 몫"이었다. 포트를 늘리고 빠르게 움직일수록 이 몫이 줄어든다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../10-physical-layer-chain/index.html">← 10 전송 블록에서 전파까지</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+  var C_LIGHT=299792458;
+
+  /* ══════════════ SVG 1 · 시간 방향 표본화 ══════════════════════════
+     f_d = v·f_c/c.  말뚝 간격 T 로 표본화하면 나이퀴스트 한계는 f_d,max = 1/(2T).
+     채널을 단일 정현파 cos(2π f_d t) 로 단순화해 그린다 — 실제 채널은 여러 경로가
+     겹친 불규칙 파형이지만 "언제 표본화가 깨지는가"를 보이는 데는 이 형태가 가장 분명하다.
+     복원선은 말뚝 값을 선형 보간한 것이고, 둘의 최대 차이를 오차로 읽는다.
+     물리 관계이며 3GPP 규격값이 아니다. */
+  var BANDS=[{label:'3.5 GHz · 30 kHz',fc:3.5e9,slotMs:0.5},
+             {label:'28 GHz · 120 kHz',fc:28e9,slotMs:0.125}];
+  var SYMS=[1,2,4];
+  var bandSel=0, symSel=0;
+  var DG=document.getElementById('dopGrid');
+  var rsSpeed=document.getElementById('rsSpeed');
+  var syncBand=mkSeg(document.getElementById('rsBand'),BANDS,
+    function(){return bandSel;}, function(v){bandSel=v;}, function(){drawDop();});
+  var syncSym=mkSeg(document.getElementById('rsSym'),
+    SYMS.map(function(n){return {label:'DMRS '+n+'심볼'};}),
+    function(){return symSel;}, function(v){symSel=v;}, function(){drawDop();});
+
+  function drawDop(){
+    var v=parseInt(rsSpeed.value,10), b=BANDS[bandSel], n=SYMS[symSel];
+    var fd=(v/3.6)*b.fc/C_LIGHT;                 // Hz
+    var span=2*b.slotMs/1000;                    // 2슬롯 [s]
+    var T=b.slotMs/1000/n;                       // 말뚝 간격 [s]
+    var fdMax=1/(2*T);
+    var vMax=fdMax*C_LIGHT/b.fc*3.6;
+    clear(DG);
+
+    var AX=110, AW=950, CY=190, AMP=92;
+    function px(t){ return AX+t/span*AW; }
+    function py(u){ return CY-u*AMP; }
+    function truth(t){ return Math.cos(2*Math.PI*fd*t); }
+
+    /* 눈금 — 슬롯 경계 */
+    for(var s=0;s<=2;s++){
+      var x=px(s*b.slotMs/1000);
+      DG.appendChild(el('line',{x1:x,y1:60,x2:x,y2:300,stroke:'var(--hair)','stroke-width':1}));
+      DG.appendChild(txt(x,48,s===0?'0':(s*b.slotMs).toFixed(3)+' ms','dimlab','var(--ink-soft)'));
+    }
+    DG.appendChild(el('line',{x1:AX,y1:CY,x2:AX+AW,y2:CY,stroke:'var(--hair)','stroke-width':1}));
+    DG.appendChild(txt(0,CY+4,'채널','rowlab',null,'start'));
+
+    /* 말뚝 위치 — 슬롯 안에 고르게 (실제 위치는 규격 표가 정한다) */
+    var pil=[];
+    for(var s2=0;s2<2;s2++)
+      for(var i=0;i<n;i++) pil.push((s2+(i+0.5)/n)*b.slotMs/1000);
+
+    /* 실제 채널 */
+    var d1='';
+    for(var t=0;t<=span;t+=span/900){
+      d1+=(d1?' L':'M')+px(t).toFixed(2)+' '+py(truth(t)).toFixed(2);
+    }
+    DG.appendChild(el('path',{d:d1,fill:'none',stroke:'var(--dl)','stroke-width':1.8}));
+
+    /* 말뚝을 이은 복원선 */
+    var d2='';
+    pil.forEach(function(t,i){ d2+=(i?' L':'M')+px(t).toFixed(2)+' '+py(truth(t)).toFixed(2); });
+    DG.appendChild(el('path',{d:d2,fill:'none',stroke:'var(--ink)','stroke-width':1.6,
+      'stroke-dasharray':'6 4'}));
+
+    /* 오차가 가장 큰 지점 — 복원선(선형보간)과 실제의 차 */
+    function recon(t){
+      if(t<=pil[0]||t>=pil[pil.length-1]) return null;
+      for(var i=0;i<pil.length-1;i++){
+        if(t>=pil[i]&&t<=pil[i+1]){
+          var f=(t-pil[i])/(pil[i+1]-pil[i]);
+          return truth(pil[i])*(1-f)+truth(pil[i+1])*f;
+        }
+      }
+      return null;
+    }
+    var worst=0, worstT=null;
+    for(var t2=pil[0];t2<=pil[pil.length-1];t2+=span/1200){
+      var r=recon(t2); if(r===null) continue;
+      var e=Math.abs(truth(t2)-r);
+      if(e>worst){ worst=e; worstT=t2; }
+    }
+    if(worstT!==null&&worst>0.05){
+      DG.appendChild(el('line',{x1:px(worstT),y1:py(truth(worstT)),x2:px(worstT),y2:py(recon(worstT)),
+        stroke:'var(--alert)','stroke-width':2.4}));
+      DG.appendChild(txt(px(worstT),py(Math.max(truth(worstT),recon(worstT)))-12,
+        '어긋남','celllab','var(--alert)'));
+    }
+
+    /* 말뚝 */
+    pil.forEach(function(t){
+      DG.appendChild(el('circle',{cx:px(t),cy:py(truth(t)),r:5,fill:'var(--ink)'}));
+    });
+
+    DG.appendChild(txt(AX+AW/2,330,
+      '파랑 = 실제 채널 · 점 = DMRS가 놓인 자리 · 점선 = 그 점들을 이어 복원한 채널',
+      'dimlab','var(--ink-soft)'));
+
+    /* 읽을거리 */
+    document.getElementById('rsOut').textContent=v+' km/h · DMRS '+n+'심볼';
+    document.getElementById('rsFd').textContent=Math.round(fd).toLocaleString('en-US')+' Hz';
+    document.getElementById('rsLimit').textContent=Math.round(fdMax).toLocaleString('en-US')+' Hz';
+    document.getElementById('rsVmax').textContent=Math.round(vMax)+' km/h';
+    document.getElementById('rsErr').textContent=(worst*100).toFixed(0)+'%';
+
+    /* 판정은 나이퀴스트 통과 여부가 아니라 실제 복원 오차로 한다.
+       한계에 바짝 붙으면 나이퀴스트는 통과해도 선형 보간이 봉우리를 통째로 놓치기 때문 —
+       이론적 한계와 쓸 만한 한계가 다르다는 것이 이 그림의 요점 중 하나다. */
+    /* 문턱 25% — 선형 보간의 고유 오차는 주기당 표본 수 R에 대해 1−cos(π/R) 이라
+       R=5(여유 2.5배)에서 이미 19%가 나온다. 실제 추정기는 직선보다 잘 잇는다. */
+    var within=fd<=fdMax, good=worst<0.25;
+    var box=document.getElementById('rsBox');
+    box.className='verdict '+(good?'ok':'bad');
+    document.getElementById('rsTag').textContent=
+      good?'말뚝이 따라간다':(within?'한계에 너무 붙었다':'말뚝 사이를 놓친다');
+    document.getElementById('rsWhy').textContent=good
+      ? '도플러 '+Math.round(fd)+' Hz는 한계 '+Math.round(fdMax)
+        +' Hz에 여유가 있어 복원선이 실제와 '+(worst*100).toFixed(0)+'%밖에 차이 나지 않습니다.'
+      : (within
+        ? '도플러 '+Math.round(fd)+' Hz는 한계 '+Math.round(fdMax)
+          +' Hz 안이지만 복원은 이미 '+(worst*100).toFixed(0)
+          +'% 어긋납니다. 나이퀴스트는 "이상적으로 보간하면 되살릴 수 있다"는 뜻이지 '
+          +'점을 직선으로 이어도 된다는 뜻이 아닙니다 — 한계의 절반쯤에서 이미 여유가 필요합니다.'
+        : '도플러 '+Math.round(fd)+' Hz가 한계 '+Math.round(fdMax)
+          +' Hz를 넘었습니다. 말뚝 사이에서 채널이 반 바퀴 넘게 돌아 복원선이 실제와 최대 '
+          +(worst*100).toFixed(0)+'% 어긋납니다. DMRS 심볼을 더 박거나 부반송파 간격을 넓혀야 합니다.');
+  }
+  rsSpeed.addEventListener('input',drawDop);
+  drawDop();
+
+  /* ══════════════ SVG 2 · 자원블록 위의 DMRS 배치 ══════════════════
+     타입 1: comb-2 — 짝수 부반송파가 묶음 0, 홀수가 묶음 1 (묶음 2개 × 6 RE = 12 RE)
+     타입 2: 부반송파 두 개씩 — {0,1,6,7} {2,3,8,9} {4,5,10,11} (묶음 3개 × 4 RE = 12 RE)
+     묶음마다 부호 2개를 실을 수 있고 심볼이 2개면 시간 부호로 다시 2배 → 최대 포트 수
+     심볼 위치는 예시다 (실제 위치는 할당 길이·매핑 타입에 따라 규격 표가 정한다) */
+  var TYPES=[{label:'타입 1',groups:[[0,2,4,6,8,10],[1,3,5,7,9,11]]},
+             {label:'타입 2',groups:[[0,1,6,7],[2,3,8,9],[4,5,10,11]]}];
+  var POSSETS=[[2],[2,11],[2,5,8,11]];
+  var typeSel=0, posSel=0;
+  var RG=document.getElementById('gridRB');
+  var syncType=mkSeg(document.getElementById('dmType'),TYPES,
+    function(){return typeSel;}, function(v){typeSel=v;}, function(){drawRB();});
+  var syncPos=mkSeg(document.getElementById('dmPos'),
+    POSSETS.map(function(p){return {label:p.length+'심볼'};}),
+    function(){return posSel;}, function(v){posSel=v;}, function(){drawRB();});
+
+  function drawRB(){
+    var ty=TYPES[typeSel], pos=POSSETS[posSel];
+    clear(RG);
+    var GX=150, GY=44, CW=58, CH=22;           // 14심볼 × 12부반송파
+
+    /* 어느 부반송파가 어느 묶음인지 */
+    var groupOf={};
+    ty.groups.forEach(function(g,gi){ g.forEach(function(k){ groupOf[k]=gi; }); });
+
+    for(var k=0;k<12;k++){
+      for(var l=0;l<14;l++){
+        var isDm=(pos.indexOf(l)>=0)&&(groupOf[k]!==undefined);
+        var gi=groupOf[k];
+        RG.appendChild(el('rect',{x:GX+l*CW,y:GY+k*CH,width:CW-1,height:CH-1,
+          fill:isDm?'var(--dl-bg)':'#fff',stroke:isDm?'var(--dl)':'var(--hair)',
+          'stroke-width':isDm?1.2:0.5,
+          opacity:isDm?(1-gi*0.22):1}));
+      }
+      if(k%2===0) RG.appendChild(txt(GX-10,GY+k*CH+15,k,'dimlab','var(--ink-soft)','end'));
+    }
+    for(var l2=0;l2<14;l2+=2)
+      RG.appendChild(txt(GX+l2*CW+CW/2,GY-10,l2,'dimlab','var(--ink-soft)'));
+
+    RG.appendChild(txt(0,GY+140,'부반송파','rowlab',null,'start'));
+    RG.appendChild(txt(GX+7*CW,GY+12*CH+28,'심볼 →','dimlab','var(--ink-soft)'));
+
+    /* 읽을거리 */
+    var rePerSym=ty.groups.reduce(function(a,g){return a+g.length;},0);
+    var re=rePerSym*pos.length;
+    var ports=ty.groups.length*2*(pos.length>=2?2:1);
+    document.getElementById('dmOut').textContent=ty.label+' · '+pos.length+'심볼';
+    document.getElementById('dmRe').textContent=re+' RE';
+    document.getElementById('dmOv').textContent=(re/168*100).toFixed(1)+'%';
+    document.getElementById('dmPort').textContent=ports+'개';
+    document.getElementById('dmData').textContent=(168-re)+' RE';
+  }
+  drawRB();
+})();
+</script>
+</body>
+</html>

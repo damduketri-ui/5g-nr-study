@@ -86,8 +86,9 @@
 
 ## 7. 로드맵 (작성 예정)
 
-- 11 PDCCH와 블라인드 복호 — 스케줄링 정보는 어떻게 찾는가
-- 12 채널 코딩 — LDPC와 Polar
-- 13 5G 코어와 세션 — PDU Session, QoS Flow
+- 12 PDCCH와 블라인드 복호 — 스케줄링 정보는 어떻게 찾는가
+- 13 상향 물리계층 — PUSCH·PUCCH와 DFT-s-OFDM
+- 14 채널 코딩 — LDPC와 Polar
+- 15 5G 코어와 세션 — PDU Session, QoS Flow
 
-10까지 작성 완료. 목록은 루트 `index.html` 참조.
+11까지 작성 완료. 목록은 루트 `index.html` 참조.
