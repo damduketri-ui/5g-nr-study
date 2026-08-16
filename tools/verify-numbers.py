@@ -75,6 +75,7 @@ def main():
     ok &= check_precoding()
     ok &= check_chain()
     ok &= check_refsig()
+    ok &= check_pdcch()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -202,6 +203,123 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/12-pdcch-blind-decoding ════════════════════════════
+# 근거: TS 38.211 §7.3.2(PDCCH 자원 매핑), §7.4.1.3(PDCCH DMRS)
+#       TS 38.212 §7.3(DCI · CRC + RNTI · Polar)
+#       TS 38.213 §10.1 Table 10.1-2(후보 상한) · Table 10.1-3(비중첩 CCE 상한)
+# 11의 REG 구조(1 RB × 1 심볼 = 12 RE)와 어긋나지 않아야 한다.
+
+AGG_LEVELS = [1, 2, 4, 8, 16]
+REG_RE, PDCCH_DMRS_RE, CCE_REG = 12, 3, 6
+
+# TS 38.213 Table 10.1-2 / 10.1-3 — μ: (슬롯당 후보 상한, 비중첩 CCE 상한)
+PDCCH_BUDGET = {0: (44, 56), 1: (36, 56), 2: (22, 48), 3: (20, 32)}
+
+
+def cce_bits():
+    """CCE 하나가 나르는 비트 — 6 REG × (12 − 3) RE × QPSK 2비트"""
+    return CCE_REG * (REG_RE - PDCCH_DMRS_RE) * 2
+
+
+def coreset_cce(rb, symbols):
+    """CORESET이 담는 CCE 수 = (RB × 심볼) / 6"""
+    return (rb * symbols) // CCE_REG
+
+
+def max_agg(rb, symbols):
+    """그 CORESET에 놓을 수 있는 최대 집성수준 (없으면 0)"""
+    c = coreset_cce(rb, symbols)
+    fits = [a for a in AGG_LEVELS if a <= c]
+    return fits[-1] if fits else 0
+
+
+def budget_use(counts):
+    """counts = 집성수준별 후보 수 → (후보 합계, 차지하는 CCE 합계)"""
+    return sum(counts), sum(a * n for a, n in zip(AGG_LEVELS, counts))
+
+
+def check_pdcch():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[12] CCE 하나가 나르는 비트")
+    eq("REG의 데이터 RE (12 − 3)", REG_RE - PDCCH_DMRS_RE, 9, 0)
+    eq("CCE의 데이터 RE (6 REG)", CCE_REG * (REG_RE - PDCCH_DMRS_RE), 54, 0)
+    eq("CCE 하나의 비트 (QPSK)", cce_bits(), 108, 0)
+    # 11의 REG 정의(1 RB × 1 심볼 = 12 RE)와 어긋나지 않는가
+    ok &= (REG_RE == 12)
+    print(f"  REG가 자원블록 하나 × 심볼 하나(12 RE)  ✓")
+
+    print("\n[12] CORESET 크기 → CCE → 놓을 수 있는 집성수준")
+    print(f"  {'RB':>4} {'심볼':>5} {'REG':>5} {'CCE':>5} {'최대 AL':>8}   게시값")
+    for rb, sym, pub_cce, pub_al in [(24, 1, 4, 4), (48, 1, 8, 8), (48, 2, 16, 16),
+                                     (96, 1, 16, 16), (96, 3, 48, 16)]:
+        c, a = coreset_cce(rb, sym), max_agg(rb, sym)
+        hit = c == pub_cce and a == pub_al
+        ok &= hit
+        print(f"  {rb:>4} {sym:>5} {rb*sym:>5} {c:>5} {a:>8}   {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 48 RB 1심볼 CORESET에는 AL16을 아예 놓을 수 없다
+    claim = max_agg(48, 1) < 16 and max_agg(48, 2) == 16
+    ok &= claim
+    print(f"  48 RB 1심볼은 AL16 불가, 2심볼이면 가능  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+
+    print("\n[12] 집성수준별 부호율 — DCI 40비트 + CRC 24")
+    for al, pub_bits, pub_r, pub_g in [(1, 108, 0.593, 0.0), (2, 216, 0.296, 3.0),
+                                       (4, 432, 0.148, 6.0), (8, 864, 0.074, 9.0),
+                                       (16, 1728, 0.037, 12.0)]:
+        bits = cce_bits() * al
+        r = 64 / bits
+        g = 10 * math.log10(al)
+        hit = bits == pub_bits and abs(r - pub_r) < 0.001 and abs(g - pub_g) < 0.05
+        ok &= hit
+        print(f"  AL{al:>2}: {bits:>5}비트  부호율 {r:.3f}  이득 {g:>4.1f} dB   "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[12] 블라인드 복호 예산 — TS 38.213 Table 10.1-2 / 10.1-3")
+    print(f"  {'μ':>2} {'SCS':>9} {'후보 상한':>9} {'CCE 상한':>9}")
+    for mu, (c, e) in PDCCH_BUDGET.items():
+        print(f"  {mu:>2} {15*2**mu:>7}kHz {c:>9} {e:>9}")
+
+    # 자료의 핵심 주장: 넉넉해 보이는 설정이 후보가 아니라 CCE에서 먼저 막힌다
+    generous = [6, 6, 4, 2, 1]                  # AL1×6 AL2×6 AL4×4 AL8×2 AL16×1
+    cand, cce = budget_use(generous)
+    eq("넉넉한 설정의 후보 수", cand, 19, 0)
+    eq("그때 차지하는 CCE", cce, 66, 0)
+    all_over_cce = all(cce > e for _, e in PDCCH_BUDGET.values())
+    none_over_cand = all(cand <= c for c, _ in PDCCH_BUDGET.values())
+    ok &= all_over_cce and none_over_cand
+    print(f"  후보 수는 어느 μ에서도 여유({cand} ≤ 20~44)인데 CCE는 전부 초과({cce} > 32~56)  "
+          f"{'✓' if all_over_cce and none_over_cand else '✗ 자료의 주장과 다름'}")
+
+    modest = [4, 2, 1, 1, 0]                    # AL1×4 AL2×2 AL4×1 AL8×1
+    cand2, cce2 = budget_use(modest)
+    fits_all = all(cand2 <= c and cce2 <= e for c, e in PDCCH_BUDGET.values())
+    ok &= fits_all
+    print(f"  작게 잡은 설정(후보 {cand2}, CCE {cce2})은 μ 전 구간에서 통과  "
+          f"{'✓' if fits_all else '✗ 불일치'}")
+    # AL16 하나가 AL1 열여섯 개와 같은 값인가
+    ok &= budget_use([0, 0, 0, 0, 1])[1] == budget_use([16, 0, 0, 0, 0])[1]
+    print(f"  AL16 후보 하나 = AL1 후보 열여섯 개 (CCE 기준)  ✓")
+
+    print("\n[12] CRC만으로 본 거짓 검출 — 2^-24 × 초당 후보 수")
+    for mu, pub in [(0, 381), (3, 105)]:
+        c = PDCCH_BUDGET[mu][0]
+        per_sec = c * 1000 * 2**mu
+        false_rate = per_sec * 2**-24
+        interval = 1 / false_rate
+        hit = abs(interval - pub) < 1
+        ok &= hit
+        print(f"  μ={mu}: 초당 {per_sec:>7,}회 시도 → 평균 {interval:>5.0f}초에 한 번  "
+              f"게시 {pub}  {'✓' if hit else '✗ 불일치'}")
 
     return ok
 
