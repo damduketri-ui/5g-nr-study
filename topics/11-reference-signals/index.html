@@ -162,7 +162,7 @@
   <p>배치는 두 가지 타입이 있고, 여기서 <strong>주파수 방향 말뚝이 포트 수와 맞바꿔집니다.</strong></p>
 
   <div class="stage stage--scroll">
-    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="t2 d2">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="t2 d2">
       <title id="t2">자원블록 하나 위의 DMRS 배치</title>
       <desc id="d2">가로 14개 심볼, 세로 12개 부반송파로 이루어진 자원블록 격자다. 타입 1은 부반송파를 하나 걸러 쓰는 빗살 모양으로 두 개의 코드 분할 묶음을 만들고, 타입 2는 부반송파 두 개씩 묶어 세 개의 묶음을 만든다. 추가 심볼을 늘리면 칠해지는 칸이 늘어 데이터 몫이 줄어든다.</desc>
       <g id="gridRB"></g>
@@ -429,9 +429,29 @@
     POSSETS.map(function(p){return {label:p.length+'심볼'};}),
     function(){return posSel;}, function(v){posSel=v;}, function(){drawRB();});
 
+  /* CDM 묶음은 색이 아니라 무늬로 구분한다 — 색의 뜻(하향·상향·가드·경고)은 자료 전체에서
+     고정이고 CDM 묶음은 그 어디에도 해당하지 않는다. 무늬는 색각 이상에서도 구별된다. */
+  function dmrsDefs(){
+    var d=el('defs',{});
+    var hatch=el('pattern',{id:'dmG1',width:8,height:8,patternUnits:'userSpaceOnUse',
+      patternTransform:'rotate(45)'});
+    hatch.appendChild(el('rect',{width:8,height:8,fill:'var(--dl-bg)'}));
+    /* 너무 진하면 칸 안의 묶음 번호를 가린다 — 30% 정도로 */
+    hatch.appendChild(el('rect',{x:0,y:0,width:2.4,height:8,fill:'var(--dl)'}));
+    d.appendChild(hatch);
+    var dot=el('pattern',{id:'dmG2',width:7,height:7,patternUnits:'userSpaceOnUse'});
+    dot.appendChild(el('rect',{width:7,height:7,fill:'var(--dl-bg)'}));
+    dot.appendChild(el('circle',{cx:3.5,cy:3.5,r:1.9,fill:'var(--dl)'}));
+    d.appendChild(dot);
+    return d;
+  }
+  var GFILL=['var(--dl-bg)','url(#dmG1)','url(#dmG2)'];
+  var GNAME=['채움','빗금','점'];
+
   function drawRB(){
     var ty=TYPES[typeSel], pos=POSSETS[posSel];
     clear(RG);
+    RG.appendChild(dmrsDefs());
     var GX=150, GY=44, CW=58, CH=22;           // 14심볼 × 12부반송파
 
     /* 어느 부반송파가 어느 묶음인지 */
@@ -443,9 +463,10 @@
         var isDm=(pos.indexOf(l)>=0)&&(groupOf[k]!==undefined);
         var gi=groupOf[k];
         RG.appendChild(el('rect',{x:GX+l*CW,y:GY+k*CH,width:CW-1,height:CH-1,
-          fill:isDm?'var(--dl-bg)':'#fff',stroke:isDm?'var(--dl)':'var(--hair)',
-          'stroke-width':isDm?1.2:0.5,
-          opacity:isDm?(1-gi*0.22):1}));
+          fill:isDm?GFILL[gi]:'#fff',stroke:isDm?'var(--dl)':'var(--hair)',
+          'stroke-width':isDm?1.2:0.5}));
+        /* 묶음 번호를 함께 적는다 — 무늬만으로 헷갈리지 않게 */
+        if(isDm) RG.appendChild(txt(GX+l*CW+CW/2,GY+k*CH+15,gi,'celllab','var(--ink)'));
       }
       if(k%2===0) RG.appendChild(txt(GX-10,GY+k*CH+15,k,'dimlab','var(--ink-soft)','end'));
     }
@@ -453,7 +474,19 @@
       RG.appendChild(txt(GX+l2*CW+CW/2,GY-10,l2,'dimlab','var(--ink-soft)'));
 
     RG.appendChild(txt(0,GY+140,'부반송파','rowlab',null,'start'));
-    RG.appendChild(txt(GX+7*CW,GY+12*CH+28,'심볼 →','dimlab','var(--ink-soft)'));
+    RG.appendChild(txt(GX+7*CW,GY+12*CH+26,'심볼 →','dimlab','var(--ink-soft)'));
+
+    /* 범례 — 무늬가 어느 묶음인지 */
+    var LY=GY+12*CH+52, lx=GX;
+    RG.appendChild(txt(GX-10,LY+15,'CDM 묶음','rowlab','var(--ink-soft)','end'));
+    ty.groups.forEach(function(g,gi){
+      var lab=GNAME[gi]+' · 부반송파 '+g.join(',');
+      RG.appendChild(el('rect',{x:lx,y:LY,width:34,height:22,
+        fill:GFILL[gi],stroke:'var(--dl)','stroke-width':1.2}));
+      RG.appendChild(txt(lx+17,LY+15,gi,'celllab','var(--ink)'));
+      RG.appendChild(txt(lx+42,LY+15,lab,'dimlab','var(--ink-soft)','start'));
+      lx+=42+lab.length*7.2+34;                 // 글자 길이에 맞춰 띄운다
+    });
 
     /* 읽을거리 */
     var rePerSym=ty.groups.reduce(function(a,g){return a+g.length;},0);
