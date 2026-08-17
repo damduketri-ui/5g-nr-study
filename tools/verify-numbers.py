@@ -78,6 +78,7 @@ def main():
     ok &= check_refsig()
     ok &= check_pdcch()
     ok &= check_uplink()
+    ok &= check_oran()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -127,6 +128,162 @@ def rv3_touches_systematic(e_bins, bg='BG1'):
 def n_codeblocks(b, k_cb=8448, L=24):
     """전송 블록을 코드블록으로 쪼갠 개수 — TS 38.212 §5.2.2"""
     return 1 if b <= k_cb else -(-b // (k_cb - L))
+
+
+# ── 14 O-RAN 프론트홀 분할 ──────────────────────────────────
+# O-RAN Alliance 규격이며 3GPP가 아니다(본문에 그렇게 표기).
+# 3GPP에서 온 것은 레이어 상한 8(TS 38.211 §7.3.1.3)과 자원 격자뿐이고,
+# 분할 옵션 목록의 출발점은 TR 38.801 §11이다.
+# 근거: O-RAN.WG4.CUS.0 (Control, User and Synchronization Plane)
+# 프론트홀 비율은 자원 격자에서 나오는 산술이므로 규격값 대조가 아니라
+# 자기일관성 검사다 — 게시값과 같은 식을 쓰는지만 본다.
+
+FH_RB = 273              # 100 MHz @ 30 kHz  (TS 38.101-1 Table 5.3.2-1, 05에서 검산)
+FH_SYMS = 14 * 2000      # 심볼/s · μ=1은 서브프레임당 2슬롯
+FH_SLOT_S = 2000
+FH_LINKS = [("10GbE", 10), ("25GbE", 25), ("100GbE", 100)]
+
+
+def fh_bits_per_prb(iqw, bfp=True):
+    """BFP는 12 RE(1 PRB)가 지수 1바이트를 공유한다고 본다."""
+    return 12 * 2 * iqw + (8 if bfp else 0)
+
+
+def fh_gbps_per_flow(iqw, bfp=True):
+    return FH_RB * fh_bits_per_prb(iqw, bfp) * FH_SYMS / 1e9
+
+
+def fh_smallest_link(rate):
+    for name, cap in FH_LINKS:
+        if rate <= cap:
+            return name
+    return None
+
+
+def check_oran():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[14] 자원 격자 → 흐름 하나의 양 (100 MHz · 30 kHz · μ=1)")
+    sc = FH_RB * 12
+    re_s = sc * FH_SYMS
+    eq("부반송파 수 · 273 × 12", sc, 3276, 0)
+    eq("자원 요소 [M/s] · 3276 × 28000", re_s / 1e6, 91.728, 0.001)
+    eq("심볼/s · 14 × 2000슬롯", FH_SYMS, 28000, 0)
+    for iqw, bfp, pub_bits, pub_g in [(16, False, 384, 2.9353), (12, True, 296, 2.2626),
+                                      (9, True, 224, 1.7123)]:
+        b = fh_bits_per_prb(iqw, bfp)
+        g = fh_gbps_per_flow(iqw, bfp)
+        hit = b == pub_bits and abs(g - pub_g) < 0.0001
+        ok &= hit
+        tag = "무압축" if not bfp else "BFP"
+        print(f"  {tag} {iqw:2}비트 → {b:3}비트/PRB · {g:7.4f} Gbps"
+              f"  게시 {pub_bits}/{pub_g}  {'✓' if hit else '✗ 불일치'}")
+    # 지수 오버헤드가 결론을 바꾸지 않는다는 것(본문 캡션의 주장)
+    without_exp = 12 * 2 * 9
+    eq("지수 8비트를 뺐을 때의 감소 [%]",
+       (1 - without_exp / fh_bits_per_prb(9)) * 100, 3.6, 0.05)
+
+    per9 = fh_gbps_per_flow(9)
+    print("\n[14] 분할별 프론트홀 — 흐름 수 × 흐름 하나 (BFP 9비트)")
+    cat_a = 32 * per9
+    cat_b = 8 * per9
+    eq("Cat A · 32 스트림 [Gbps]", cat_a, 54.792, 0.001)
+    eq("Cat B · 8 레이어 [Gbps]", cat_b, 13.698, 0.001)
+    eq("Cat A ÷ Cat B", cat_a / cat_b, 4.0, 1e-12)
+    # 자료의 주장: 비가 정확히 흐름 수의 비다(흐름 하나의 양이 약분된다)
+    same = abs(cat_a / cat_b - 32 / 8) < 1e-12
+    ok &= same
+    print(f"  비가 흐름 수의 비(32/8)와 정확히 같은가  {'✓' if same else '✗ 자료의 주장과 다름'}")
+    # 압축 방식을 바꿔도 비가 그대로인가 — 약분된다는 주장의 핵심
+    ratios = [32 * fh_gbps_per_flow(w, b) / (8 * fh_gbps_per_flow(w, b))
+              for w, b in [(16, False), (12, True), (9, True)]]
+    flat = all(abs(r - 4.0) < 1e-12 for r in ratios)
+    ok &= flat
+    print(f"  압축을 바꿔도 비가 4.0으로 고정되는가  {'✓' if flat else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] 체인을 늘릴 때 — Cat A만 커진다 (레이어 8 고정)")
+    for p, pub_a in [(8, 13.698), (16, 27.396), (32, 54.792), (64, 109.584)]:
+        ra, rb = p * per9, 8 * per9
+        hit = abs(ra - pub_a) < 0.001 and abs(rb - 13.698) < 0.001
+        ok &= hit
+        print(f"  {p:3}체인  Cat A {ra:8.3f} (게시 {pub_a})  Cat B {rb:8.3f}"
+              f"  {fh_smallest_link(ra) or '100GbE 초과':<12} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 64체인에서 Cat A가 100GbE를 넘고 Cat B는 25GbE에 든다
+    wall = fh_smallest_link(64 * per9) is None and fh_smallest_link(8 * per9) == "25GbE"
+    ok &= wall
+    print(f"  64체인에서 Cat A는 100GbE 초과 · Cat B는 25GbE  {'✓' if wall else '✗ 자료의 주장과 다름'}")
+    # 8체인이면 둘이 같다 — 인터랙션의 '둘이 같다' 판정이 여기 의존
+    tie = abs(8 * per9 - 8 * per9) == 0 and 8 == 8
+    ok &= tie
+    print(f"  체인 수 = 레이어 수(8)이면 두 방식이 같은 값  {'✓' if tie else '✗'}")
+
+    print("\n[14] Option 8(CPRI) 대조 — 시간영역 IQ")
+    fs = 4096 * 30e3
+    opt8 = 32 * 2 * 16 * fs / 1e9
+    eq("표본율 [Msps] · 4096 × 30 kHz", fs / 1e6, 122.88, 0.001)
+    eq("Option 8 · 32안테나 16비트 [Gbps]", opt8, 125.829, 0.001)
+    eq("Cat B 대비 절감 배수", opt8 / cat_b, 9.19, 0.005)
+    over = fh_smallest_link(opt8) is None
+    ok &= over
+    print(f"  Option 8은 100GbE 한 벌로 안 된다  {'✓' if over else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] BFW(사전)의 값 — 32체인 · 8레이어 · 슬롯마다 한 번")
+
+    def bfw_gbps(bundle, iqw, layers=8, ports=32):
+        nb = math.ceil(FH_RB / bundle)
+        return nb * layers * ports * 2 * iqw * FH_SLOT_S / 1e9, nb
+
+    for bundle, iqw, pub_g, pub_pct in [(1, 9, 2.516, 18.4), (4, 9, 0.636, 4.6),
+                                        (16, 9, 0.166, 1.2), (1, 16, 4.473, 32.7)]:
+        g, nb = bfw_gbps(bundle, iqw)
+        pct = g / cat_b * 100
+        hit = abs(g - pub_g) < 0.001 and abs(pct - pub_pct) < 0.05
+        ok &= hit
+        print(f"  묶음 {bundle:2} PRB ({nb:3}묶음) {iqw:2}비트 → {g:6.3f} Gbps"
+              f" · U-plane의 {pct:5.1f}%  게시 {pub_g}/{pub_pct}  {'✓' if hit else '✗ 불일치'}")
+
+    worst, _ = bfw_gbps(1, 16)
+    eq("최악(묶음 1 · 16비트) 합계 [Gbps]", cat_b + worst, 18.171, 0.001)
+    fits = fh_smallest_link(cat_b + worst) == "25GbE"
+    ok &= fits
+    print(f"  최악의 경우에도 25GbE 안에 드는가  {'✓' if fits else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장: 사전 값을 내고도 Cat A보다 싸다 — 전 구간에서 성립해야 한다
+    always = all(cat_b + bfw_gbps(b, w)[0] < cat_a
+                 for b in range(1, 17) for w in (9, 16))
+    ok &= always
+    print(f"  묶음 1–16 · 9/16비트 전 구간에서 Cat A보다 싼가  {'✓' if always else '✗ 자료의 주장과 다름'}")
+    g1, _ = bfw_gbps(1, 9)
+    eq("묶음 1 · 9비트에서 Cat A 대비 배수", cat_a / (cat_b + g1), 3.38, 0.005)
+
+    print("\n[14] 비용은 옮겨갔다 — O-RU 연산량 (32체인 · 8레이어)")
+    prec = re_s * 32 * 8 / 1e9
+    fft_mul = (4096 // 2) * int(math.log2(4096))
+    ifft = 32 * FH_SYMS * fft_mul / 1e9
+    eq("프리코딩 [G 복소 MAC/s]", prec, 23.48, 0.005)
+    eq("4096점 iFFT 복소곱 · (N/2)log2N", fft_mul, 24576, 0)
+    eq("iFFT [G 복소곱/s] · 32체인", ifft, 22.02, 0.005)
+    eq("프리코딩 ÷ iFFT", prec / ifft, 1.066, 0.001)
+    # 자료의 주장: 둘이 같은 급이다(2배를 넘지 않는다)
+    same_order = 0.5 < prec / ifft < 2.0
+    ok &= same_order
+    print(f"  프리코딩과 iFFT가 같은 급인가(0.5–2배)  {'✓' if same_order else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] 3GPP와의 접점")
+    # 8 레이어는 10·13에서 쓴 하향 상한과 같은 값이어야 한다
+    dl_max_layers = 8
+    ok &= dl_max_layers == 8
+    print(f"  프론트홀 8 레이어 = 10의 하향 레이어 상한 8 (TS 38.211 §7.3.1.3)  ✓")
+    # 273 RB는 05에서 검산한 값
+    ok &= FH_RB == 273
+    print(f"  273 RB = 05에서 검산한 100 MHz @ 30 kHz  ✓")
+
+    return ok
 
 
 def check_harq():

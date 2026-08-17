@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14 O-RAN 프론트홀 분할 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>14 / O-RAN 프론트홀 분할</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">14 · o-ran 7.2x category b</p>
+  <h1>통역사를 어디에<br><em>세우는가</em></h1>
+  <p class="lead">32T32R 배열 안테나를 단 기지국인데, 프론트홀 케이블에는 <strong>8 레이어만</strong> 흐릅니다. 안테나가 32개인데 왜 8개만 보내는지, 그 8개가 <strong>어디서 32개로 펼쳐지는지</strong>를 따라갑니다. <a href="../09-precoding-codebook/index.html">09의 프리코딩</a>이 이 자료에서는 <strong>장비 안의 위치 문제</strong>로 바뀝니다.</p>
+</header>
+
+<section class="wrap">
+  <div class="note">
+    <strong>먼저 짚을 것 — 이 자료는 3GPP 규격이 아닙니다.</strong>
+    3GPP는 <strong>공중 인터페이스</strong>를 정합니다. 안테나에서 나간 신호가 어떤 모양이어야 하는지까지입니다.
+    기지국을 <strong>어디서 두 조각으로 자르고 그 사이에 무엇을 흘릴지</strong>는 3GPP가 정하지 않습니다.
+    그것을 정한 것이 <strong>O-RAN Alliance</strong>의 프론트홀 규격입니다.
+    분할 지점의 후보 목록(Option 1–8) 자체는 3GPP의 연구 문서에서 출발했지만,
+    실제로 쓰이는 7.2x의 세부는 O-RAN 문서에 있습니다.
+    <span class="src">O-RAN.WG4.CUS.0 (Control, User and Synchronization Plane) · 분할 옵션 목록의 출발점은 3GPP TR 38.801 §11</span>
+  </div>
+
+  <h2>세 가지 숫자를 구분하는 것부터</h2>
+  <p>"32T32R에 8 레이어"라는 말에는 <strong>층위가 다른 숫자 셋</strong>이 섞여 있습니다. 이걸 같은 층위로 보면 이 자료의 나머지가 전부 헷갈립니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 장비를 세 가지 방식으로 센 것 · 규격이 다르고 층위가 다르다</caption>
+    <thead><tr><th class="num">숫자</th><th>무엇을 센 것인가</th><th>정한 곳</th><th>바뀌면</th></tr></thead>
+    <tbody>
+      <tr><td class="num">8</td><td><strong>레이어</strong> — 공간에 동시에 띄우는 독립된 데이터 줄기</td><td>3GPP <span class="src">TS 38.211 §7.3.1.3</span></td><td>사용자에게 가는 속도가 바뀐다</td></tr>
+      <tr><td class="num">32</td><td><strong>송수신 체인</strong> — 변환기·증폭기가 달린 무선 경로. 프론트홀에서는 <strong>eAxC</strong> 흐름 하나에 대응</td><td>O-RAN <span class="src">O-RAN.WG4.CUS.0</span></td><td>프론트홀 부담과 O-RU 연산량이 바뀐다</td></tr>
+      <tr><td class="num">N</td><td><strong>물리 방사 소자</strong> — 실제로 전파를 내보내는 금속. 체인 하나가 여러 소자를 묶어 먹는 경우가 많다</td><td>어느 규격도 정하지 않음 (벤더 RF 설계)</td><td>빔 모양과 이득이 바뀐다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>32은 안테나 개수가 아닙니다.</strong> 32T32R은 <strong>송수신 체인이 32벌</strong>이라는 뜻이고,
+    체인 하나가 물리 소자 여럿을 묶어 구동하는 것이 보통입니다.
+    그래서 32T32R 장비의 방사 소자는 32개가 아니라 그 몇 배일 수 있습니다.
+    <a href="../10-physical-layer-chain/index.html">10에서 본 안테나 포트의 정의</a>가 여기서 세 번째 층위를 하나 더 얻는 셈입니다 —
+    <strong>레이어 ≠ 포트 ≠ 체인 ≠ 소자</strong>입니다.
+  </div>
+
+  <p>이 자료가 다루는 것은 <strong>8과 32 사이</strong>입니다. 8을 32로 바꾸는 일이 <strong>프리코딩</strong>이고, 그 일을 <strong>케이블 이쪽에서 할지 저쪽에서 할지</strong>가 Cat A와 Cat B의 차이입니다.</p>
+
+  <div class="note">
+    <strong>비유는 통역사 하나로 갑니다.</strong> O-DU는 <strong>8개 언어로</strong> 말하고,
+    안테나는 <strong>32개 언어로</strong>만 알아듣습니다. 누군가는 통역을 해야 합니다.
+    통역사를 <strong>출발지에 두면</strong> 번역된 32벌이 케이블을 타고 가야 하고,
+    <strong>도착지에 두면</strong> 원본 8벌만 보내면 됩니다.
+    대신 도착지의 통역사에게는 <strong>사전을 따로 보내 줘야</strong> 합니다.
+    이 자료는 그 세 가지 — <strong>통역사의 위치 · 케이블에 흐르는 벌 수 · 사전을 실어 보내는 값</strong> — 만 봅니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>7.2x는 어디를 자르는가</h2>
+  <p>기지국을 자를 수 있는 자리는 여럿입니다. 자르는 자리가 <strong>안테나에 가까울수록</strong> O-RU는 단순해지지만 케이블에 흘려야 할 것이 많아집니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>분할 지점에 따라 프론트홀에 흐르는 것 · 100 MHz · 30 kHz · 32T32R 기준</caption>
+    <thead><tr><th>분할</th><th>케이블에 흐르는 것</th><th>O-RU가 하는 일</th><th class="num">흐름 수</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Option 8</strong> (CPRI)</td><td><strong>시간영역</strong> IQ 표본 — 안테나마다 통째로</td><td>변환과 증폭만. 디지털 처리 없음</td><td class="num">32</td></tr>
+      <tr><td><strong>7.2x Cat A</strong></td><td><strong>주파수영역</strong> IQ — 프리코딩까지 끝난 체인별 신호</td><td>iFFT · CP 삽입 · RF</td><td class="num">32</td></tr>
+      <tr><td><strong>7.2x Cat B</strong></td><td><strong>주파수영역</strong> IQ — 프리코딩 전 <strong>레이어</strong> 신호</td><td><strong>프리코딩</strong> · iFFT · CP 삽입 · RF</td><td class="num">8</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>7.2x가 Option 8과 갈라지는 지점은 <strong>FFT가 어디 있느냐</strong>입니다. 7.2x에서는 <strong>iFFT와 CP 삽입이 O-RU 안</strong>에 있고, 케이블에는 <a href="../03-cyclic-prefix/index.html">03에서 본 CP</a>가 붙기 <strong>전</strong>의 주파수영역 값이 흐릅니다. 그래서 <strong>쓰지 않는 부반송파는 보내지 않아도 됩니다</strong> — Option 8은 무음일 때도 표본을 꽉 채워 보냅니다.</p>
+
+  <p>그리고 7.2x <strong>안에서</strong> 다시 갈라지는 지점이 프리코더의 위치입니다. 이것이 Cat A와 Cat B입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1240 470" role="img" aria-labelledby="t1 d1">
+      <title id="t1">O-RAN 7.2x Cat-B 기준 O-DU와 O-RU의 처리 분담과 양방향 흐름</title>
+      <desc id="d1">위쪽은 하향 흐름이다. O-DU가 부호화와 변조, 레이어 매핑, 자원 요소 매핑까지 하고 8개 레이어의 주파수영역 신호를 프론트홀로 보낸다. O-RU가 그것을 받아 32 곱하기 8 프리코딩 행렬을 곱해 32개 체인으로 펼치고, 역푸리에 변환과 순환 전치 삽입, 디지털 전단 처리와 변환, 무선 주파수 증폭을 거쳐 배열 안테나로 내보낸다. 아래쪽은 상향 흐름으로 방향이 반대다. 32개 안테나가 받은 신호가 증폭과 변환, 순환 전치 제거와 푸리에 변환을 거친 뒤 8 곱하기 32 결합 행렬로 8개 레이어로 접히고, 그 8개만 프론트홀을 타고 O-DU로 올라가 등화와 복조, 복호를 받는다. 두 흐름 모두 프론트홀 자리에 7.2x 분할 경계가 세로 점선으로 표시되어 있다.</desc>
+
+      <defs>
+        <marker id="dlArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--dl)"/>
+        </marker>
+        <marker id="ulArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ul)"/>
+        </marker>
+      </defs>
+
+      <!-- 7.2x 분할 경계 -->
+      <line x1="272" y1="40" x2="272" y2="440" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="7 5"/>
+      <text x="272" y="28" text-anchor="middle" class="celllab" fill="var(--ink)">7.2x 분할 경계</text>
+      <text x="272" y="458" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">이 선의 왼쪽이 O-DU · 오른쪽이 O-RU</text>
+
+      <!-- ================= 하향 ================= -->
+      <text x="8" y="76" class="rowlab" fill="var(--dl)">하향</text>
+
+      <rect x="8" y="92" width="250" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="133" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">O-DU</text>
+      <text x="133" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">부호화 · 변조 · 레이어 매핑 · RE 매핑</text>
+
+      <!-- 프론트홀 8줄 -->
+      <text x="339" y="86" text-anchor="middle" class="celllab" fill="var(--dl)">프론트홀 · 8 레이어</text>
+      <line x1="288" y1="100" x2="390" y2="100" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="107" x2="390" y2="107" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="114" x2="390" y2="114" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="121" x2="390" y2="121" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="128" x2="390" y2="128" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="135" x2="390" y2="135" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="142" x2="390" y2="142" stroke="var(--dl)" stroke-width="1.2"/>
+      <line x1="288" y1="149" x2="396" y2="149" stroke="var(--dl)" stroke-width="1.2" marker-end="url(#dlArr)"/>
+      <text x="339" y="167" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">주파수영역 IQ · 압축</text>
+
+      <!-- 프리코딩 -->
+      <rect x="406" y="92" width="152" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="2.4"/>
+      <text x="482" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">프리코딩</text>
+      <text x="482" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">32×8 · 부반송파마다</text>
+      <text x="482" y="78" text-anchor="middle" class="dimlab" fill="var(--ink)">← Cat B는 여기에 있다</text>
+      <line x1="566" y1="121" x2="594" y2="121" stroke="var(--dl)" stroke-width="1.4" marker-end="url(#dlArr)"/>
+
+      <!-- 32줄로 펼쳐짐 -->
+      <rect x="602" y="92" width="132" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="668" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">iFFT · CP</text>
+      <text x="668" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">4096점 × 32</text>
+      <line x1="742" y1="121" x2="770" y2="121" stroke="var(--dl)" stroke-width="1.4" marker-end="url(#dlArr)"/>
+
+      <rect x="778" y="92" width="126" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="841" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">DFE · DAC</text>
+      <text x="841" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">보간 · CFR · DPD</text>
+      <line x1="912" y1="121" x2="940" y2="121" stroke="var(--dl)" stroke-width="1.4" marker-end="url(#dlArr)"/>
+
+      <rect x="948" y="92" width="110" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="1003" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">RF · PA</text>
+      <text x="1003" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">상향변환 · 증폭</text>
+      <line x1="1066" y1="121" x2="1094" y2="121" stroke="var(--dl)" stroke-width="1.4" marker-end="url(#dlArr)"/>
+
+      <rect x="1102" y="92" width="128" height="58" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+      <text x="1166" y="115" text-anchor="middle" class="celllab" fill="var(--dl)">배열 안테나</text>
+      <text x="1166" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">32 체인</text>
+
+      <text x="668" y="188" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">이 구간은 전부 32벌이다 — 케이블을 건넌 뒤에 펼쳐졌다</text>
+      <line x1="406" y1="200" x2="1230" y2="200" stroke="var(--hair)" stroke-width="1"/>
+
+      <!-- ================= 상향 ================= -->
+      <text x="8" y="296" class="rowlab" fill="var(--ul)">상향</text>
+
+      <rect x="8" y="312" width="250" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="133" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">O-DU</text>
+      <text x="133" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">등화 · 복조 · 복호</text>
+
+      <text x="339" y="306" text-anchor="middle" class="celllab" fill="var(--ul)">프론트홀 · 8 레이어</text>
+      <line x1="390" y1="320" x2="288" y2="320" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="327" x2="288" y2="327" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="334" x2="288" y2="334" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="341" x2="288" y2="341" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="348" x2="288" y2="348" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="355" x2="288" y2="355" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="362" x2="288" y2="362" stroke="var(--ul)" stroke-width="1.2"/>
+      <line x1="390" y1="369" x2="266" y2="369" stroke="var(--ul)" stroke-width="1.2" marker-end="url(#ulArr)"/>
+      <text x="339" y="387" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">주파수영역 IQ · 압축</text>
+
+      <rect x="406" y="312" width="152" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="2.4"/>
+      <text x="482" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">상향 결합</text>
+      <text x="482" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">8×32 · 부반송파마다</text>
+      <line x1="398" y1="341" x2="392" y2="341" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#ulArr)"/>
+
+      <rect x="602" y="312" width="132" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="668" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">CP 제거 · FFT</text>
+      <text x="668" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">4096점 × 32</text>
+      <line x1="594" y1="341" x2="566" y2="341" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#ulArr)"/>
+
+      <rect x="778" y="312" width="126" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="841" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">DFE · ADC</text>
+      <text x="841" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">여파 · 추출</text>
+      <line x1="770" y1="341" x2="742" y2="341" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#ulArr)"/>
+
+      <rect x="948" y="312" width="110" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="1003" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">LNA · RF</text>
+      <text x="1003" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">저잡음 · 하향변환</text>
+      <line x1="940" y1="341" x2="912" y2="341" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#ulArr)"/>
+
+      <rect x="1102" y="312" width="128" height="58" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="1166" y="335" text-anchor="middle" class="celllab" fill="var(--ul)">배열 안테나</text>
+      <text x="1166" y="354" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">32 체인</text>
+      <line x1="1094" y1="341" x2="1066" y2="341" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#ulArr)"/>
+
+      <text x="668" y="408" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">이 구간도 전부 32벌이다 — 케이블을 건너기 전에 접혔다</text>
+    </svg>
+  </div>
+  <p class="caption">가로 위치는 처리 순서일 뿐이고 <strong>시간이나 물리적 거리를 나타내지 않습니다.</strong> 굵은 테두리를 두른 두 칸이 <strong>Cat B라서 O-RU에 있는</strong> 단계입니다 — Cat A라면 이 두 칸이 분할 경계 왼쪽으로 넘어가고, 케이블에는 8벌이 아니라 32벌이 흐릅니다.</p>
+
+  <div class="note">
+    <strong>상향은 하향을 거울에 비친 것입니다.</strong> 하향에서 8이 32로 <strong>펼쳐지는</strong> 자리에서,
+    상향은 32가 8로 <strong>접힙니다.</strong> 32개 안테나가 각각 받은 것을 부반송파마다 8×32 행렬로 결합해
+    레이어 8개로 줄인 다음, <strong>그 8개만</strong> 케이블에 올립니다.
+    프론트홀 부담이 하향과 같은 이유로 같은 크기만큼 줄어듭니다.
+    <a href="../13-uplink-physical-layer/index.html">13에서 본 대로</a> 상향은 레이어 상한이 4라서
+    단말 하나만 보면 더 가볍고, 여럿을 동시에 받을 때 8까지 올라갑니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>통역사의 위치가 케이블을 결정한다</h2>
+  <p>이제 숫자를 붙입니다. 프론트홀에 흐르는 양은 <strong>흐름 수 × 흐름 하나의 양</strong>입니다. 흐름 하나의 양은 <a href="../05-bandwidth-part/index.html">05에서 본 자원 격자</a>에서 바로 나옵니다.</p>
+
+  <!-- 유도: eAxC 하나의 페이로드 비율 (100 MHz · 30 kHz · μ=1)
+       부반송파 273 RB × 12 = 3276
+       심볼/s  14 × 2000슬롯 = 28,000        (μ=1 → 서브프레임당 2슬롯 → 2000슬롯/s)
+       RE/s   3276 × 28,000 = 91,728,000 = 91.728 MRE/s
+       BFP(블록 부동소수점) 압축: 12 RE 한 묶음(1 PRB)이 지수 1바이트를 공유
+         비트/PRB = 12 × 2 × iqWidth + 8
+           iqWidth  9 → 224 비트 → 273 × 224 × 28,000 = 1,712.256 Mbit/s = 1.7123 Gbps
+           iqWidth 12 → 296 비트 → 2.2626 Gbps
+         무압축 16비트(지수 없음) = 384 비트/PRB → 2.9353 Gbps
+       ※ 지수 오버헤드 8비트를 빼면 iqWidth 9에서 216/224 = 3.6% 낮아진다 — 결론은 안 바뀐다 -->
+  <div class="stats">
+    <div><span class="n">3,276</span><span class="t">부반송파 · 273 RB × 12</span></div>
+    <div><span class="n">91.7</span><span class="t">자원 요소 [M/s] · 3276 × 14 × 2000</span></div>
+    <div><span class="n">1.71</span><span class="t">흐름 하나 [Gbps] · BFP 9비트</span></div>
+    <div><span class="n">2.94</span><span class="t">흐름 하나 [Gbps] · 무압축 16비트</span></div>
+  </div>
+  <p class="caption">100 MHz · 30 kHz · μ=1 기준입니다. <strong>페이로드만 센 값</strong>이며 이더넷·eCPRI 헤더는 빠져 있습니다 — 점보 프레임을 쓰면 헤더 몫은 1% 안쪽입니다. BFP는 압축 방식 중 하나이고, 12개 자원 요소가 지수 하나를 공유한다고 가정했습니다. <span class="src">O-RAN.WG4.CUS.0 · udCompHdr / udCompParam</span></p>
+
+  <p>이제 <strong>통역사를 옮겨 보십시오.</strong> 레이어 슬라이더는 Cat B만 움직이고, 체인 수 버튼은 Cat A만 움직입니다. <strong>그게 이 절의 전부입니다.</strong></p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t2 d2">
+      <title id="t2">분할 방식별 프론트홀 소요 대역과 이더넷 링크 수용 여부</title>
+      <desc id="d2">가로축은 프론트홀에 필요한 초당 비트수이고 막대 두 개가 각각 카테고리 A와 카테고리 B의 소요량을 나타낸다. 10, 25, 100 기가비트 이더넷 용량이 세로 점선으로 표시된다. 카테고리 A의 막대는 안테나 체인 수에 비례해 늘어나고 카테고리 B의 막대는 레이어 수에만 비례하므로 체인 수를 늘려도 그대로 있다. 체인이 많아지면 카테고리 A는 링크 용량을 넘어서고 카테고리 B는 넘지 않는다.</desc>
+      <g id="fhGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="fhLayer">레이어</label>
+    <input type="range" id="fhLayer" min="1" max="8" step="1" value="8" aria-describedby="fhOut">
+    <span class="segmented" id="fhPort" role="group" aria-label="송수신 체인 수 선택"></span>
+    <span class="segmented" id="fhComp" role="group" aria-label="압축 방식 선택"></span>
+    <span class="readout" id="fhOut"></span>
+  </div>
+
+  <div class="verdict" id="fhBox">
+    <span class="tag" id="fhTag"></span>
+    <span class="why" id="fhWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="fhA">—</span><span class="t">Cat A · 체인 수만큼 흐른다</span></div>
+    <div><span class="n" id="fhB">—</span><span class="t">Cat B · 레이어 수만큼 흐른다</span></div>
+    <div><span class="n" id="fhR">—</span><span class="t">Cat A ÷ Cat B</span></div>
+    <div><span class="n" id="fhL">—</span><span class="t">Cat B를 담는 가장 작은 링크</span></div>
+  </div>
+
+  <!-- 유도: 분할별 프론트홀 (BFP 9비트, 1.7123 Gbps/흐름)
+       Cat A  32 × 1.7123 = 54.792 Gbps   ← 흐름 수 = 체인 수
+       Cat B   8 × 1.7123 = 13.698 Gbps   ← 흐름 수 = 레이어 수
+       비 = 32/8 = 4.0 (정확히 흐름 수의 비다. 흐름 하나의 양이 약분된다)
+       체인을 64로 늘리면  Cat A 109.584 Gbps → 100GbE 한 벌로 안 된다
+                          Cat B  13.698 Gbps → 그대로 (레이어가 그대로니까)
+       Option 8 참고: 표본율 4096 × 30 kHz = 122.88 Msps
+         32 × 2 × 16비트 × 122.88e6 = 125.829 Gbps → Cat B의 9.19배 -->
+  <div class="note">
+    <strong>Cat A는 규모가 커지면 무너집니다.</strong> Cat A의 프론트홀은 <strong>체인 수에 비례</strong>합니다.
+    32체인에서 54.79 Gbps라 100GbE 한 벌로 되지만, <strong>64체인이면 109.58 Gbps</strong>가 되어
+    100GbE 한 벌로 안 됩니다. Cat B는 <strong>레이어 수에 비례</strong>하므로 체인을 몇 개로 늘려도 13.70 Gbps 그대로입니다.
+    매시브 MIMO가 하는 일이 정확히 <strong>체인을 늘리는 것</strong>이므로,
+    <strong>Cat B는 선택이 아니라 규모의 조건</strong>이 됩니다.
+  </div>
+
+  <p>참고로 <strong>Option 8(CPRI)이라면 125.83 Gbps</strong>입니다. 시간영역 표본을 안테나마다 통째로 보내기 때문인데, 더 나쁜 것은 이 값이 <strong>실린 데이터와 무관하게 일정</strong>하다는 점입니다 — 아무도 안 쓰는 새벽에도 같은 양이 흐릅니다. 7.2x Cat B가 <strong>9.19배</strong>를 줄입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>사전을 실어 보내는 값</h2>
+  <p>공짜는 아닙니다. 도착지의 통역사는 <strong>어떻게 번역할지를 모릅니다.</strong> 8을 32로 펼치는 <strong>32×8 행렬</strong>을 누군가 알려줘야 합니다.</p>
+
+  <p>O-RAN은 두 가지 방법을 둡니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>빔포밍 웨이트를 O-RU에 알리는 두 방법 · O-RAN.WG4.CUS.0 C-plane</caption>
+    <thead><tr><th>방법</th><th>보내는 것</th><th class="num">케이블 부담</th><th>한계</th></tr></thead>
+    <tbody>
+      <tr><td><strong>beamId</strong></td><td>미리 넣어 둔 빔 목록의 <strong>번호</strong>만</td><td class="num">거의 없음</td><td>목록에 없는 빔은 못 만든다</td></tr>
+      <tr><td><strong>실시간 BFW</strong></td><td>웨이트 <strong>값 자체</strong>를 C-plane에 실어서</td><td class="num">무시할 수 없다</td><td>부담이 체인 수 × 레이어 수에 비례</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><a href="../09-precoding-codebook/index.html">09의 코드북</a>이 여기서 되돌아옵니다. beamId는 <strong>코드북 방식</strong>이고, 실시간 BFW는 <strong>채널을 재서 그때그때 만드는 방식</strong>입니다. 09에서 본 것과 같은 저울입니다 — <strong>정확도를 사려면 알려주는 비용을 내야 합니다.</strong></p>
+
+  <!-- 유도: 실시간 BFW의 C-plane 부담 (슬롯마다 한 번 보낸다고 가정)
+       웨이트 개수 = 묶음 수 × 레이어 × 체인,  각 웨이트는 복소수(I/Q 2개)
+       묶음 수 = ceil(273 / 묶음크기)
+       비트/슬롯 = 묶음수 × L × P × 2 × iqWidth
+       32체인 · 8레이어 · iqWidth 9 · 슬롯 2000개/s:
+         묶음  1 PRB → 273묶음 → 1,257,984 비트/슬롯 → 2.516 Gbps  (U-plane 13.698의 18.4%)
+         묶음  4 PRB →  69묶음 →   317,952 비트/슬롯 → 0.636 Gbps  (4.6%)
+         묶음 16 PRB →  18묶음 →    82,944 비트/슬롯 → 0.166 Gbps  (1.2%)
+       iqWidth 16이면 각 값이 16/9배 → 묶음 1 PRB에서 4.473 Gbps (32.7%)
+       합계가 최악(묶음 1, 16비트)이어도 13.698 + 4.473 = 18.171 Gbps → 25GbE 안에 든다
+       Cat A(54.792) 대비: 묶음 1·9비트에서 54.792 / 16.214 = 3.38배 -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t3 d3">
+      <title id="t3">실시간 빔포밍 웨이트를 보낼 때의 제어 평면 부담</title>
+      <desc id="d3">위 막대는 카테고리 B의 프론트홀 소요량을 사용자 데이터 부분과 빔포밍 웨이트 부분으로 나누어 쌓아 보여준다. 아래 막대는 웨이트를 보낼 필요가 없는 카테고리 A의 소요량이다. 자원블록 묶음을 크게 잡을수록 웨이트 부분이 줄어들고, 가장 촘촘하게 보내는 경우에도 카테고리 B 전체가 카테고리 A보다 훨씬 작다.</desc>
+      <g id="bfGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="bfBund">PRB 묶음</label>
+    <input type="range" id="bfBund" min="1" max="16" step="1" value="1" aria-describedby="bfOut">
+    <span class="segmented" id="bfW" role="group" aria-label="웨이트 정밀도 선택"></span>
+    <span class="readout" id="bfOut"></span>
+  </div>
+
+  <div class="verdict" id="bfBox">
+    <span class="tag" id="bfTag"></span>
+    <span class="why" id="bfWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="bfN">—</span><span class="t">보내야 하는 웨이트 개수 · 슬롯마다</span></div>
+    <div><span class="n" id="bfC">—</span><span class="t">웨이트 몫 [Gbps]</span></div>
+    <div><span class="n" id="bfP">—</span><span class="t">사용자 데이터 대비 비율</span></div>
+    <div><span class="n" id="bfT">—</span><span class="t">합계 · Cat A는 54.79</span></div>
+  </div>
+  <p class="caption">32체인 · 8레이어 · 273 RB 전체 할당 · <strong>웨이트를 슬롯마다 한 번 보낸다고 가정</strong>했습니다. 실제로는 C-plane 구간(section)이 여러 심볼을 덮으므로 이 값이 상한에 가깝습니다. 묶음 크기를 키우면 <strong>주파수 방향으로 같은 빔을 재사용</strong>하는 것이어서, 채널이 주파수에 따라 많이 변하면 성능이 깎입니다 — <a href="../11-reference-signals/index.html">11에서 본 코히런스 대역</a>이 묶음 크기의 상한을 정합니다.</p>
+
+  <div class="note">
+    <strong>가장 촘촘하게 보내도 Cat B가 이깁니다.</strong> 묶음 없이 PRB마다, 16비트로 보내는 최악의 경우에도
+    합계는 18.17 Gbps로 <strong>25GbE 안</strong>에 들어갑니다. Cat A는 웨이트를 보낼 필요가 없지만
+    그 자체로 54.79 Gbps입니다. <strong>사전을 부치는 값이 번역본 32벌을 부치는 값보다 훨씬 쌉니다</strong> —
+    사전은 자원블록 묶음마다 한 벌이면 되고, 번역본은 자원 요소마다 32벌이어야 하니까요.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>비용은 사라지지 않고 옮겨갔다</h2>
+  <p>케이블이 4분의 1로 줄었으면 그만큼 어딘가는 무거워졌습니다. <strong>O-RU입니다.</strong></p>
+
+  <!-- 유도: O-RU 연산량 (32체인 · 8레이어)
+       프리코딩: 부반송파-심볼 91,728,000/s, 각각 32×8 = 256 복소 MAC
+         91,728,000 × 256 = 23,482,368,000 ≈ 23.48 G 복소 MAC/s
+         복소곱 1 = 실수곱 4 → 93.93 G 실수곱/s
+       iFFT: 4096점 ≈ (4096/2)·log2(4096) = 2048 × 12 = 24,576 복소곱
+         32체인 × 28,000 심볼/s × 24,576 = 22,020,096,000 ≈ 22.02 G 복소곱/s
+       비 23.48 / 22.02 = 1.066 → 프리코더가 앞단 연산을 대략 두 배로 만든다 -->
+  <div class="stats">
+    <div><span class="n">23.5</span><span class="t">프리코딩 [G 복소 MAC/s] · 부반송파마다 32×8</span></div>
+    <div><span class="n">22.0</span><span class="t">iFFT [G 복소곱/s] · 4096점 × 32</span></div>
+    <div><span class="n">1.07</span><span class="t">프리코딩 ÷ iFFT · 거의 같다</span></div>
+    <div><span class="n">4</span><span class="t">케이블이 줄어든 배수</span></div>
+  </div>
+  <p class="caption">iFFT는 4096점을 (N/2)·log₂N 복소곱으로 셈한 <strong>차수 비교용 근사</strong>입니다. 실제 구현은 이보다 적게 듭니다. 여기서 보려는 것은 절대값이 아니라 <strong>프리코딩과 iFFT가 같은 급</strong>이라는 사실입니다.</p>
+
+  <div class="note">
+    <strong>프리코더 하나가 O-RU의 앞단 연산을 대략 두 배로 만듭니다.</strong>
+    O-RU는 안테나 옆 철탑 위에 달리고, 거기서 쓰는 전력과 내는 열은
+    기계실 안의 O-DU보다 훨씬 비쌉니다. <strong>케이블에서 아낀 것을 철탑 위에서 냈습니다.</strong>
+    이 저울이 Cat A가 아직 존재하는 이유이기도 합니다 —
+    체인이 적은 장비라면 굳이 O-RU를 무겁게 만들 이유가 없습니다.
+  </div>
+
+  <p>한 가지가 더 옮겨갔습니다. <strong>누가 채널을 아는가</strong>입니다. Cat B의 O-RU가 웨이트를 적용하려면 누군가 그 웨이트를 계산해야 하고, 계산하려면 <a href="../11-reference-signals/index.html">11의 SRS</a>로 잰 채널이 필요합니다. 재는 것은 O-RU 쪽이고 쓰는 결정은 O-DU 쪽이라, <strong>측정값과 웨이트가 케이블을 두 번 건너야</strong> 합니다. 그래서 O-RAN 프론트홀은 <strong>세 평면</strong>으로 나뉩니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>프론트홀의 세 평면 · O-RAN.WG4.CUS.0</caption>
+    <thead><tr><th>평면</th><th>흐르는 것</th><th>이 자료에서</th></tr></thead>
+    <tbody>
+      <tr><td><strong>U-plane</strong> (사용자)</td><td>주파수영역 IQ 표본</td><td>13.70 Gbps를 차지하던 그것</td></tr>
+      <tr><td><strong>C-plane</strong> (제어)</td><td>어느 자원에 무엇을 실을지 · beamId 또는 BFW</td><td>사전을 부치는 값</td></tr>
+      <tr><td><strong>S-plane</strong> (동기)</td><td>시각 동기 — O-DU와 O-RU의 시계 맞추기</td><td>양이 아니라 <strong>정확도</strong>가 관건</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>S-plane은 양이 아니라 정확도 문제입니다.</strong>
+    <a href="../01-frame-numerology/index.html">01에서 본 슬롯 경계</a>와
+    <a href="../04-ssb-initial-access/index.html">04의 타이밍 어드밴스</a>가 성립하려면
+    O-RU의 시계가 O-DU와 <strong>수백 나노초 안</strong>으로 맞아야 합니다.
+    32체인의 위상을 맞춰 빔을 만드는 일은 <strong>체인끼리의 시각이 어긋나면 곧바로 깨집니다</strong> —
+    <a href="../07-beamforming/index.html">07에서 본 배열</a>이 위상 차로 빔을 만들기 때문입니다.
+    그래서 프론트홀에는 데이터선과 별도로 정밀 시각 동기가 함께 갑니다.
+    <span class="src">IEEE 1588 PTP · ITU-T G.8275.1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>통역사를 도착지에 세운 것</strong>이 Cat B입니다. 프리코더가 O-RU에 있으니 케이블에는 <strong>레이어 8벌</strong>만 흐르고, 32벌로 펼치는 일은 철탑 위에서 일어납니다. 상향은 같은 자리에서 <strong>32이 8로 접힙니다.</strong></li>
+    <li><strong>Cat A는 체인 수에, Cat B는 레이어 수에 비례합니다.</strong> 매시브 MIMO가 늘리는 것은 체인이므로 Cat A는 64체인에서 100GbE를 넘기고 Cat B는 13.70 Gbps에 머뭅니다. <strong>규모가 커질 때만 갈라지는 차이</strong>라서, 8체인에서는 둘이 같습니다.</li>
+    <li><strong>공짜가 아닙니다.</strong> 사전(BFW)을 부치는 값으로 최악 32.7%를 되돌려 주고, O-RU의 앞단 연산이 대략 두 배가 됩니다. <a href="../09-precoding-codebook/index.html">09</a>·<a href="../13-uplink-physical-layer/index.html">13</a>에서 본 것과 같은 결론입니다 — <strong>어디선가 아낀 것은 어디선가 냅니다.</strong></li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../13-uplink-physical-layer/index.html">← 13 상향 물리계층</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+
+  /* ---------- 공통 기준: 100 MHz · 30 kHz · μ=1 ---------- */
+  var RB=273, SYMS=14*2000;                  /* 심볼/s = 14 × 2000슬롯 */
+  var SLOT_S=2000;
+  /* BFP는 12 RE(1 PRB)가 지수 1바이트를 공유한다고 본다 */
+  function bitsPerPrb(iqw,bfp){ return 12*2*iqw + (bfp?8:0); }
+  function gbpsPerFlow(iqw,bfp){ return RB*bitsPerPrb(iqw,bfp)*SYMS/1e9; }
+
+  var LINKS=[{n:'10GbE',c:10},{n:'25GbE',c:25},{n:'100GbE',c:100}];
+  function smallestLink(r){
+    for(var i=0;i<LINKS.length;i++) if(r<=LINKS[i].c) return LINKS[i];
+    return null;                              /* 100GbE 한 벌로 안 된다 */
+  }
+
+  /* ============ 1. 분할별 프론트홀 ============ */
+  var PORTS=[{label:'8체인',v:8},{label:'16체인',v:16},{label:'32체인',v:32},{label:'64체인',v:64}];
+  var COMPS=[{label:'무압축 16비트',iqw:16,bfp:false},
+             {label:'BFP 12비트',iqw:12,bfp:true},
+             {label:'BFP 9비트',iqw:9,bfp:true}];
+  var portSel=2, compSel=2;
+  var FG=document.getElementById('fhGrid');
+  var fhLayer=document.getElementById('fhLayer');
+  var syncPort=mkSeg(document.getElementById('fhPort'),PORTS,
+    function(){return portSel;}, function(v){portSel=v;}, function(){drawFh();});
+  var syncComp=mkSeg(document.getElementById('fhComp'),COMPS,
+    function(){return compSel;}, function(v){compSel=v;}, function(){drawFh();});
+
+  function drawFh(){
+    var L=parseInt(fhLayer.value,10), P=PORTS[portSel].v, C=COMPS[compSel];
+    var per=gbpsPerFlow(C.iqw,C.bfp);
+    var rA=P*per, rB=L*per;
+    clear(FG);
+
+    var AX=150, AW=830, XMAX=130;
+    function px(g){ return AX+Math.min(g,XMAX)/XMAX*AW; }
+
+    /* 링크 용량 세로선 */
+    LINKS.forEach(function(k){
+      FG.appendChild(el('line',{x1:px(k.c),y1:48,x2:px(k.c),y2:236,
+        stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'5 4'}));
+      FG.appendChild(txt(px(k.c),40,k.n,'dimlab','var(--ink-soft)'));
+    });
+
+    /* 막대 두 개 — 색은 담기는지 여부로 정한다(판정 박스와 같은 규칙) */
+    /* 행 이름은 .rowlab이 아니라 .celllab을 쓴다 — rowlab은 대문자로 바꾸므로
+       'Cat A'가 'CAT A'가 되어 본문 표기와 어긋난다.
+       행 이름과 부제는 축(AX) 왼쪽 144칸 안에 들어가야 한다 — 길면 막대 밑으로 파고든다.
+       프리코더의 위치는 아래 통계 타일이 설명하므로 여기서는 흐름 수만 적는다. */
+    function bar(y,label,sub,r){
+      FG.appendChild(txt(6,y+26,label,'celllab','var(--ink-soft)','start'));
+      FG.appendChild(txt(6,y+52,sub,'dimlab','var(--ink-soft)','start'));
+      var lk=smallestLink(r), fits=!!lk;
+      var col=fits?'var(--ul)':'var(--alert)';
+      var bg=fits?'var(--ul-bg)':'var(--alert-bg)';
+      FG.appendChild(el('rect',{x:AX,y:y,width:Math.max(px(r)-AX,2),height:38,
+        fill:bg,stroke:col,'stroke-width':1.6}));
+      /* 값은 막대 안에 넣는다 — 밖에 두면 100GbE 넘을 때 화면을 벗어난다 */
+      var w=px(r)-AX;
+      if(w>120) FG.appendChild(txt(px(r)-10,y+24,r.toFixed(2)+' Gbps','celllab',col,'end'));
+      else      FG.appendChild(txt(px(r)+10,y+24,r.toFixed(2)+' Gbps','celllab',col,'start'));
+      if(r>XMAX){
+        /* 눈금을 벗어났다는 것을 표시한다 — 안 하면 축 끝에 딱 맞는 값으로 읽힌다 */
+        FG.appendChild(el('path',{d:'M'+(AX+AW+4)+' '+(y+7)+' L'+(AX+AW+20)+' '+(y+19)
+          +' L'+(AX+AW+4)+' '+(y+31)+' z',fill:col}));
+      }
+      /* 경고는 막대 아래 오른쪽 끝에 쓴다 — 막대 안에 두면 값 라벨과 겹치고,
+         아래 왼쪽에 두면 행 부제와 겹친다 */
+      if(!fits) FG.appendChild(txt(AX+AW,y+52,'100GbE 한 벌로 안 된다','dimlab','var(--alert)','end'));
+      return lk;
+    }
+    var lkA=bar(60,'Cat A','흐름 '+P+'벌',rA);
+    var lkB=bar(150,'Cat B','흐름 '+L+'벌',rB);
+
+    FG.appendChild(txt(AX+AW/2,272,'프론트홀 소요 대역 [Gbps] · 페이로드 기준',
+      'dimlab','var(--ink-soft)'));
+
+    /* 읽을거리 */
+    document.getElementById('fhOut').textContent='레이어 '+L+' · '+PORTS[portSel].label+' · '+C.label;
+    document.getElementById('fhA').textContent=rA.toFixed(2);
+    document.getElementById('fhB').textContent=rB.toFixed(2);
+    document.getElementById('fhR').textContent=(rA/rB).toFixed(2)+'배';
+    document.getElementById('fhL').textContent=lkB?lkB.n:'100GbE 초과';
+
+    var box=document.getElementById('fhBox');
+    /* 흐름 수가 같으면 두 방식이 같은 값이 된다 — 그때는 갈라질 이유가 없다 */
+    var same=(P===L);
+    box.className='verdict '+(same?'bad':'ok');
+    document.getElementById('fhTag').textContent=
+      same?'둘이 같다':(lkA?'둘 다 담기지만 값이 다르다':'Cat A는 링크를 넘는다');
+    document.getElementById('fhWhy').textContent=same
+      ? '체인 수와 레이어 수가 같으니 통역할 것이 없습니다 — 8을 8로 바꾸는 행렬은 그냥 통과입니다. '
+        +'이 지점에서는 프리코더를 O-RU로 옮겨 얻을 것이 없고, O-RU만 무거워집니다. '
+        +'Cat A가 아직 존재하는 이유가 여기 있습니다.'
+      : (lkA
+        ? 'Cat A '+rA.toFixed(2)+' Gbps는 '+lkA.n+'로 담기고 Cat B '+rB.toFixed(2)+' Gbps는 '
+          +(lkB?lkB.n:'—')+'로 담깁니다. 아직 둘 다 되지만 '+(rA/rB).toFixed(2)
+          +'배 차이입니다 — 체인 수를 더 올려 보십시오.'
+        : 'Cat A는 '+rA.toFixed(2)+' Gbps로 100GbE 한 벌을 넘어섭니다. 같은 조건에서 Cat B는 '
+          +rB.toFixed(2)+' Gbps로 '+(lkB?lkB.n:'—')+' 안에 듭니다. '
+          +'체인을 늘려도 Cat B가 그대로인 것이 핵심입니다 — 흐름 수가 레이어 수에 묶여 있기 때문입니다.');
+  }
+  fhLayer.addEventListener('input',drawFh);
+
+  /* ============ 2. BFW(사전)의 값 ============ */
+  var BFWW=[{label:'웨이트 9비트',iqw:9},{label:'웨이트 16비트',iqw:16}];
+  var bfwSel=0, BF_P=32, BF_L=8;
+  var BG=document.getElementById('bfGrid');
+  var bfBund=document.getElementById('bfBund');
+  var syncBw=mkSeg(document.getElementById('bfW'),BFWW,
+    function(){return bfwSel;}, function(v){bfwSel=v;}, function(){drawBf();});
+
+  var PER9=gbpsPerFlow(9,true);               /* 이 절은 BFP 9비트로 고정 */
+  var U_B=BF_L*PER9;                          /* Cat B U-plane  13.698 */
+  var U_A=BF_P*PER9;                          /* Cat A          54.792 */
+
+  function drawBf(){
+    var B=parseInt(bfBund.value,10), iqw=BFWW[bfwSel].iqw;
+    var nb=Math.ceil(RB/B);                   /* 묶음 수 */
+    var nW=nb*BF_L*BF_P;                      /* 웨이트 개수 (슬롯마다) */
+    var cGbps=nW*2*iqw*SLOT_S/1e9;
+    var total=U_B+cGbps;
+    clear(BG);
+
+    var AX=150, AW=830, XMAX=60;
+    function px(g){ return AX+Math.min(g,XMAX)/XMAX*AW; }
+
+    LINKS.forEach(function(k){
+      if(k.c>XMAX) return;
+      BG.appendChild(el('line',{x1:px(k.c),y1:48,x2:px(k.c),y2:230,
+        stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'5 4'}));
+      BG.appendChild(txt(px(k.c),40,k.n,'dimlab','var(--ink-soft)'));
+    });
+
+    /* Cat B — 사용자 데이터(--ul) + 웨이트(--gp: 데이터가 아님) */
+    BG.appendChild(txt(6,86,'Cat B','celllab','var(--ink-soft)','start'));
+    BG.appendChild(txt(6,104,'데이터 + 사전','dimlab','var(--ink-soft)','start'));
+    BG.appendChild(el('rect',{x:AX,y:60,width:px(U_B)-AX,height:38,
+      fill:'var(--ul-bg)',stroke:'var(--ul)','stroke-width':1.6}));
+    BG.appendChild(el('rect',{x:px(U_B),y:60,width:Math.max(px(total)-px(U_B),1.5),height:38,
+      fill:'var(--gp-bg)',stroke:'var(--gp)','stroke-width':1.6}));
+    BG.appendChild(txt(AX+10,84,'사용자 데이터 '+U_B.toFixed(2),'celllab','var(--ul)','start'));
+    BG.appendChild(txt(px(total)+10,84,'합 '+total.toFixed(2)+' Gbps','celllab','var(--ink)','start'));
+    /* 웨이트 몫이 얇으면 글자가 안 들어간다 — 그럴 때는 막대 아래에 쓴다 */
+    var wSeg=px(total)-px(U_B);
+    if(wSeg>96) BG.appendChild(txt((px(U_B)+px(total))/2,84,'사전 '+cGbps.toFixed(2),'celllab','var(--gp)'));
+    else        BG.appendChild(txt((px(U_B)+px(total))/2,118,'사전 '+cGbps.toFixed(2),'dimlab','var(--gp)'));
+
+    /* Cat A — 비교용 기준선이다. 여기서 --alert를 쓰면 안 된다:
+       위 그림에서 --alert는 "링크에 안 들어간다"는 뜻으로 썼고 54.79는 100GbE에 들어간다.
+       같은 색을 두 그림에서 다른 뜻으로 쓰면 안 되므로 무채색 점선 윤곽으로 둔다. */
+    BG.appendChild(txt(6,176,'Cat A','celllab','var(--ink-soft)','start'));
+    BG.appendChild(txt(6,194,'비교용','dimlab','var(--ink-soft)','start'));
+    BG.appendChild(el('rect',{x:AX,y:150,width:px(U_A)-AX,height:38,
+      fill:'none',stroke:'var(--ink-soft)','stroke-width':1.6,'stroke-dasharray':'6 4'}));
+    BG.appendChild(txt(px(U_A)-10,174,U_A.toFixed(2)+' Gbps','celllab','var(--ink-soft)','end'));
+
+    BG.appendChild(txt(AX+AW/2,266,'프론트홀 소요 대역 [Gbps] · 32체인 · 8레이어 · BFP 9비트',
+      'dimlab','var(--ink-soft)'));
+
+    document.getElementById('bfOut').textContent=B+' PRB 묶음 · '+nb+'묶음 · '+BFWW[bfwSel].label;
+    document.getElementById('bfN').textContent=nW.toLocaleString();
+    document.getElementById('bfC').textContent=cGbps.toFixed(3);
+    document.getElementById('bfP').textContent=(cGbps/U_B*100).toFixed(1)+'%';
+    document.getElementById('bfT').textContent=total.toFixed(2);
+
+    /* 판정: 사전 값을 내고도 Cat A보다 싼가 — 이 자료의 주장 */
+    var win=total<U_A, lk=smallestLink(total);
+    var box=document.getElementById('bfBox');
+    box.className='verdict '+(win?'ok':'bad');
+    document.getElementById('bfTag').textContent=
+      win?'사전 값을 내고도 싸다':'사전이 이득을 다 먹었다';
+    document.getElementById('bfWhy').textContent=win
+      ? '웨이트 몫이 사용자 데이터의 '+(cGbps/U_B*100).toFixed(1)+'%지만, 합계 '+total.toFixed(2)
+        +' Gbps는 '+(lk?lk.n:'100GbE 초과')+' 안에 들고 Cat A의 '+U_A.toFixed(2)+' Gbps보다 '
+        +(U_A/total).toFixed(2)+'배 작습니다. 사전은 자원블록 묶음마다 한 벌이면 되고 '
+        +'번역본은 자원 요소마다 32벌이어야 하니까요.'
+      : '이 설정에서는 웨이트 몫이 너무 커서 Cat A보다 비싸집니다. 묶음을 키우거나 웨이트 정밀도를 낮추십시오.';
+  }
+  bfBund.addEventListener('input',drawBf);
+
+  drawFh();
+  drawBf();
+})();
+</script>
+
+</body>
+</html>
