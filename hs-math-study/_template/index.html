@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!-- 새 챕터를 시작할 때 이 파일을 topics/NN-슬러그/index.html 로 복사하세요.
+     체크리스트:
+       1. <title> 수정
+       2. topbar / eyebrow 의 번호와 제목 수정
+       3. 하단 pager 의 이전·다음 링크 수정 (앞 챕터의 '다음'도 이 챕터로 연결)
+       4. 루트 index.html 목차에 항목 추가  ← 빠뜨리기 쉬움
+       5. 근거로 삼은 정의·정리를 refs/math-notes.md 에 누적
+       6. tools/verify-math.py 에 이번 챕터 검산 함수 추가 후 통과
+     작성 규칙은 저장소 루트의 CLAUDE.md 참조. -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NN 개념 이름 — 고1 수학 직관</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 고1 수학 직관</a>
+  <span>NN / 짧은 제목</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">nn · english subtitle</p>
+  <h1>한 줄로 요약한<br><em>핵심</em> 질문</h1>
+  <p class="lead">이 자료를 읽고 나면 무엇을 할 수 있게 되는지 두세 문장으로. 공식이 아니라 궁금증을 건드릴 것.</p>
+</header>
+
+<section class="wrap">
+  <h2>구체적인 수부터</h2>
+  <p>문자로 일반화하기 전에 실제 숫자 하나를 손으로 끝까지 굴려 봅니다. 비유는 하나만 쓰고 끝까지 밀고 갑니다.</p>
+
+  <div class="eq">
+    <ol>
+      <li>x² − 6x + 5 <span class="why">주어진 식</span></li>
+      <li>= (x² − 6x <span class="drop">+ 9 − 9</span>) + 5 <span class="why">더하고 바로 빼서 값은 그대로</span></li>
+      <li>= <span class="out">(x − 3)² − 4</span> <span class="why">완전제곱식으로 묶었다</span></li>
+    </ol>
+  </div>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 380" role="img" aria-labelledby="tA dA">
+      <title id="tA">그림 제목</title>
+      <desc id="dA">그림이 무엇을 보여주는지 한 문장으로. 스크린리더가 읽습니다.</desc>
+      <!-- 좌표 계산 근거를 여기에 주석으로 남길 것
+           예: 꼭짓점 (3, −4) → px = 60 + 3*70 = 270, py = 200 + 4*30 = 320 -->
+      <!-- 색은 base.css 토큰만 사용:
+           var(--given) 주어진 것·정의 / var(--result) 결과·성립
+           var(--aux) 보조선·중간 과정 / var(--break) 반례·틀리는 지점 -->
+    </svg>
+  </div>
+  <p class="caption">x축과 y축의 눈금 비율이 다르면 여기에 반드시 명시합니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>이제 문자로</h2>
+  <p>같은 절차를 a, b, c로 한 번 더 밟습니다. 숫자로 이미 해봤기 때문에 문자는 그 절차의 이름표일 뿐입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>성립 조건을 캡션이나 표 안에 반드시 · 예: a ≠ 0, 계수가 실수일 때</caption>
+    <thead><tr><th>경우</th><th class="num">조건</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td>—</td><td class="num">—</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>조건을 빠뜨리지 말 것.</strong> 이 공식이 언제 성립하지 않는지를 여기에.
+    <span class="src">2022 개정 교육과정 「공통수학1」</span>
+  </div>
+
+  <div class="note trap">
+    <strong>여기서 틀린다.</strong> 학생이 실제로 자주 하는 실수 하나. 반례를 함께.
+  </div>
+
+  <!-- VERIFY: 근거 대조가 끝나지 않은 서술은 이렇게 표시하고 남겨둘 것 -->
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li>세 줄 이내로. 이 자료를 잊어도 이것만은 남아야 하는 것.</li>
+    <li></li>
+    <li></li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../NN-이전/index.html">← 이전 챕터</a>
+  <a href="../NN-다음/index.html">다음 챕터 →</a>
+</nav>
+
+</body>
+</html>

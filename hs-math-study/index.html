@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>고1 수학 직관</title>
+<meta name="description" content="고등학교 1학년 수학을 직관으로 이해하기 위한 시각 자료 모음">
+<link rel="stylesheet" href="assets/base.css">
+</head>
+<body>
+
+<header class="hero wrap">
+  <p class="eyebrow">공통수학 1·2 · 학습 자료</p>
+  <h1>고1 수학<br>직관</h1>
+  <p class="lead">공식이 <em>왜</em> 그 모양인지를 그림으로 따라가 봅니다. 구체적인 숫자를 손으로 굴려 본 다음에 문자로 올라가고, 마지막에 "여기서 왜 틀리는가"를 짚습니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>자료</h2>
+  <ol class="toc">
+    <li>
+      <a href="topics/01-quadratic-vertex/index.html">
+        <span class="no">01</span>
+        <span><span class="ttl">이차함수의 최대·최소</span>
+          <span class="sub">왜 굳이 완전제곱식으로 고쳐 쓰는가</span></span>
+        <span class="state">완료</span>
+      </a>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">02</span>
+        <span><span class="ttl">판별식</span>
+          <span class="sub">D 하나로 근의 개수와 그래프를 동시에 읽는 법</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">03</span>
+        <span><span class="ttl">나머지정리와 인수분해</span>
+          <span class="sub">나눗셈 대신 대입 한 번</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">04</span>
+        <span><span class="ttl">복소수</span>
+          <span class="sub">없는 수를 왜 만들었나</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">05</span>
+        <span><span class="ttl">이차부등식</span>
+          <span class="sub">부등호가 뒤집히는 순간</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">06</span>
+        <span><span class="ttl">순열과 조합</span>
+          <span class="sub">순서를 세느냐 마느냐, 그 한 끗</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">07</span>
+        <span><span class="ttl">행렬</span>
+          <span class="sub">표를 곱한다는 것</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">08</span>
+        <span><span class="ttl">직선과 원의 방정식</span>
+          <span class="sub">도형을 거리로 다시 쓰기</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">09</span>
+        <span><span class="ttl">집합과 명제</span>
+          <span class="sub">필요조건·충분조건의 화살표 방향</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">10</span>
+        <span><span class="ttl">함수와 그래프</span>
+          <span class="sub">합성함수와 역함수</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+    <li>
+      <span class="stub">
+        <span class="no">11</span>
+        <span><span class="ttl">유리함수와 무리함수</span>
+          <span class="sub">점근선이 생기는 이유</span></span>
+        <span class="state">예정</span>
+      </span>
+    </li>
+  </ol>
+</section>
+
+<section class="wrap">
+  <h2>읽는 방법</h2>
+  <p>각 챕터는 <strong>구체적인 숫자 → 그림 → 문자로 일반화 → 여기서 틀린다</strong> 순서로 되어 있습니다. 앞의 두 단계를 건너뛰고 공식만 읽으면 남는 게 없습니다. 슬라이더와 버튼은 장식이 아니라 <strong>경계에서 무엇이 무너지는지</strong> 확인하라고 넣은 것이니, 값을 끝까지 밀어 보세요.</p>
+  <p>챕터끼리는 대체로 독립적입니다. 다만 01은 02(판별식)와 05(이차부등식)의 바탕이 되므로 먼저 읽는 편이 좋습니다.</p>
+
+  <div class="note">
+    <strong>내용 확인에 대하여.</strong> 모든 공식에 성립 조건을 함께 적었고,
+    자료에 실린 값은 <span class="src">tools/verify-math.py</span>가 다시 계산해 대조합니다.
+    교육과정 근거는 <span class="src">refs/math-notes.md</span>에 누적하며,
+    아직 원문 대조를 마치지 못한 항목은 ⚠️ 로 표시해 두었습니다.
+    교육과정 원문은 <a href="https://ncic.re.kr">국가교육과정정보센터</a>에서 무료로 볼 수 있습니다.
+  </div>
+</section>
+
+<footer class="wrap">
+  개인 학습용 자료 · 작성 규칙은 저장소의 <span class="src">CLAUDE.md</span> 참조
+</footer>
+
+</body>
+</html>

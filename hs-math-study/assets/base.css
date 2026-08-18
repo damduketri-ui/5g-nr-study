@@ -1,0 +1,201 @@
+/* ============================================================
+   고1 수학 직관 — 공통 스타일
+   이 파일 밖에서 새 색을 정의하지 말 것. 토큰만 사용한다.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;700;900&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;600&display=swap');
+
+:root{
+  /* 표면 */
+  --paper:#EDEFEE;
+  --card:#F7F8F7;
+  --ink:#111618;
+  --ink-soft:#5B6564;
+  --hair:#C9CECC;
+
+  /* 의미색 — 모든 자료에서 뜻이 동일해야 한다 */
+  --given:#1F4FD8;  --given-bg:#DCE4F8;  /* 주어진 것 · 정의 · 가정 */
+  --result:#0E7A5F; --result-bg:#D5E8E1; /* 결과 · 성립 · 구한 답 */
+  --aux:#7A6E52;    --aux-bg:#D9D3C2;    /* 보조선 · 소거되는 항 · 과정 */
+  --break:#C4386B;  --break-bg:#F6DDE6;  /* 반례 · 틀리는 지점 · 경계 */
+
+  /* 어두운 구간 (.invert) 전용 */
+  --dark-bg:#1A2124;   --dark-line:#2E3739;  --dark-rule:#3A4447;
+  --dark-edge:#4E5A5D; --dark-ink:#E9EDEB;   --dark-ink-soft:#8B9694;
+
+  --radius:4px;
+  --measure:62ch;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *{transition-duration:0.01ms !important;animation-duration:0.01ms !important}
+}
+
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,sans-serif;font-weight:300;
+  line-height:1.75;letter-spacing:-0.01em;
+}
+
+.wrap{max-width:980px;margin:0 auto;padding:0 24px}
+
+/* ---------- 타이포 ---------- */
+h1{font-family:"Gothic A1",sans-serif;font-weight:900;
+   font-size:clamp(32px,6.5vw,64px);line-height:1.08;letter-spacing:-0.035em;margin:0 0 20px}
+h1 em{font-style:normal;color:var(--break)}
+h2{font-family:"Gothic A1",sans-serif;font-weight:700;
+   font-size:clamp(22px,3.6vw,32px);line-height:1.25;letter-spacing:-0.03em;margin:0 0 16px}
+h3{font-family:"Gothic A1",sans-serif;font-weight:700;font-size:17px;
+   letter-spacing:-0.02em;margin:32px 0 8px}
+p{margin:0 0 16px;font-size:16.5px;max-width:var(--measure)}
+.lead{font-size:19px;color:var(--ink-soft);max-width:56ch}
+strong{font-weight:600}
+a{color:var(--given);text-decoration-thickness:1px;text-underline-offset:3px}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;
+  letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-soft);
+  display:flex;align-items:center;gap:12px;margin:0 0 14px;
+}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--hair)}
+
+/* ---------- 레이아웃 ---------- */
+header.hero{padding:64px 0 48px}
+section{padding:52px 0;border-top:1px solid var(--hair)}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:28px;align-items:start}
+
+.topbar{
+  padding:20px 0;border-bottom:1px solid var(--hair);
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+  font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:0.08em;
+}
+.topbar a{color:var(--ink-soft);text-decoration:none}
+.topbar a:hover{color:var(--ink);text-decoration:underline}
+
+.pager{display:flex;justify-content:space-between;gap:16px;padding:36px 0 72px;
+       border-top:1px solid var(--hair);font-size:15px}
+.pager span{color:var(--ink-soft)}
+
+footer{padding:36px 0 64px;font-size:13px;color:var(--ink-soft);border-top:1px solid var(--hair)}
+
+/* ---------- 그림판 ---------- */
+.stage{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);
+       padding:22px 20px 18px;margin:28px 0}
+.stage--scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stage--scroll svg{min-width:720px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.caption{font-size:13.5px;color:var(--ink-soft);margin:10px 0 0;max-width:none}
+
+/* 수학 자료에서는 대소문자가 서로 다른 기호다(b² − 4ac ≠ B² − 4AC, 집합 A와 원소 a).
+   그래서 라벨·표 머리글에 text-transform:uppercase 를 쓰지 않는다. */
+.rowlab{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:600;
+        letter-spacing:0.08em;fill:var(--ink-soft)}
+.celllab{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600}
+.dimlab{font-family:"IBM Plex Mono",monospace;font-size:12px;fill:var(--ink-soft)}
+.axlab{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--ink-soft)}
+
+/* ---------- 컨트롤 ---------- */
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin:20px 0 0}
+.controls label{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;
+                letter-spacing:0.08em;color:var(--ink-soft);min-width:16px}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1 1 200px;height:22px;background:transparent;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--hair)}
+input[type=range]::-moz-range-track{height:3px;background:var(--hair)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:var(--break);margin-top:-8.5px;border:3px solid var(--card)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:3px solid var(--card);
+  border-radius:50%;background:var(--break)}
+.readout{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:15px;min-width:180px}
+
+.segmented{display:flex;flex-wrap:wrap;gap:6px}
+.segmented button{
+  font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;
+  padding:8px 14px;border:1px solid var(--hair);background:#fff;color:var(--ink-soft);
+  border-radius:var(--radius);cursor:pointer;transition:.14s}
+.segmented button:hover{border-color:var(--ink-soft)}
+.segmented button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* ---------- 판정 박스 ---------- */
+.verdict{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin:20px 0 0;
+         padding:16px 18px;border-radius:var(--radius);border:1px solid var(--hair);background:#fff}
+.verdict .tag{font-family:"Gothic A1",sans-serif;font-weight:900;font-size:22px;letter-spacing:-0.02em}
+.verdict.ok .tag{color:var(--result)}
+.verdict.bad .tag{color:var(--break)}
+.verdict .why{font-size:15px;color:var(--ink-soft)}
+
+/* ---------- 수식 ---------- */
+.math{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+      font-size:15px;letter-spacing:0}
+.eq{background:var(--card);border:1px solid var(--hair);border-radius:var(--radius);
+    padding:18px 20px;margin:22px 0;overflow-x:auto}
+.eq ol{margin:0;padding-left:22px;list-style:decimal}
+.eq li{font-family:"IBM Plex Mono",monospace;font-size:15px;line-height:2;letter-spacing:0}
+.eq li .why{font-family:"IBM Plex Sans KR",sans-serif;font-size:14px;color:var(--ink-soft);
+            margin-left:10px;letter-spacing:-0.01em}
+.eq .keep{color:var(--given)}
+.eq .drop{color:var(--aux)}
+.eq .out{color:var(--result);font-weight:600}
+
+/* ---------- 표 ---------- */
+table{border-collapse:collapse;width:100%;margin:22px 0;font-size:15px}
+caption{text-align:left;font-size:13.5px;color:var(--ink-soft);padding-bottom:10px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:600;
+         letter-spacing:0.08em;color:var(--ink-soft);
+         border-bottom:1px solid var(--ink)}
+td.num,th.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--card)}
+.table-scroll{overflow-x:auto}
+
+/* ---------- 카드 그리드 ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;
+       margin:22px 0 0;padding:0;list-style:none}
+.cards li{padding:12px 14px;border:1px solid var(--hair);border-radius:var(--radius);
+          background:#fff;display:flex;flex-direction:column;gap:2px;transition:.15s}
+.cards li.dead{background:var(--break-bg);border-color:#E7B9CB}
+.cards .k{font-family:"Gothic A1",sans-serif;font-weight:700;font-size:16px}
+.cards .v{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-soft)}
+.cards .s{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--result)}
+.cards li.dead .s{color:var(--break)}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;
+       background:var(--hair);border:1px solid var(--hair);margin:24px 0 0}
+.stats div{background:var(--paper);padding:18px}
+.stats .n{font-family:"Gothic A1",sans-serif;font-weight:900;font-size:36px;line-height:1;
+          letter-spacing:-0.03em;display:block;margin-bottom:6px}
+.stats .t{font-size:14px;color:var(--ink-soft)}
+
+/* ---------- 목차 ---------- */
+.toc{list-style:none;padding:0;margin:32px 0 0;border-top:1px solid var(--hair)}
+.toc li{border-bottom:1px solid var(--hair)}
+.toc a,.toc .stub{display:grid;grid-template-columns:56px 1fr auto;gap:18px;align-items:baseline;
+                  padding:20px 4px;text-decoration:none;color:inherit}
+.toc a:hover{background:var(--card)}
+.toc .no{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--ink-soft)}
+.toc .ttl{font-family:"Gothic A1",sans-serif;font-weight:700;font-size:19px;letter-spacing:-0.02em}
+.toc .sub{display:block;font-family:"IBM Plex Sans KR",sans-serif;font-weight:300;
+          font-size:14.5px;color:var(--ink-soft);margin-top:2px;letter-spacing:0}
+.toc .state{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+            letter-spacing:0.1em;color:var(--result)}
+.toc .stub{opacity:.5}
+.toc .stub .state{color:var(--ink-soft)}
+
+/* ---------- 어두운 구간 ---------- */
+.invert{background:var(--ink);color:var(--dark-ink);border-top:none}
+.invert h2{color:#fff}
+.invert p{color:var(--dark-ink-soft)}
+.invert .stage{background:var(--dark-bg);border-color:var(--dark-line)}
+.invert .rowlab{fill:var(--dark-ink-soft)}
+.invert a{color:#8FB0FF}
+
+/* ---------- 인용·주의 ---------- */
+.note{border-left:2px solid var(--aux);background:var(--card);padding:14px 18px;
+      margin:22px 0;font-size:15px}
+.note strong{color:var(--aux)}
+.note.trap{border-left-color:var(--break);background:var(--break-bg)}
+.note.trap strong{color:var(--break)}
+.src{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-soft)}

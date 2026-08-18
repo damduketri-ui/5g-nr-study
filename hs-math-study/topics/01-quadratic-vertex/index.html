@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 이차함수의 최대·최소 — 고1 수학 직관</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 고1 수학 직관</a>
+  <span>01 / 이차함수의 최대·최소</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">01 · completing the square</p>
+  <h1>왜 굳이<br><em>완전제곱식</em>으로<br>고쳐 쓰는가</h1>
+  <p class="lead">y = x² − 6x + 5 를 보고는 최솟값을 알 수 없습니다. 그런데 y = (x − 3)² − 4 로 고쳐 쓰는 순간, 계산 없이 −4가 눈에 들어옵니다. 식은 그대로인데 무엇이 달라진 걸까요.</p>
+</header>
+
+<section class="wrap">
+  <h2>접시 하나로 끝까지 갑니다</h2>
+  <p>이차함수의 그래프는 <strong>접시</strong>입니다. 이 자료에서는 끝까지 접시라고 부르겠습니다.</p>
+  <p>y = x² 은 <strong>원점에 놓인 접시</strong>입니다. 바닥이 (0, 0)에 있습니다. 그런데 우리가 실제로 만나는 식은 y = x² − 6x + 5 처럼 생겼고, 이 식만 봐서는 접시 바닥이 어디에 놓였는지 알 수 없습니다.</p>
+  <p><strong>완전제곱식(perfect square form)은 접시 바닥의 주소</strong>입니다. 식을 바꾸는 게 아니라, 같은 식을 주소가 보이도록 다시 쓰는 것입니다.</p>
+
+  <div class="eq">
+    <ol>
+      <li>y = x² − 6x + 5 <span class="why">주어진 식. 바닥이 어딘지 안 보인다</span></li>
+      <li>= (x² − 6x <span class="drop">+ 9 − 9</span>) + 5 <span class="why">(−6 ÷ 2)² = 9 를 더하고 곧바로 뺀다 — 값은 그대로</span></li>
+      <li>= (x² − 6x + 9) <span class="drop">− 9 + 5</span> <span class="why">앞 세 항만 묶는다</span></li>
+      <li>= <span class="out">(x − 3)² − 4</span> <span class="why">바닥이 (3, −4)에 있다</span></li>
+    </ol>
+  </div>
+
+  <p>3은 −6의 절반이고, 9는 그 절반의 제곱입니다. <span class="math">(x − 3)² = x² − 6x + 9</span> 이므로 9가 남아돌고, 그 9를 도로 빼 준 것이 −4의 정체입니다.</p>
+
+  <!-- 그림1 좌표계: x∈[-3,7], y∈[-5.5,7], 30px/단위 (가로세로 같은 배율)
+       X(x) = 140 + 30x,  Y(y) = 240 − 30y
+       꼭짓점 (0,0)→(140,240) · (3,−4)→(230,360)
+       근 (1,0)→(170,240) · (5,0)→(290,240) · y절편 (0,5)→(140,90)
+       곡선 y=x² 은 y≤7 구간만: |x| ≤ √7 = 2.6458
+       곡선 y=(x−3)²−4 는 y≤7 구간만: |x−3| ≤ √11 = 3.3166 -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 700 420" role="img" aria-labelledby="t1 d1">
+      <title id="t1">y = x² 를 오른쪽 3, 아래 4만큼 옮기면 y = (x−3)² − 4 가 된다</title>
+      <desc id="d1">원점에 바닥이 있는 포물선 y = x² 과, 바닥이 (3, −4)에 있는 포물선 y = (x−3)² − 4 를 같은 좌표평면에 겹쳐 그렸다. 두 곡선의 모양은 완전히 같고 놓인 위치만 다르다. 옮겨진 포물선은 x축과 x = 1, x = 5 에서 만난다.</desc>
+
+      <!-- 격자 -->
+      <g stroke="var(--hair)" stroke-width="1">
+        <line x1="50" y1="30" x2="50" y2="405"/><line x1="80" y1="30" x2="80" y2="405"/>
+        <line x1="110" y1="30" x2="110" y2="405"/><line x1="170" y1="30" x2="170" y2="405"/>
+        <line x1="200" y1="30" x2="200" y2="405"/><line x1="260" y1="30" x2="260" y2="405"/>
+        <line x1="290" y1="30" x2="290" y2="405"/><line x1="320" y1="30" x2="320" y2="405"/>
+        <line x1="350" y1="30" x2="350" y2="405"/>
+        <line x1="50" y1="30" x2="350" y2="30"/><line x1="50" y1="60" x2="350" y2="60"/>
+        <line x1="50" y1="90" x2="350" y2="90"/><line x1="50" y1="120" x2="350" y2="120"/>
+        <line x1="50" y1="150" x2="350" y2="150"/><line x1="50" y1="180" x2="350" y2="180"/>
+        <line x1="50" y1="210" x2="350" y2="210"/><line x1="50" y1="270" x2="350" y2="270"/>
+        <line x1="50" y1="300" x2="350" y2="300"/><line x1="50" y1="330" x2="350" y2="330"/>
+        <line x1="50" y1="390" x2="350" y2="390"/>
+      </g>
+      <!-- 축 -->
+      <line x1="50" y1="240" x2="356" y2="240" stroke="var(--ink)" stroke-width="1.5"/>
+      <line x1="140" y1="26" x2="140" y2="405" stroke="var(--ink)" stroke-width="1.5"/>
+      <text class="axlab" x="360" y="244">x</text>
+      <text class="axlab" x="146" y="34">y</text>
+      <text class="axlab" x="128" y="254">O</text>
+      <text class="axlab" x="226" y="256">3</text>
+      <text class="axlab" x="166" y="256">1</text>
+      <text class="axlab" x="286" y="256">5</text>
+      <text class="axlab" x="118" y="364">−4</text>
+      <text class="axlab" x="122" y="94">5</text>
+
+      <!-- 원래 접시 y = x² -->
+      <path d="M 60.6,30.0 L 65.0,52.7 L 69.4,74.1 L 73.9,94.2 L 78.3,113.0 L 82.7,130.5 L 87.1,146.7 L 91.5,161.6 L 95.9,175.2 L 100.3,187.5 L 104.7,198.5 L 109.1,208.2 L 113.5,216.7 L 118.0,223.8 L 122.4,229.6 L 126.8,234.2 L 131.2,237.4 L 135.6,239.4 L 140.0,240.0 L 144.4,239.4 L 148.8,237.4 L 153.2,234.2 L 157.6,229.6 L 162.0,223.8 L 166.5,216.7 L 170.9,208.2 L 175.3,198.5 L 179.7,187.5 L 184.1,175.2 L 188.5,161.6 L 192.9,146.7 L 197.3,130.5 L 201.7,113.0 L 206.1,94.2 L 210.6,74.1 L 215.0,52.7 L 219.4,30.0"
+            fill="none" stroke="var(--aux)" stroke-width="2" stroke-dasharray="5 4"/>
+      <text class="celllab" x="222" y="46" fill="var(--aux)">y = x²</text>
+
+      <!-- 옮겨진 접시 y = (x−3)² − 4 -->
+      <path d="M 130.5,30.0 L 135.0,59.3 L 139.5,87.3 L 144.1,113.9 L 148.6,139.1 L 153.1,163.0 L 157.6,185.5 L 162.2,206.6 L 166.7,226.4 L 171.2,244.8 L 175.7,261.8 L 180.3,277.5 L 184.8,291.8 L 189.3,304.8 L 193.8,316.4 L 198.3,326.6 L 202.9,335.5 L 207.4,343.0 L 211.9,349.1 L 216.4,353.9 L 221.0,357.3 L 225.5,359.3 L 230.0,360.0 L 234.5,359.3 L 239.0,357.3 L 243.6,353.9 L 248.1,349.1 L 252.6,343.0 L 257.1,335.5 L 261.7,326.6 L 266.2,316.4 L 270.7,304.8 L 275.2,291.8 L 279.7,277.5 L 284.3,261.8 L 288.8,244.8 L 293.3,226.4 L 297.8,206.6 L 302.4,185.5 L 306.9,163.0 L 311.4,139.1 L 315.9,113.9 L 320.5,87.3 L 325.0,59.3 L 329.5,30.0"
+            fill="none" stroke="var(--given)" stroke-width="2.5"/>
+      <text class="celllab" x="332" y="46" fill="var(--given)">y = (x−3)² − 4</text>
+
+      <!-- 이동 화살표: (140,240) → (230,360) -->
+      <path d="M 146,246 L 224,354" stroke="var(--break)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar1)"/>
+      <defs>
+        <marker id="ar1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--break)"/>
+        </marker>
+      </defs>
+      <text class="celllab" x="150" y="312" fill="var(--break)">오른쪽 3, 아래 4</text>
+
+      <!-- 꼭짓점 -->
+      <circle cx="140" cy="240" r="4.5" fill="var(--aux)"/>
+      <circle cx="230" cy="360" r="5.5" fill="var(--result)"/>
+      <text class="celllab" x="240" y="380" fill="var(--result)">(3, −4) 최솟값</text>
+      <!-- 근 -->
+      <circle cx="170" cy="240" r="4" fill="var(--given)"/>
+      <circle cx="290" cy="240" r="4" fill="var(--given)"/>
+    </svg>
+  </div>
+  <p class="caption">가로·세로 눈금 모두 한 칸 = 1 로 같은 배율입니다. 두 곡선은 <strong>모양이 완전히 같습니다</strong> — 자리만 옮겼습니다.</p>
+
+  <p>두 곡선이 겹쳐 보이지 않는 이유는 단 하나, 놓인 자리가 다르기 때문입니다. x² 앞의 계수 1이 같으면 접시의 <strong>생김새는 언제나 같습니다.</strong> 그래서 이차함수를 파악한다는 건 결국 <strong>바닥이 어디인지</strong>를 찾는 일입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>최솟값이 −4인 이유는 한 줄입니다</h2>
+  <p>y = (x − 3)² − 4 에서 (x − 3)² 부분을 봅시다. 어떤 실수를 제곱해도 <strong>음수가 되지 않습니다.</strong> 그러니까</p>
+
+  <div class="eq">
+    <ol>
+      <li><span class="keep">(x − 3)² ≥ 0</span> <span class="why">실수의 제곱은 0 이상 — 이게 전부다</span></li>
+      <li>(x − 3)² − 4 ≥ 0 − 4 <span class="why">양변에서 4를 뺐다</span></li>
+      <li><span class="out">y ≥ −4</span> <span class="why">y는 −4보다 작아질 수 없다</span></li>
+    </ol>
+  </div>
+
+  <p>그리고 등호는 (x − 3)² = 0 일 때, 즉 <strong>x = 3 일 때만</strong> 성립합니다. 그래서 "x = 3 에서 최솟값 −4"가 됩니다. 그래프를 그릴 필요도, 값을 여러 개 대입해 볼 필요도 없습니다.</p>
+
+  <div class="note">
+    <strong>실수 범위에서만 그렇습니다.</strong> "제곱은 0 이상"은 x가 실수일 때의 이야기입니다.
+    복소수까지 가면 i² = −1 이므로 성립하지 않습니다.
+    <span class="src">2022 개정 교육과정 「공통수학1」 방정식과 부등식</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>이제 문자로 — 절차는 똑같습니다</h2>
+  <p>숫자로 한 번 해봤으니 문자는 그 절차에 이름을 붙인 것뿐입니다. 다만 <strong>a ≠ 0</strong> 이어야 합니다. a = 0 이면 x² 항이 사라져 애초에 이차함수가 아닙니다.</p>
+
+  <!-- 평방완성 일반형 유도
+       ax²+bx+c = a(x² + (b/a)x) + c
+                = a(x² + (b/a)x + (b/2a)² − (b/2a)²) + c
+                = a(x + b/2a)² − a·b²/(4a²) + c
+                = a(x + b/2a)² − b²/(4a) + c
+                = a(x + b/2a)² + (4ac − b²)/(4a)
+                = a(x + b/2a)² − D/(4a),   D = b² − 4ac -->
+  <div class="eq">
+    <ol>
+      <li>y = ax² + bx + c <span class="why">a ≠ 0</span></li>
+      <li>= a(x² + <span class="keep">(b/a)</span>x) + c <span class="why">x가 든 항에서 a를 묶어낸다</span></li>
+      <li>= a(x² + (b/a)x <span class="drop">+ (b/2a)² − (b/2a)²</span>) + c <span class="why">계수의 절반의 제곱을 더하고 뺀다</span></li>
+      <li>= a(x + b/2a)² <span class="drop">− b²/4a</span> + c <span class="why">a를 곱해 괄호 밖으로 꺼냈다</span></li>
+      <li>= <span class="out">a(x + b/2a)² − (b² − 4ac)/4a</span> <span class="why">c − b²/4a 를 한 분수로 합쳤다</span></li>
+    </ol>
+  </div>
+
+  <p>즉 <span class="math">y = a(x − p)² + q</span> 이고,</p>
+
+  <div class="stats">
+    <div><span class="n">p = −b/2a</span><span class="t">접시 바닥의 x좌표 (대칭축)</span></div>
+    <div><span class="n">q = −D/4a</span><span class="t">접시 바닥의 y좌표 (최댓값 또는 최솟값)</span></div>
+  </div>
+
+  <p style="margin-top:24px">여기서 <strong>D = b² − 4ac</strong> 가 튀어나옵니다. 근의 공식에서 보던 그 판별식(discriminant)입니다. 판별식과 최솟값이 따로 배우는 남남 같지만, 사실 <strong>같은 계산의 앞뒷면</strong>이었습니다.</p>
+
+  <div class="note">
+    <strong>왜 하필 같은 D인가.</strong> 접시 바닥의 높이가 q = −D/4a 이므로,
+    a &gt; 0(위로 열린 접시)일 때 바닥이 x축 아래로 내려가려면 q &lt; 0, 곧 D &gt; 0 이어야 합니다.
+    바닥이 x축 아래에 있어야 곡선이 x축을 <strong>두 번</strong> 가로지릅니다.
+    "D &gt; 0 이면 서로 다른 두 실근"은 이 문장을 줄여 쓴 것입니다.
+    <span class="src">계수 a, b, c가 실수일 때</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>직접 움직여 보기</h2>
+  <p>a, b, c를 바꾸면 접시의 모양과 자리가 어떻게 따라 움직이는지 보세요. 특히 <strong>D가 0을 지나는 순간</strong>과 <strong>a가 0이 되는 순간</strong>에 무엇이 무너지는지 확인해 보십시오.</p>
+
+  <!-- 그림2 좌표계: x∈[-9,9], y∈[-10,10], 22px/단위 (가로세로 같은 배율)
+       X(x) = 240 + 22x  → x=−9→42, x=9→438
+       Y(y) = 250 − 22y  → y=10→30, y=−10→470
+       곡선·꼭짓점·근의 좌표는 모두 아래 스크립트가 식에서 계산해 찍는다 -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 780 500" role="img" aria-labelledby="t2 d2">
+      <title id="t2">a, b, c를 바꿔 가며 보는 이차함수의 꼭짓점과 판별식</title>
+      <desc id="d2">좌표평면 위 포물선 y = ax² + bx + c 와 그 꼭짓점, 대칭축, x축과의 교점을 그린다. 오른쪽 패널에 완전제곱식, 꼭짓점 좌표, 판별식 D의 값이 함께 표시되며 슬라이더를 움직이면 모두 같이 갱신된다.</desc>
+
+      <g stroke="var(--hair)" stroke-width="1" id="grid2"></g>
+      <line x1="42" y1="250" x2="444" y2="250" stroke="var(--ink)" stroke-width="1.5"/>
+      <line x1="240" y1="26" x2="240" y2="474" stroke="var(--ink)" stroke-width="1.5"/>
+      <text class="axlab" x="448" y="254">x</text>
+      <text class="axlab" x="246" y="34">y</text>
+      <text class="axlab" x="228" y="264">O</text>
+
+      <line id="axis2" stroke="var(--aux)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <path id="curve2" fill="none" stroke="var(--given)" stroke-width="2.5"/>
+      <g id="roots2"></g>
+      <circle id="vtx2" r="5.5" fill="var(--result)"/>
+
+      <!-- 오른쪽 패널 -->
+      <line x1="480" y1="40" x2="480" y2="460" stroke="var(--hair)" stroke-width="1"/>
+      <text class="rowlab" x="502" y="66">주어진 식</text>
+      <text class="celllab" x="502" y="92" id="pStd" fill="var(--given)"></text>
+      <text class="rowlab" x="502" y="140">완전제곱식</text>
+      <text class="celllab" x="502" y="166" id="pVertex" fill="var(--result)"></text>
+      <text class="rowlab" x="502" y="214">꼭짓점 (−b/2a, −D/4a)</text>
+      <text class="celllab" x="502" y="240" id="pPoint"></text>
+      <text class="rowlab" x="502" y="288">판별식 D = b² − 4ac</text>
+      <text class="celllab" x="502" y="314" id="pDisc"></text>
+      <text class="rowlab" x="502" y="362">x축과의 교점</text>
+      <text class="celllab" x="502" y="388" id="pRoots"></text>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="sa">a</label>
+    <input type="range" id="sa" min="-2" max="2" step="0.25" value="1">
+    <span class="readout" id="ra"></span>
+  </div>
+  <div class="controls">
+    <label for="sb">b</label>
+    <input type="range" id="sb" min="-8" max="8" step="0.5" value="-6">
+    <span class="readout" id="rb"></span>
+  </div>
+  <div class="controls">
+    <label for="sc">c</label>
+    <input type="range" id="sc" min="-8" max="8" step="0.5" value="5">
+    <span class="readout" id="rc"></span>
+  </div>
+
+  <div class="verdict" id="vd">
+    <span class="tag" id="vdTag"></span>
+    <span class="why" id="vdWhy"></span>
+  </div>
+  <p class="caption">가로·세로 눈금 모두 한 칸 = 1 로 같은 배율입니다. 판정 상자가 <strong>분홍으로 바뀌는 자리가 경계</strong>입니다 — D = 0(근이 하나로 붙는 순간), a = 0(이차함수가 아니게 되는 순간).</p>
+
+  <div class="note trap">
+    <strong>여기서 틀린다 — a의 부호를 확인하지 않는다.</strong>
+    q = −D/4a 는 a &gt; 0 이면 <strong>최솟값</strong>, a &lt; 0 이면 <strong>최댓값</strong>입니다.
+    "꼭짓점 = 최솟값"으로 외워 두면 a &lt; 0 인 문제에서 통째로 틀립니다.
+    위에서 a를 음수로 내려 접시가 뒤집히는 것을 확인해 보세요.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>정의역이 실수 전체일 때</h2>
+
+  <div class="table-scroll">
+  <table>
+    <caption>y = ax² + bx + c (a ≠ 0, a·b·c는 실수) · 꼭짓점 (−b/2a, −D/4a), D = b² − 4ac</caption>
+    <thead>
+      <tr><th>a의 부호</th><th>접시 모양</th><th>최댓값</th><th>최솟값</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">a &gt; 0</td><td>위로 열림</td><td>없다 (한없이 커진다)</td><td class="num">−D/4a (x = −b/2a)</td></tr>
+      <tr><td class="num">a &lt; 0</td><td>아래로 열림</td><td class="num">−D/4a (x = −b/2a)</td><td>없다 (한없이 작아진다)</td></tr>
+      <tr><td class="num">a = 0</td><td>접시가 아님 — 직선</td><td colspan="2">이차함수가 아니므로 이 표가 적용되지 않는다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>"최댓값이 없다"는 <strong>아무리 큰 값도 넘어선다</strong>는 뜻입니다. 답을 못 찾은 게 아니라 존재하지 않는 것이므로, 답안에는 "최댓값은 없다"라고 써야 합니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>범위가 정해져 있으면 이야기가 달라집니다</h2>
+  <p>시험에서 실제로 물어보는 것은 대개 "<span class="math">0 ≤ x ≤ 2</span> 에서의 최댓값과 최솟값"처럼 <strong>범위가 잘린</strong> 형태입니다. 그리고 여기가 가장 많이 틀리는 자리입니다.</p>
+  <p>이유는 간단합니다. <strong>접시 바닥이 그 범위 안에 있다는 보장이 없기 때문</strong>입니다. 바닥이 범위 밖에 있으면 그 안에서는 곡선이 한쪽으로 계속 오르거나 내려가기만 하므로, 답은 <strong>양 끝점</strong>에서 나옵니다.</p>
+
+  <!-- 그림3 좌표계: x∈[-1,8], y∈[-5.5,7], 30px/단위 (가로세로 같은 배율)
+       X(x) = 76 + 30x,  Y(y) = 240 − 30y
+       f(x) = x²−6x+5 → f(0)=5 (76,90) · f(1)=0 (106,240) · f(2)=−3 (136,330)
+                        f(3)=−4 (166,360) · f(4)=−3 (196,330) · f(5)=0 (226,240) · f(6)=5 (256,90)
+       곡선은 y≤7 구간만: |x−3| ≤ √11 = 3.3166 -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 640 420" role="img" aria-labelledby="t3 d3">
+      <title id="t3">같은 이차함수라도 x의 범위에 따라 최댓값·최솟값이 나오는 자리가 달라진다</title>
+      <desc id="d3">y = x² − 6x + 5 의 그래프 위에 x의 범위를 띠로 표시한다. 범위가 꼭짓점 x = 3 을 포함하면 최솟값은 꼭짓점에서 나오고, 포함하지 않으면 범위의 양 끝점에서 나온다.</desc>
+
+      <g stroke="var(--hair)" stroke-width="1" id="grid3"></g>
+      <rect id="band3" fill="var(--given-bg)" y="30" height="375"/>
+      <line x1="46" y1="240" x2="322" y2="240" stroke="var(--ink)" stroke-width="1.5"/>
+      <line x1="76" y1="26" x2="76" y2="405" stroke="var(--ink)" stroke-width="1.5"/>
+      <text class="axlab" x="326" y="244">x</text>
+      <text class="axlab" x="82" y="34">y</text>
+      <text class="axlab" x="64" y="254">O</text>
+      <text class="axlab" x="103" y="256">1</text>
+      <text class="axlab" x="163" y="256">3</text>
+      <text class="axlab" x="223" y="256">5</text>
+
+      <path d="M 66.5,30.0 L 71.0,59.3 L 75.5,87.3 L 80.1,113.9 L 84.6,139.1 L 89.1,163.0 L 93.6,185.5 L 98.2,206.6 L 102.7,226.4 L 107.2,244.8 L 111.7,261.8 L 116.3,277.5 L 120.8,291.8 L 125.3,304.8 L 129.8,316.4 L 134.3,326.6 L 138.9,335.5 L 143.4,343.0 L 147.9,349.1 L 152.4,353.9 L 157.0,357.3 L 161.5,359.3 L 166.0,360.0 L 170.5,359.3 L 175.0,357.3 L 179.6,353.9 L 184.1,349.1 L 188.6,343.0 L 193.1,335.5 L 197.7,326.6 L 202.2,316.4 L 206.7,304.8 L 211.2,291.8 L 215.7,277.5 L 220.3,261.8 L 224.8,244.8 L 229.3,226.4 L 233.8,206.6 L 238.4,185.5 L 242.9,163.0 L 247.4,139.1 L 251.9,113.9 L 256.5,87.3 L 261.0,59.3 L 265.5,30.0"
+            fill="none" stroke="var(--given)" stroke-width="2.5"/>
+      <text class="celllab" x="268" y="44" fill="var(--given)">y = x² − 6x + 5</text>
+
+      <circle id="vtx3" cx="166" cy="360" r="5.5"/>
+      <text class="celllab" id="vtx3lab" x="176" y="382"></text>
+      <circle id="max3" r="6" fill="none" stroke="var(--result)" stroke-width="2.5"/>
+      <circle id="min3" r="6" fill="none" stroke="var(--result)" stroke-width="2.5"/>
+      <text class="celllab" id="max3lab" fill="var(--result)"></text>
+      <text class="celllab" id="min3lab" fill="var(--result)"></text>
+
+      <line x1="352" y1="40" x2="352" y2="380" stroke="var(--hair)" stroke-width="1"/>
+      <text class="rowlab" x="372" y="72">범위</text>
+      <text class="celllab" x="372" y="98" id="q3range" fill="var(--given)"></text>
+      <text class="rowlab" x="372" y="146">꼭짓점 x = 3</text>
+      <text class="celllab" x="372" y="172" id="q3vtx"></text>
+      <text class="rowlab" x="372" y="220">최댓값</text>
+      <text class="celllab" x="372" y="246" id="q3max" fill="var(--result)"></text>
+      <text class="rowlab" x="372" y="294">최솟값</text>
+      <text class="celllab" x="372" y="320" id="q3min" fill="var(--result)"></text>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <span class="segmented" id="rangePick" role="group" aria-label="x의 범위 선택"></span>
+  </div>
+  <p class="caption">가로·세로 눈금 모두 한 칸 = 1 로 같은 배율입니다. 꼭짓점이 범위 밖이면 분홍으로 바뀝니다.</p>
+
+  <!-- 검산 근거: f(x)=x²−6x+5, 꼭짓점 (3,−4)
+       [0,2] 꼭짓점 밖 → f(0)=5 최대, f(2)=−3 최소
+       [2,6] 꼭짓점 안 → f(3)=−4 최소, f(6)=5 최대
+       [4,6] 꼭짓점 밖 → f(4)=−3 최소, f(6)=5 최대
+       tools/verify-math.py 의 check_restricted() 가 전 구간 표본으로 재확인한다 -->
+  <div class="table-scroll">
+  <table>
+    <caption>y = x² − 6x + 5 = (x − 3)² − 4 · 꼭짓점 (3, −4) · a = 1 &gt; 0</caption>
+    <thead>
+      <tr><th>x의 범위</th><th>꼭짓점 x=3</th><th class="num">최댓값</th><th class="num">최솟값</th><th>어디서 나오나</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">0 ≤ x ≤ 2</td><td>범위 밖(오른쪽)</td><td class="num">5</td><td class="num">−3</td><td>양 끝 x=0, x=2</td></tr>
+      <tr><td class="num">2 ≤ x ≤ 6</td><td>범위 안</td><td class="num">5</td><td class="num">−4</td><td>최소는 꼭짓점 x=3</td></tr>
+      <tr><td class="num">4 ≤ x ≤ 6</td><td>범위 밖(왼쪽)</td><td class="num">5</td><td class="num">−3</td><td>양 끝 x=4, x=6</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>첫 번째와 세 번째 범위의 값이 똑같은 것은 우연이 아닙니다. <span class="math">0 ≤ x ≤ 2</span> 와 <span class="math">4 ≤ x ≤ 6</span> 은 대칭축 x = 3 을 사이에 두고 <strong>서로 거울상</strong>이라서 값이 같습니다. 대신 최댓값이 나오는 x는 0에서 6으로, 최솟값이 나오는 x는 2에서 4로 <strong>뒤바뀝니다.</strong></p>
+
+  <div class="note trap">
+    <strong>여기서 틀린다 — 꼭짓점을 무조건 답으로 쓴다.</strong>
+    <span class="math">0 ≤ x ≤ 2</span> 에서 최솟값을 −4라고 답하면 틀립니다.
+    x = 3 은 이 범위 안에 없으므로 −4는 <strong>애초에 나올 수 없는 값</strong>입니다.
+    순서를 이렇게 고정하세요 — ① 완전제곱식으로 고쳐 꼭짓점을 구한다
+    → ② <strong>꼭짓점이 범위 안인지 먼저 확인한다</strong> → ③ 범위 안이면 꼭짓점과 양 끝을,
+    밖이면 양 끝만 비교한다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>완전제곱식은 접시 바닥의 주소다.</strong> y = a(x − p)² + q 로 고치면 꼭짓점 (p, q)가 그대로 읽힌다. 계산이 아니라 표기법의 문제다.</li>
+    <li><strong>최솟값이 q인 근거는 "제곱은 0 이상" 한 줄이다.</strong> 그리고 a &gt; 0 이면 최솟값, a &lt; 0 이면 최댓값이다. a의 부호를 먼저 본다.</li>
+    <li><strong>꼭짓점 y좌표 q = −D/4a.</strong> 판별식은 근의 개수를 세는 도구이기 이전에, 접시 바닥이 x축에서 얼마나 떨어져 있는지를 재는 자다.</li>
+  </ul>
+
+  <div class="note">
+    <strong>범위가 잘려 있으면</strong> 꼭짓점이 그 안에 있는지부터 확인합니다. 밖이면 답은 양 끝점에서 나옵니다.
+  </div>
+</section>
+
+<nav class="pager wrap">
+  <span>← 첫 챕터입니다</span>
+  <span>다음 챕터 준비 중 — 02 판별식</span>
+</nav>
+
+<script>
+(function(){
+'use strict';
+var NS = 'http://www.w3.org/2000/svg';
+
+function num(v){
+  if(!isFinite(v)) return '—';
+  var r = Math.round(v*1000)/1000;
+  if(r === 0) r = 0;                       // −0 을 0 으로
+  return String(r).replace('-', '−');      // 화면에는 유니코드 빼기표
+}
+function par(v){                            // 음수는 괄호로 — (−6)² 처럼 읽히도록
+  return v < 0 ? '(' + num(v) + ')' : num(v);
+}
+function line(x1,y1,x2,y2){
+  var e = document.createElementNS(NS,'line');
+  e.setAttribute('x1',x1); e.setAttribute('y1',y1);
+  e.setAttribute('x2',x2); e.setAttribute('y2',y2);
+  return e;
+}
+
+/* ══════════ 그림2 · y = ax² + bx + c ══════════
+   X(x) = 240 + 22x,  Y(y) = 250 − 22y   (22px/단위, 가로세로 동일)
+   x ∈ [−9, 9] → 42‥438 · y ∈ [−10, 10] → 30‥470                      */
+var XMIN=-9, XMAX=9, YMIN=-10, YMAX=10;
+function X2(x){ return 240 + 22*x; }
+function Y2(y){ return 250 - 22*y; }
+
+(function grid2(){
+  var g = document.getElementById('grid2'), i;
+  for(i=XMIN+1;i<XMAX;i+=2) if(i!==0) g.appendChild(line(X2(i),Y2(YMAX),X2(i),Y2(YMIN)));
+  for(i=YMIN+2;i<YMAX;i+=2) if(i!==0) g.appendChild(line(X2(XMIN),Y2(i),X2(XMAX),Y2(i)));
+})();
+
+function coef(v, unit){                    // " + 3x" / " − x" 꼴
+  var a = Math.abs(v);
+  return (v<0 ? ' − ' : ' + ') + ((unit && a===1) ? '' : num(a)) + (unit||'');
+}
+function stdForm(a,b,c){
+  var s = 'y = ';
+  if(a !== 0) s += (a===1 ? '' : a===-1 ? '−' : num(a)) + 'x²';
+  if(b !== 0) s += (a===0)
+      ? (b<0?'−':'') + (Math.abs(b)===1?'':num(Math.abs(b))) + 'x'
+      : coef(b,'x');
+  if(c !== 0 || (a===0 && b===0)) s += (a===0 && b===0) ? num(c) : coef(c);
+  return s;
+}
+function vtxForm(a,p,q){
+  var inner = 'x' + (p===0 ? '' : p<0 ? ' + '+num(-p) : ' − '+num(p));
+  var head  = (a===1 ? '' : a===-1 ? '−' : num(a));
+  var tail  = q===0 ? '' : q<0 ? ' − '+num(-q) : ' + '+num(q);
+  return 'y = ' + head + '(' + inner + ')²' + tail;
+}
+function curvePath(a,b,c){
+  var d='', pen=false, N=400, i, x, y;
+  for(i=0;i<=N;i++){
+    x = XMIN + (XMAX-XMIN)*i/N;
+    y = a*x*x + b*x + c;
+    if(y > YMAX+0.6 || y < YMIN-0.6){ pen=false; continue; }
+    d += (pen ? ' L ' : ' M ') + X2(x).toFixed(1) + ',' + Y2(y).toFixed(1);
+    pen = true;
+  }
+  return d;
+}
+
+var sa=document.getElementById('sa'), sb=document.getElementById('sb'), sc=document.getElementById('sc');
+
+function update2(){
+  var a = parseFloat(sa.value), b = parseFloat(sb.value), c = parseFloat(sc.value);
+  var D = b*b - 4*a*c;                       // 판별식
+  var p = a===0 ? NaN : -b/(2*a);            // 꼭짓점 x = −b/2a
+  var q = a===0 ? NaN : -D/(4*a);            // 꼭짓점 y = −D/4a
+
+  document.getElementById('ra').textContent =
+    'a = ' + num(a) + (a>0 ? ' · 위로 열림' : a<0 ? ' · 아래로 열림' : ' · 직선');
+  document.getElementById('rb').textContent = 'b = ' + num(b);
+  document.getElementById('rc').textContent = 'c = ' + num(c);
+
+  document.getElementById('curve2').setAttribute('d', curvePath(a,b,c));
+  document.getElementById('pStd').textContent = stdForm(a,b,c);
+
+  var vtx = document.getElementById('vtx2'), ax = document.getElementById('axis2');
+  if(a !== 0 && p >= XMIN && p <= XMAX && q >= YMIN && q <= YMAX){
+    vtx.setAttribute('cx', X2(p)); vtx.setAttribute('cy', Y2(q));
+    vtx.setAttribute('visibility','visible');
+  } else {
+    vtx.setAttribute('visibility','hidden');
+  }
+  if(a !== 0 && p >= XMIN && p <= XMAX){
+    ax.setAttribute('x1', X2(p)); ax.setAttribute('y1', Y2(YMAX));
+    ax.setAttribute('x2', X2(p)); ax.setAttribute('y2', Y2(YMIN));
+    ax.setAttribute('visibility','visible');
+  } else {
+    ax.setAttribute('visibility','hidden');
+  }
+
+  // x축과의 교점
+  var rootsG = document.getElementById('roots2'), rs = [];
+  while(rootsG.firstChild) rootsG.removeChild(rootsG.firstChild);
+  if(a === 0){ if(b !== 0) rs = [-c/b]; }
+  else if(D > 1e-9){ rs = [(-b - Math.sqrt(D))/(2*a), (-b + Math.sqrt(D))/(2*a)]; }
+  else if(Math.abs(D) <= 1e-9){ rs = [p]; }
+  rs.forEach(function(r){
+    if(r < XMIN || r > XMAX) return;
+    var e = document.createElementNS(NS,'circle');
+    e.setAttribute('cx', X2(r)); e.setAttribute('cy', Y2(0));
+    e.setAttribute('r', 4); e.setAttribute('fill', 'var(--given)');
+    rootsG.appendChild(e);
+  });
+
+  var vd = document.getElementById('vd'),
+      tag = document.getElementById('vdTag'),
+      why = document.getElementById('vdWhy');
+
+  if(a === 0){
+    document.getElementById('pVertex').textContent = '고칠 수 없다';
+    document.getElementById('pPoint').textContent  = '없다';
+    document.getElementById('pDisc').textContent   = '이차식이 아니다';
+    document.getElementById('pRoots').textContent  = rs.length ? 'x = ' + num(rs[0]) : (c===0 ? 'x축 전체' : '없다');
+    vd.className = 'verdict bad';
+    tag.textContent = 'a = 0';
+    why.textContent = 'x² 항이 사라져 직선이 됩니다. 꼭짓점도, 최댓값·최솟값도 없습니다. '
+                    + '완전제곱식이라는 방법 자체가 여기서 무너집니다.';
+  } else {
+    document.getElementById('pVertex').textContent = vtxForm(a,p,q);
+    document.getElementById('pPoint').textContent  = '(' + num(p) + ', ' + num(q) + ')';
+    document.getElementById('pDisc').textContent   =
+      'D = ' + par(b) + '² − 4·' + par(a) + '·' + par(c) + ' = ' + num(D);
+    document.getElementById('pRoots').textContent  =
+      D > 1e-9 ? 'x = ' + num(rs[0]) + ',  x = ' + num(rs[1])
+    : Math.abs(D) <= 1e-9 ? 'x = ' + num(p) + ' (중근 하나)'
+    : '없다 (x축과 만나지 않는다)';
+
+    var kind = a > 0 ? '최솟값' : '최댓값';
+    if(Math.abs(D) <= 1e-9){
+      vd.className = 'verdict bad';
+      tag.textContent = 'D = 0';
+      why.textContent = '두 근이 하나로 붙는 경계입니다. 꼭짓점이 x축 위에 놓여 접시가 닿기만 합니다. '
+                      + 'x = ' + num(p) + ' 에서 ' + kind + ' 0.';
+    } else if(D > 0){
+      vd.className = 'verdict ok';
+      tag.textContent = 'D > 0';
+      why.textContent = '서로 다른 두 실근 — x축을 두 번 가로지릅니다. '
+                      + 'x = ' + num(p) + ' 에서 ' + kind + ' ' + num(q) + '.';
+    } else {
+      vd.className = 'verdict ok';
+      tag.textContent = 'D < 0';
+      why.textContent = '실근이 없습니다 — x축과 만나지 않습니다. 그래도 '
+                      + 'x = ' + num(p) + ' 에서 ' + kind + ' ' + num(q) + ' 는 그대로 있습니다.';
+    }
+  }
+}
+[sa,sb,sc].forEach(function(s){ s.addEventListener('input', update2); });
+update2();
+
+/* ══════════ 그림3 · y = x² − 6x + 5 의 제한된 범위 ══════════
+   X(x) = 76 + 30x,  Y(y) = 240 − 30y   (30px/단위, 가로세로 동일)   */
+function X3(x){ return 76 + 30*x; }
+function Y3(y){ return 240 - 30*y; }
+function f3(x){ return x*x - 6*x + 5; }
+var VX = 3, VY = -4;                        // 꼭짓점 (3, −4)
+
+(function grid3(){
+  var g = document.getElementById('grid3'), i;
+  for(i=-1;i<=8;i++)  if(i!==0) g.appendChild(line(X3(i),30,X3(i),405));
+  for(i=-5;i<=7;i++)  if(i!==0) g.appendChild(line(46,Y3(i),316,Y3(i)));
+})();
+
+var CASES = [
+  {lab:'0 ≤ x ≤ 2', lo:0, hi:2},
+  {lab:'2 ≤ x ≤ 6', lo:2, hi:6},
+  {lab:'4 ≤ x ≤ 6', lo:4, hi:6}
+];
+
+function place(circle, label, x, y, text, dy){
+  circle.setAttribute('cx', X3(x)); circle.setAttribute('cy', Y3(y));
+  label.setAttribute('x', X3(x) + 12); label.setAttribute('y', Y3(y) + dy);
+  label.textContent = text;
+}
+
+function update3(k){
+  var cs = CASES[k], inside = (cs.lo <= VX && VX <= cs.hi);
+  var xs = [cs.lo, cs.hi].concat(inside ? [VX] : []);
+  var best = xs[0], worst = xs[0], i;
+  for(i=1;i<xs.length;i++){
+    if(f3(xs[i]) > f3(best))  best  = xs[i];
+    if(f3(xs[i]) < f3(worst)) worst = xs[i];
+  }
+
+  var band = document.getElementById('band3');
+  band.setAttribute('x', X3(cs.lo));
+  band.setAttribute('width', X3(cs.hi) - X3(cs.lo));
+
+  var vtx = document.getElementById('vtx3'), vlab = document.getElementById('vtx3lab');
+  vtx.setAttribute('fill', inside ? 'var(--result)' : 'var(--break)');
+  vlab.setAttribute('fill', 'var(--break)');
+  vlab.textContent = inside ? '' : '꼭짓점 (3, −4) — 범위 밖, 답이 아니다';
+
+  place(document.getElementById('max3'), document.getElementById('max3lab'),
+        best,  f3(best),  '최대 ' + num(f3(best))  + ' (x = ' + num(best)  + ')', -12);
+  place(document.getElementById('min3'), document.getElementById('min3lab'),
+        worst, f3(worst), '최소 ' + num(f3(worst)) + ' (x = ' + num(worst) + ')',  24);
+
+  document.getElementById('q3range').textContent = cs.lab;
+  document.getElementById('q3vtx').textContent   = inside ? '범위 안에 있다' : '범위 밖이다';
+  document.getElementById('q3vtx').setAttribute('fill', inside ? 'var(--result)' : 'var(--break)');
+  document.getElementById('q3max').textContent   = num(f3(best))  + '  (x = ' + num(best)  + ')';
+  document.getElementById('q3min').textContent   = num(f3(worst)) + '  (x = ' + num(worst) + ')';
+
+  var btns = document.getElementById('rangePick').children;
+  for(i=0;i<btns.length;i++) btns[i].setAttribute('aria-pressed', i===k ? 'true' : 'false');
+}
+
+(function buildPicker(){
+  var host = document.getElementById('rangePick');
+  CASES.forEach(function(cs, i){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = cs.lab;
+    b.setAttribute('aria-pressed','false');
+    b.addEventListener('click', function(){ update3(i); });
+    host.appendChild(b);
+  });
+  update3(0);
+})();
+})();
+</script>
+
+</body>
+</html>
