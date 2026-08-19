@@ -79,6 +79,7 @@ def main():
     ok &= check_pdcch()
     ok &= check_uplink()
     ok &= check_oran()
+    ok &= check_zc()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -282,6 +283,289 @@ def check_oran():
     # 273 RB는 05에서 검산한 값
     ok &= FH_RB == 273
     print(f"  273 RB = 05에서 검산한 100 MHz @ 30 kHz  ✓")
+
+    return ok
+
+
+# ── 15 자도프-추 시퀀스와 SRS ───────────────────────────────
+# 근거: TS 38.211 §5.2.2(저 PAPR 시퀀스) · §5.2.2.1(ZC 기저) · §5.2.2.2(짧은 길이 표)
+#       §6.4.1.4(SRS) · §6.3.3.1–2(PRACH — 시간영역 정의 후 DFT)
+# ZC의 성질(정모듈러스·완벽 자기상관·DFT 닫힘)은 수학이고 규격값이 아니다.
+# 규격에서 온 것은 N_ZC를 소수로 고르는 규칙과 30개 그룹 배정식뿐이다.
+
+import cmath
+
+
+def zc_pure(N, q):
+    """소수 길이 ZC — 순환 확장 없음.  x_q(m) = e^{-jπ q m(m+1)/N}"""
+    return [cmath.exp(-1j * math.pi * q * m * (m + 1) / N) for m in range(N)]
+
+
+def zc_base(M, q):
+    """§5.2.2.1 — N_ZC(= M보다 작은 가장 큰 소수)의 ZC를 M칸으로 순환 확장"""
+    N = largest_prime_below(M)
+    return N, [cmath.exp(-1j * math.pi * q * (m % N) * ((m % N) + 1) / N) for m in range(M)]
+
+
+def largest_prime_below(n):
+    for k in range(n - 1, 1, -1):
+        if k >= 2 and all(k % d for d in range(2, int(k ** 0.5) + 1)):
+            return k
+    return 2
+
+
+def _dft(x):
+    N = len(x)
+    return [sum(x[m] * cmath.exp(-2j * math.pi * m * k / N) for m in range(N)) for k in range(N)]
+
+
+def _idft(X):
+    N = len(X)
+    return [sum(X[k] * cmath.exp(2j * math.pi * m * k / N) for k in range(N)) / N for m in range(N)]
+
+
+def _cyc_corr(x, lag):
+    N = len(x)
+    return abs(sum(x[m] * x[(m + lag) % N].conjugate() for m in range(N)))
+
+
+def _zc_papr_db(X, over):  # 13의 _papr_db와 이름이 겹치지 않게 접두사를 붙였다
+    """부반송파 값 X → 과표본 시간 파형의 PAPR.  over=1이면 표본 위에서만 본다."""
+    N = len(X)
+    L = N * over
+    x = [abs(sum(X[k] * cmath.exp(2j * math.pi * m * k / L) for k in range(N))) for m in range(L)]
+    p = [v * v for v in x]
+    return 10 * math.log10(max(p) / (sum(p) / L))
+
+
+def check_zc():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] 손으로 따라가는 예시 — N=5, q=1")
+    x = zc_pure(5, 1)
+    pub_deg = [0.0, -72.0, 144.0, -72.0, 0.0]
+    for m, (v, pd) in enumerate(zip(x, pub_deg)):
+        d = math.degrees(cmath.phase(v))
+        d = d + 360 if d <= -180 + 1e-9 else d
+        hit = abs(d - pd) < 1e-6 and abs(abs(v) - 1) < 1e-12
+        ok &= hit
+        print(f"  m={m}  m(m+1)={m*(m+1):>2}  위상 {d:>7.1f}°  크기 {abs(v):.6f}"
+              f"  게시 {pd:<6} {'✓' if hit else '✗ 불일치'}")
+    same13 = abs(x[1] - x[3]) < 1e-12
+    ok &= same13
+    print(f"  m=1과 m=3이 같은가 (m(m+1)이 2와 12, 차 10 = 2N)  {'✓' if same13 else '✗'}")
+
+    print("\n[15] 완벽한 자기상관 — 지연 0에서만 솟는가")
+    eq("지연 0의 자기상관", _cyc_corr(x, 0), 5, 1e-9)
+    side = max(_cyc_corr(x, l) for l in range(1, 5))
+    eq("나머지 지연의 최댓값", side, 0, 1e-9)
+
+    print("\n[15] 다른 근과의 상호상관 — 1/√N 규칙 (08과 같은 규칙인가)")
+    for N, pub in [(5, -6.99), (31, -14.91), (839, -29.24)]:
+        a, b = zc_pure(N, 1), zc_pure(N, 2)
+        c = abs(sum(p * q.conjugate() for p, q in zip(a, b)))
+        hit = abs(c - math.sqrt(N)) < 1e-6 and abs(20 * math.log10(c / N) - pub) < 0.01
+        ok &= hit
+        print(f"  N={N:3}  |상호상관| {c:9.6f} = √N {math.sqrt(N):9.6f}"
+              f"  정규화 {20*math.log10(c/N):7.2f} dB  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    # 08의 게시값과 같은 수인지 못박는다
+    c839 = abs(sum(p * q.conjugate() for p, q in zip(zc_pure(839, 1), zc_pure(839, 2)))) / 839
+    eq("839의 값이 08의 게시값과 같은가 [dB]", 20 * math.log10(c839), -29.24, 0.005)
+
+    print("\n[15] 주파수영역에 얹으면 시간 쪽도 평평한가 (N=5)")
+    t = _idft(x)
+    flat = max(abs(v) for v in t) - min(abs(v) for v in t)
+    ok &= flat < 1e-12
+    eq("시간 표본 크기 · 1/√5", abs(t[0]), 1 / math.sqrt(5), 1e-12)
+    print(f"  시간 크기가 전부 같은가 (최대−최소 = {flat:.2e})  {'✓' if flat < 1e-12 else '✗'}")
+
+    print("\n[15] ZC의 DFT는 다시 ZC인가 — q' = −q⁻¹ mod N")
+    for N in [5, 7, 11, 31]:
+        allok = True
+        shown = []
+        for q in range(1, N):
+            X = _dft(zc_pure(N, q))
+            want = (-pow(q, -1, N)) % N
+            # 순환 시프트와 상수 위상까지 허용해서 맞춰 본다
+            found = False
+            cand = zc_pure(N, want)
+            for sh in range(N):
+                r = [X[k] / cand[(k + sh) % N] for k in range(N)]
+                if max(abs(v - r[0]) for v in r) < 1e-6:
+                    found = True
+                    if q <= 3:
+                        shown.append(f"q{q}→q'{want}")
+                    break
+            allok &= found
+        ok &= allok
+        print(f"  N={N:2}  {' · '.join(shown)}  …  모든 근에서 성립  {'✓' if allok else '✗ 성립 안 함'}")
+
+    print("\n[15] PAPR — 표본 위에서와 표본 사이에서")
+    for N, pub1, pub4 in [(31, 0.0, 2.59), (47, 0.0, 2.55)]:
+        z = zc_pure(N, 1)
+        p1, p4 = _zc_papr_db(z, 1), _zc_papr_db(z, 4)
+        hit = abs(p1 - pub1) < 1e-6 and abs(p4 - pub4) < 0.005
+        ok &= hit
+        print(f"  N={N:3}  과표본 1배 {p1:.4f} dB · 4배 {p4:.2f} dB"
+              f"  게시 {pub1}/{pub4}  {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: 소수 길이 ZC는 표본 위에서 정확히 0 dB다
+    exact = all(_zc_papr_db(zc_pure(N, 1), 1) < 1e-9 for N in (31, 47, 71))
+    ok &= exact
+    print(f"  소수 길이 ZC가 표본 위에서 정확히 0 dB인가  {'✓' if exact else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 무작위 QPSK와의 대조 — 주파수만 평평해서는 안 된다")
+    rnd = random.Random(20260819)
+    qpsk = [cmath.exp(1j * math.pi * (2 * i + 1) / 4) for i in range(4)]
+    for N, pub in [(31, 6.94), (47, 7.09), (71, 7.45)]:
+        vals = [_zc_papr_db([rnd.choice(qpsk) for _ in range(N)], 4) for _ in range(40)]
+        avg = sum(vals) / len(vals)
+        hit = abs(avg - pub) < 0.01
+        ok &= hit
+        print(f"  N={N:3}  무작위 QPSK 평균 {avg:5.2f} dB  vs ZC {_zc_papr_db(zc_pure(N,1),4):.2f} dB"
+              f"  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    # 주파수 크기는 양쪽 다 1이다 — 자료의 핵심 대조
+    flat_both = all(abs(abs(v) - 1) < 1e-12 for v in zc_pure(31, 1)) and \
+                all(abs(abs(v) - 1) < 1e-12 for v in qpsk)
+    ok &= flat_both
+    print(f"  두 시퀀스 모두 부반송파 크기가 1인가  {'✓' if flat_both else '✗'}")
+
+    print("\n[15] 순환 확장의 대가 — 망가지는 정도가 확장 '비율'을 따라가는가")
+    rows = [(36, 31, 5, 3.92, 4.46, -14.9), (48, 47, 1, 1.14, 2.59, -33.6),
+            (72, 71, 1, 1.11, 2.66, -37.1), (96, 89, 7, 3.30, 4.04, -20.6),
+            (144, 139, 5, 1.61, 3.14, -28.5), (3276, 3271, 5, 1.08, 2.65, -56.3)]
+    for M, pubN, pubExt, pubFlat, pubPapr, pubSide in rows:
+        N, r = zc_base(M, 1)
+        t = _idft(r)
+        a = [abs(v) for v in t]
+        flat = max(a) / min(a)
+        side = max(_cyc_corr(r, l) for l in range(1, M)) / M
+        sdb = 20 * math.log10(side)
+        pp = _zc_papr_db(r, 4)
+        hit = (N == pubN and M - N == pubExt and abs(flat - pubFlat) < 0.01
+               and abs(pp - pubPapr) < 0.01 and abs(sdb - pubSide) < 0.05)
+        ok &= hit
+        print(f"  M={M:>4} N_ZC={N:>4} 확장 {M-N}칸({(M-N)/M*100:5.2f}%)"
+              f"  평탄 {flat:5.2f}배  PAPR {pp:5.2f}  부엽 {sdb:6.1f} dB"
+              f"  {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장 1: 96(7칸)이 48(1칸)보다 길지만 부엽이 나쁘다
+    s48 = 20 * math.log10(max(_cyc_corr(zc_base(48, 1)[1], l) for l in range(1, 48)) / 48)
+    s96 = 20 * math.log10(max(_cyc_corr(zc_base(96, 1)[1], l) for l in range(1, 96)) / 96)
+    claim = s96 > s48
+    ok &= claim
+    print(f"  96이 48보다 길지만 부엽이 나쁜가 ({s96:.1f} > {s48:.1f} dB)"
+          f"  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 2: 3276은 36과 같은 5칸인데 비율이 작아 멀쩡하다
+    s36 = 20 * math.log10(max(_cyc_corr(zc_base(36, 1)[1], l) for l in range(1, 36)) / 36)
+    s3276 = 20 * math.log10(max(_cyc_corr(zc_base(3276, 1)[1], l) for l in range(1, 3276)) / 3276)
+    ratio_rule = (36 - 31 == 3276 - 3271) and s3276 < s36 - 30
+    ok &= ratio_rule
+    print(f"  36과 3276이 똑같이 5칸인데 부엽이 {s36:.1f} vs {s3276:.1f} dB"
+          f" — 칸수가 아니라 비율  {'✓' if ratio_rule else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] M_ZC → N_ZC 표 · 36 미만은 ZC를 쓰지 않는다")
+    for rb, ktc, pubM in [(4, 2, 24), (3, 1, 36), (8, 2, 48), (6, 1, 72), (16, 2, 96), (273, 1, 3276)]:
+        M = rb * 12 // ktc
+        hit = M == pubM
+        ok &= hit
+        tag = "표(φ) 사용" if M < 36 else f"N_ZC {largest_prime_below(M)}"
+        print(f"  {rb:>3}RB 콤{ktc} → M_ZC {M:>4} ({tag})  게시 {pubM}  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] 경계가 왜 36인가 — ZC가 30개 그룹을 채울 수 있는 첫 길이")
+    # 규격은 기저 시퀀스를 30개 그룹(u=0…29)으로 나눈다.
+    # 길이 N_ZC가 소수면 gcd(q,N_ZC)=1 인 근은 N_ZC−1 개다.
+    for M, pubN, pubR in [(6, 5, 4), (12, 11, 10), (18, 17, 16),
+                          (24, 23, 22), (30, 29, 28), (36, 31, 30)]:
+        N = largest_prime_below(M)
+        roots = N - 1
+        hit = N == pubN and roots == pubR
+        ok &= hit
+        print(f"  M_ZC {M:>3} → N_ZC {N:>3} → 근 {roots:>3}개"
+              f"  {'30개 이상 ✓' if roots >= 30 else '모자람':<12} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장 1: 규격이 쓰는 짧은 길이는 전부 30개에 못 미친다
+    short_short = all(largest_prime_below(M) - 1 < 30 for M in (6, 12, 18, 24, 30))
+    ok &= short_short
+    print(f"  6·12·18·24·30이 전부 30개 미만인가  {'✓' if short_short else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 2: 36이 처음으로 30개에 닿는다
+    first36 = largest_prime_below(36) - 1 == 30
+    ok &= first36
+    print(f"  36에서 근이 정확히 30개인가  {'✓' if first36 else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 3: 품질 때문이 아니다 — 24의 부엽이 36보다 오히려 좋다
+    def _side_db(M):
+        _, r = zc_base(M, 1)
+        return 20 * math.log10(max(_cyc_corr(r, l) for l in range(1, M)) / M)
+    s24, s36 = _side_db(24), _side_db(36)
+    quality = s24 < s36
+    ok &= quality
+    print(f"  24의 부엽({s24:.1f})이 36({s36:.1f})보다 좋은가 — 품질 때문이 아니라는 근거"
+          f"  {'✓' if quality else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 임계 표본에서 잰 시간 평탄도 — 자료의 통계 타일이 재는 값")
+    # 과표본 파형은 표본 사이에서 0에 가까워지는 게 당연하므로 평탄도는 표본 위에서 잰다.
+    for M, pub in [(12, 1.33), (24, 1.21), (36, 3.92), (48, 1.14),
+                   (72, 1.11), (96, 3.30), (144, 1.61)]:
+        _, r = zc_base(M, 1)
+        a_ = [abs(v) for v in _idft(r)]
+        got = max(a_) / min(a_)
+        hit = abs(got - pub) < 0.01
+        ok &= hit
+        print(f"  M={M:>4}  최대÷최소 {got:7.4f}배  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] 그룹 u → 근 q — N_ZC=31이면 근 1…30을 한 번씩 쓰는가")
+    for NZ in [31, 47, 71]:
+        qs = [math.floor(NZ * (u + 1) / 31 + 0.5) for u in range(30)]
+        distinct = len(set(qs)) == 30
+        inrange = all(1 <= q < NZ for q in qs)
+        coprime = all(math.gcd(q, NZ) == 1 for q in qs)
+        ok &= distinct and inrange and coprime
+        print(f"  N_ZC={NZ:3}  근 {qs[:6]}…  서로 다름 {distinct} · 범위 {inrange} · 서로소 {coprime}"
+              f"  {'✓' if distinct and inrange and coprime else '✗'}")
+    qs31 = [math.floor(31 * (u + 1) / 31 + 0.5) for u in range(30)]
+    exact31 = qs31 == list(range(1, 31))
+    ok &= exact31
+    print(f"  N_ZC=31에서 근이 정확히 1…30인가  {'✓' if exact31 else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 순환 시프트 한 칸 — 08의 '두 개의 벽'과 같은 계산")
+    cp30 = 144 * KAPPA * Tc * 1e6 / 2       # 03에서 검산한 30 kHz 일반 CP
+    eq("30 kHz 일반 CP [μs] · 03과 같은 값", cp30, 2.344, 0.001)
+    for scs, ktc, ncsmax, pubP, pubS in [(30, 2, 8, 16.667, 2.083), (30, 4, 12, 8.333, 0.694),
+                                         (120, 4, 12, 2.083, 0.174)]:
+        period = 1 / (ktc * scs * 1e3) * 1e6
+        step = period / ncsmax
+        hit = abs(period - pubP) < 0.001 and abs(step - pubS) < 0.001
+        ok &= hit
+        print(f"  {scs:>3} kHz 콤{ktc} n_cs,max {ncsmax:>2} → 주기 {period:7.3f} μs"
+              f" · 한 칸 {step:6.3f} μs · 편도 {step*C:7.1f} m"
+              f"  {'✓' if hit else '✗ 불일치'}")
+    step_c2 = 1 / (2 * 30e3) * 1e6 / 8
+    eq("콤2 한 칸 ÷ 일반 CP", step_c2 / cp30, 0.889, 0.001)
+    # 자료의 주장: 콤2의 시프트 간격이 CP와 거의 같은 급이다
+    near = 0.5 < step_c2 / cp30 < 1.5
+    ok &= near
+    print(f"  콤2 시프트 간격이 CP와 같은 급인가 (0.5–1.5배)  {'✓' if near else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 다중화 인원 = 순환 시프트 × 콤 오프셋")
+    for ktc, ncsmax, pub in [(2, 8, 16), (4, 12, 48)]:
+        eq(f"콤{ktc}: {ncsmax} × {ktc}", ncsmax * ktc, pub, 0)
+
+    print("\n[15] 콤 — K칸마다 얹으면 시간이 K번 반복되는가")
+    N, K = 5, 2
+    X = zc_pure(N, 1)
+    grid = [0j] * (N * K)
+    for i in range(N):
+        grid[i * K] = X[i]
+    t = _idft(grid)
+    rep = all(abs(t[m] - t[m + N]) < 1e-12 for m in range(N))
+    amps = [abs(v) for v in t]
+    flat = max(amps) - min(amps) < 1e-12
+    ok &= rep and flat
+    print(f"  길이 {N} ZC를 {K}칸 간격으로 → 앞 {N}개와 뒤 {N}개가 같은가 {rep}"
+          f" · 크기가 전부 같은가 {flat}  {'✓' if rep and flat else '✗'}")
 
     return ok
 

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 자도프-추 시퀀스와 SRS — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>15 / 자도프-추 시퀀스와 SRS</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">15 · zadoff–chu sequence</p>
+  <h1>채널을 재는 자는<br><em>휘파람</em>처럼 생겼다</h1>
+  <p class="lead"><a href="../11-reference-signals/index.html">11의 SRS</a>는 단말이 "내 채널을 재 보라"고 쏘는 신호입니다. 그런데 이 신호는 <strong>서로 충돌하는 두 조건</strong>을 동시에 만족해야 합니다 — <strong>모든 주파수를 고르게 훑을 것</strong>, 그리고 <strong>봉우리가 없을 것</strong>. 자도프-추(Zadoff–Chu, ZC) 시퀀스가 그 둘을 동시에 만족합니다.</p>
+</header>
+
+<section class="wrap">
+  <div class="note">
+    <strong>먼저 결론 — 5G NR의 SRS는 주파수영역 ZC입니다.</strong>
+    시퀀스 값이 <strong>그대로 부반송파 값</strong>이 됩니다. 시간 파형은 그 뒤 IFFT가 만들어 냅니다.
+    규격에서 SRS 시퀀스와 자원 매핑 사이에 <strong>DFT 단계가 없다</strong>는 것이 근거입니다.
+    <span class="src">TS 38.211 §6.4.1.4(SRS) → §5.2.2(저 PAPR 시퀀스) · 시퀀스가 부반송파에 직접 매핑됨</span>
+    <br><br>
+    대조가 되는 것이 <strong>같은 규격 안의 PRACH</strong>입니다. PRACH 프리앰블은 ZC를
+    <strong>시간영역으로 정의한 뒤 DFT를 한 번 거쳐서</strong> 부반송파에 올립니다.
+    <span class="src">TS 38.211 §6.3.3.1(시퀀스) → §6.3.3.2(매핑, 여기에 DFT가 들어 있다)</span>
+    <br><br>
+    그런데 <strong>이 차이가 시퀀스의 모양을 바꾸지는 않습니다.</strong> ZC의 DFT는 다시 ZC이기 때문입니다.
+    진짜 차이는 <strong>무엇이 부반송파 격자에 정렬되는가</strong>와 <strong>순환 시프트를 어느 쪽에 거는가</strong>에 있습니다.
+    이 자료는 그 셋을 순서대로 봅니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>두 개의 요구가 충돌한다</h2>
+  <p>채널을 재려면 <strong>모든 부반송파에 같은 세기</strong>로 실어야 합니다. 어느 부반송파에 힘이 약하게 실리면 <strong>거기 채널은 못 재기</strong> 때문입니다. 힘이 0이면 아예 모릅니다.</p>
+
+  <p>그런데 SRS를 쏘는 것은 <strong>단말</strong>입니다. <a href="../13-uplink-physical-layer/index.html">13에서 본 대로</a> 단말의 증폭기는 봉우리에 맞춰 여유를 잡아야 하므로, <strong>시간 파형에 뾰족한 봉우리가 있으면 평균 송신 전력이 깎입니다.</strong></p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>SRS가 만족해야 하는 두 조건 · 보통은 하나를 얻으면 하나를 잃는다</caption>
+    <thead><tr><th>조건</th><th>무엇이 평평해야 하나</th><th>안 지키면</th><th>어디서 나온 요구인가</th></tr></thead>
+    <tbody>
+      <tr><td>고르게 훑기</td><td><strong>주파수</strong> 쪽 크기</td><td>약하게 실린 주파수의 채널을 못 잰다</td><td>측정의 요구 (<a href="../11-reference-signals/index.html">11</a>)</td></tr>
+      <tr><td>봉우리 없기</td><td><strong>시간</strong> 쪽 크기</td><td>증폭기 여유 때문에 도달거리가 깎인다</td><td>단말 전력의 요구 (<a href="../13-uplink-physical-layer/index.html">13</a>)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>보통 이 둘은 같이 안 됩니다.</strong> <a href="../13-uplink-physical-layer/index.html">13에서 본 것</a>이 정확히 그 이야기였습니다 —
+    부반송파마다 크기가 같은 값(QPSK)을 아무렇게나 얹어도, 시간 쪽에서는
+    위상이 우연히 맞아떨어져 <strong>봉우리가 솟습니다.</strong>
+    주파수를 평평하게 만드는 것은 쉽고, <strong>그러면서 시간도 평평하게</strong> 만드는 것이 어렵습니다.
+    ZC는 그 드문 예외입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>휘파람 — ZC가 무엇인가</h2>
+
+  <div class="note">
+    <strong>x<sub>q</sub>(m) = e<sup>−jπ·q·m(m+1)/N</sup></strong>
+    &nbsp;&nbsp; <span class="src">N은 소수, q는 1…N−1의 근(root) · TS 38.211 §5.2.2.1</span>
+  </div>
+
+  <p>위상이 <strong>m의 제곱에 비례</strong>합니다. 위상의 기울기가 곧 순간 주파수이므로, 위상이 제곱으로 커진다는 것은 <strong>주파수가 일정하게 미끄러진다</strong>는 뜻입니다.</p>
+
+  <div class="note">
+    <strong>ZC는 비유가 아니라 실제로 휘파람입니다.</strong> 음이 낮은 데서 높은 데로 죽 미끄러지는 소리 —
+    사이렌이나 새소리 같은 것을 <strong>처프(chirp)</strong>라고 합니다. ZC는 그것을 디지털로 적은 것입니다.
+    이 자료의 비유는 이것 하나이고, 나머지는 전부 여기서 따라 나옵니다.
+    <br><br>
+    <strong>모든 음을 한 번씩 지나가므로</strong> 주파수 쪽이 평평하고,
+    <strong>소리 크기는 내내 일정하므로</strong> 시간 쪽이 평평하고,
+    <strong>미끄러지는 소리는 조금만 늦게 들어도 티가 나므로</strong> 지연을 잡아내기 좋습니다.
+    레이더가 처프를 쓰는 이유와 정확히 같습니다.
+  </div>
+
+  <h3>손으로 따라가는 예시 — N = 5, q = 1</h3>
+  <p>가장 작은 예시로 직접 세어 봅니다. 지수의 <strong>m(m+1)</strong>만 계산하면 끝입니다.</p>
+
+  <!-- 유도: x_q(m) = e^(-jπ·q·m(m+1)/N),  N=5, q=1
+       m       : 0    1     2     3      4
+       m(m+1)  : 0    2     6     12     20
+       위상[rad]: 0  -2π/5 -6π/5 -12π/5 -4π
+       위상[도] : 0   -72   -216  -432   -720
+       (-180,180] 로 접으면: 0, -72, 144, -72, 0
+       m=1과 m=3이 같은 이유: m(m+1)이 2와 12로 차이가 10 = 2N → 위상 차 2π -->
+  <div class="table-scroll">
+  <table>
+    <caption>N = 5, q = 1 인 ZC 시퀀스 다섯 값 · 지수 부호가 음수라 위상이 시계 방향으로 돈다</caption>
+    <thead><tr><th class="num">m</th><th class="num">m(m+1)</th><th class="num">위상 [rad]</th><th class="num">위상 [°]</th><th class="num">크기</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">1</td></tr>
+      <tr><td class="num">1</td><td class="num">2</td><td class="num">−2π/5</td><td class="num">−72</td><td class="num">1</td></tr>
+      <tr><td class="num">2</td><td class="num">6</td><td class="num">−6π/5</td><td class="num">144</td><td class="num">1</td></tr>
+      <tr><td class="num">3</td><td class="num">12</td><td class="num">−12π/5</td><td class="num">−72</td><td class="num">1</td></tr>
+      <tr><td class="num">4</td><td class="num">20</td><td class="num">−4π</td><td class="num">0</td><td class="num">1</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 314" role="img" aria-labelledby="t1 d1">
+      <title id="t1">N이 5이고 q가 1인 자도프-추 시퀀스 다섯 값의 위상</title>
+      <desc id="d1">왼쪽은 단위원 위에 다섯 값을 화살표로 그린 것으로, 다섯 개 모두 길이가 1이고 각도만 다르다. 오른쪽은 같은 값을 순서대로 늘어놓은 위상 그래프로, 0도에서 시작해 시계 방향으로 점점 빠르게 돌다가 한 바퀴를 넘어 다시 0도로 돌아온다. 위상이 일정하게가 아니라 점점 빠르게 도는 것이 주파수가 미끄러진다는 뜻이다.</desc>
+      <g id="zcPhase"></g>
+    </svg>
+  </div>
+  <p class="caption">왼쪽 원은 <strong>크기가 전부 1</strong>이라는 것을, 오른쪽은 <strong>회전이 점점 빨라진다</strong>는 것을 보여줍니다. m이 하나 늘 때마다 도는 각도가 −72°, −144°, −216°, −288°로 <strong>일정하게 커집니다</strong> — 이게 "주파수가 미끄러진다"는 말의 정확한 뜻입니다.</p>
+
+  <!-- 유도: 순환 자기상관 R(l) = Σ_m x(m)·x*((m+l) mod N)
+       N=5, q=1 에서 계산하면 R = [5, 0, 0, 0, 0] — 지연 0에서만 5이고 나머지는 정확히 0
+       다른 근끼리의 상호상관 |Σ x_1(m)·x_2*(m)| = √N (N이 소수이고 두 근이 다를 때)
+         N=5   → √5 = 2.236,  정규화 1/√5 = 0.447 → -6.99 dB
+         N=839 → √839 = 28.97, 정규화 1/√839      → -29.24 dB  (08의 게시값과 같다) -->
+  <div class="stats">
+    <div><span class="n">5</span><span class="t">지연 0의 자기상관 · 곧 N</span></div>
+    <div><span class="n">0</span><span class="t">나머지 모든 지연에서 · 정확히 0</span></div>
+    <div><span class="n">0.447</span><span class="t">다른 근과의 상호상관 · 1/√5</span></div>
+    <div><span class="n">−6.99</span><span class="t">그 값을 dB로 · N이 크면 더 작아진다</span></div>
+  </div>
+  <p class="caption">자기상관이 <strong>지연 0에서만 솟고 나머지에서 정확히 0</strong>이라 지연을 재기 좋습니다. <a href="../08-random-access/index.html">08에서 N = 839의 상호상관을 −29.24 dB</a>로 계산했는데, 같은 1/√N 규칙입니다 — 랜덤 액세스와 채널 측정이 <strong>같은 성질을 서로 다른 목적으로</strong> 쓰고 있습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>어느 축을 따라 훑는가</h2>
+  <p>휘파람을 <strong>시간을 따라</strong> 미끄러뜨릴 수도 있고, <strong>주파수를 따라</strong> 미끄러뜨릴 수도 있습니다. ZC 값을 시간 표본에 넣느냐 부반송파에 넣느냐의 차이입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1180 360" role="img" aria-labelledby="t2 d2">
+      <title id="t2">시간영역 ZC와 주파수영역 ZC의 생성 경로 차이</title>
+      <desc id="d2">위쪽은 시간영역 방식으로, 자도프-추 값이 곧바로 시간 표본이 된다. 스펙트럼은 계산 결과로 따라 나오며 부반송파 격자에 저절로 맞지는 않는다. 아래쪽은 주파수영역 방식으로, 자도프-추 값을 부반송파에 얹고 역푸리에 변환을 거쳐 시간 파형을 만든다. 이 경우 어느 부반송파를 쓸지 골라서 대역폭과 위치를 정할 수 있다. 5G NR의 SRS는 아래쪽 방식이며, PRACH는 시퀀스를 위쪽처럼 정의한 뒤 푸리에 변환을 한 번 거쳐 아래쪽으로 합류한다.</desc>
+
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-soft)"/>
+        </marker>
+        <marker id="arU" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ul)"/>
+        </marker>
+      </defs>
+
+      <!-- ===== 시간영역 방식 (NR SRS가 쓰지 않는 쪽) ===== -->
+      <text x="8" y="46" class="rowlab" fill="var(--ink-soft)">시간영역 ZC</text>
+      <text x="8" y="64" class="dimlab" fill="var(--ink-soft)">NR SRS는 이 길이 아니다</text>
+
+      <rect x="248" y="30" width="180" height="52" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="338" y="52" text-anchor="middle" class="celllab" fill="var(--ink-soft)">ZC 값</text>
+      <text x="338" y="70" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">= 시간 표본 그 자체</text>
+      <line x1="436" y1="56" x2="470" y2="56" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+      <rect x="478" y="30" width="180" height="52" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="568" y="52" text-anchor="middle" class="celllab" fill="var(--ink-soft)">시간 파형</text>
+      <text x="568" y="70" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">표본마다 크기가 1</text>
+      <line x1="666" y1="56" x2="700" y2="56" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+      <rect x="708" y="30" width="200" height="52" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <text x="808" y="52" text-anchor="middle" class="celllab" fill="var(--ink-soft)">스펙트럼</text>
+      <text x="808" y="70" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">결과로 따라 나온다</text>
+
+      <text x="930" y="52" class="dimlab" fill="var(--alert)" text-anchor="start">부반송파 격자에</text>
+      <text x="930" y="70" class="dimlab" fill="var(--alert)" text-anchor="start">저절로 맞지 않는다</text>
+
+      <line x1="8" y1="112" x2="1172" y2="112" stroke="var(--hair)" stroke-width="1"/>
+
+      <!-- ===== 주파수영역 방식 (NR SRS) ===== -->
+      <text x="8" y="180" class="rowlab" fill="var(--ul)">주파수영역 ZC</text>
+      <text x="8" y="198" class="dimlab" fill="var(--ul)">← NR SRS는 이 길이다</text>
+
+      <rect x="248" y="164" width="180" height="52" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="2.2"/>
+      <text x="338" y="186" text-anchor="middle" class="celllab" fill="var(--ul)">ZC 값</text>
+      <text x="338" y="204" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">= 부반송파 값 그 자체</text>
+      <line x1="436" y1="190" x2="470" y2="190" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#arU)"/>
+
+      <rect x="478" y="164" width="180" height="52" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.5"/>
+      <text x="568" y="186" text-anchor="middle" class="celllab" fill="var(--ul)">부반송파에 매핑</text>
+      <text x="568" y="204" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">콤 · 대역폭 선택</text>
+      <line x1="666" y1="190" x2="700" y2="190" stroke="var(--ul)" stroke-width="1.4" marker-end="url(#arU)"/>
+
+      <rect x="708" y="164" width="200" height="52" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.5"/>
+      <text x="808" y="186" text-anchor="middle" class="celllab" fill="var(--ul)">IFFT → 시간 파형</text>
+      <text x="808" y="204" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">표본 위에서 일정</text>
+
+      <text x="930" y="186" class="dimlab" fill="var(--ul)" text-anchor="start">격자에 맞는다 ·</text>
+      <text x="930" y="204" class="dimlab" fill="var(--ul)" text-anchor="start">대역을 고를 수 있다</text>
+
+      <!-- PRACH 합류 -->
+      <rect x="8" y="272" width="220" height="52" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.5"/>
+      <text x="118" y="294" text-anchor="middle" class="celllab" fill="var(--ink-soft)">NR PRACH의 ZC</text>
+      <text x="118" y="312" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">시간영역으로 정의</text>
+      <line x1="236" y1="298" x2="270" y2="298" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+      <rect x="278" y="272" width="150" height="52" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.5"/>
+      <text x="353" y="294" text-anchor="middle" class="celllab" fill="var(--ink-soft)">DFT 한 번</text>
+      <text x="353" y="312" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">§6.3.3.2</text>
+
+      <path d="M428 298 L455 298 L455 232" fill="none" stroke="var(--ink-soft)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="470" y="300" class="dimlab" fill="var(--ink-soft)" text-anchor="start">→ 결국 같은 자리로 합류한다. ZC의 DFT는 다시 ZC이므로 부반송파에는 어차피 ZC가 올라간다.</text>
+      <text x="470" y="318" class="dimlab" fill="var(--ink-soft)" text-anchor="start">달라지는 것은 <tspan font-weight="600">순환 시프트를 어느 쪽에 걸었느냐</tspan>다.</text>
+    </svg>
+  </div>
+  <p class="caption">가로 위치는 처리 순서일 뿐입니다. 점선 윤곽은 <strong>NR SRS가 쓰지 않는 경로</strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>두 방식의 차이 · 결국 부반송파에는 둘 다 ZC가 올라간다</caption>
+    <thead><tr><th>보는 항목</th><th>시간영역 ZC</th><th>주파수영역 ZC — <strong>NR SRS</strong></th></tr></thead>
+    <tbody>
+      <tr><td>ZC 값이 놓이는 곳</td><td>시간 표본</td><td><strong>부반송파</strong></td></tr>
+      <tr><td>정확히 평평한 쪽</td><td>시간 크기</td><td><strong>주파수 크기</strong></td></tr>
+      <tr><td>반대쪽은?</td><td colspan="2" style="text-align:center"><strong>표본 위에서는 정확히 평평하다 — ZC의 DFT가 다시 ZC이기 때문</strong><br><span class="src">표본 사이는 어느 시퀀스든 출렁인다. ZC는 그 봉우리가 낮다</span></td></tr>
+      <tr><td>부반송파 격자 정렬</td><td>저절로는 안 맞는다</td><td><strong>정의상 맞는다</strong></td></tr>
+      <tr><td>대역폭·위치 고르기</td><td>어렵다</td><td><strong>쓸 부반송파를 고르면 끝</strong></td></tr>
+      <tr><td>다중화 수단</td><td>시퀀스 색인을 돌린다</td><td><strong>위상 램프 + 콤</strong></td></tr>
+      <tr><td>NR에서 쓰는 곳</td><td>PRACH 시퀀스 <em>정의</em> <span class="src">§6.3.3.1</span></td><td>SRS · PUCCH 0/1 · DFT-s-OFDM DMRS <span class="src">§5.2.2</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- 유도: ZC의 DFT는 다시 ZC다.
+       DFT(x_q) = 상수 · (순환 시프트된) x_q'  이고  q' = −q⁻¹ mod N
+       N=5,7,11,31 의 모든 근 q에 대해 수치로 확인함 (verify-numbers.py check_zc)
+         N=5:  q=1→q'=4 · q=2→q'=2 · q=3→q'=3 · q=4→q'=1
+         N=31: q=1→q'=30 · q=2→q'=15 · q=3→q'=10 · ...
+       q=1 일 때만 시프트가 0이고 나머지 근은 시프트도 함께 붙는다. -->
+  <div class="note">
+    <strong>ZC는 사실상 자기 자신의 푸리에 변환입니다.</strong>
+    길이가 소수인 ZC를 DFT하면 <strong>또 다른 ZC</strong>가 나옵니다 —
+    근이 q였다면 나오는 근은 <strong>q′ = −q⁻¹ (mod N)</strong>입니다(순환 시프트와 상수 위상이 함께 붙습니다).
+    N = 5에서 q = 1 → q′ = 4, N = 31에서 q = 1 → q′ = 30 인 식입니다.
+    <br><br>
+    이것이 ZC가 선택된 <strong>진짜 이유</strong>입니다. 보통은 한쪽을 평평하게 만들면 다른 쪽이 뾰족해지는데,
+    ZC는 <strong>양쪽이 같은 모양</strong>이라 어느 쪽에서 봐도 평평합니다.
+    앞에서 본 두 요구가 충돌하지 않는 드문 자리가 여기입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>파형으로 확인하기</h2>
+  <p>말로만 하면 안 믿기니 직접 봅니다. <strong>같은 부반송파에 ZC를 얹었을 때와 아무 QPSK나 얹었을 때</strong>를 나란히 그립니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 420" role="img" aria-labelledby="t3 d3">
+      <title id="t3">부반송파에 얹은 값과 그것이 만드는 시간 파형</title>
+      <desc id="d3">위 칸은 부반송파마다의 크기로, 자도프-추든 무작위 QPSK든 모두 1로 평평하다. 아래 칸은 그 값들이 역푸리에 변환을 거쳐 만들어 내는 시간 파형의 포락선이다. 자도프-추일 때는 포락선이 거의 평평하지만 무작위 QPSK일 때는 봉우리가 크게 솟는다. 주파수 쪽이 평평하다고 시간 쪽이 평평해지지는 않는다는 것을 보여준다.</desc>
+      <g id="wvGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="wvLen">M<sub>ZC</sub></label>
+    <input type="range" id="wvLen" min="0" max="6" step="1" value="3" aria-describedby="wvOut">
+    <span class="segmented" id="wvKind" role="group" aria-label="시퀀스 종류 선택"></span>
+    <span class="readout" id="wvOut"></span>
+  </div>
+
+  <div class="verdict" id="wvBox">
+    <span class="tag" id="wvTag"></span>
+    <span class="why" id="wvWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="wvPapr">—</span><span class="t">PAPR [dB] · 4배 과표본</span></div>
+    <div><span class="n" id="wvFlat">—</span><span class="t">시간 크기 최대÷최소</span></div>
+    <div><span class="n" id="wvSide">—</span><span class="t">자기상관 최대 부엽 [dB]</span></div>
+    <div><span class="n" id="wvNzc">—</span><span class="t">N<sub>ZC</sub> · 순환 확장 칸수</span></div>
+  </div>
+  <p class="caption">아래 칸의 <strong>진한 점이 표본 위의 값</strong>이고 연한 선은 그 사이를 4배로 들여다본 것입니다. 통계의 <strong>평탄도는 점에서</strong>, <strong>PAPR은 선에서</strong> 쟀습니다 — 표본 위에서만 재면 소수 길이 ZC는 정확히 0.00 dB가 나오는데, 실제 증폭기가 겪는 것은 표본 사이의 봉우리이기 때문입니다. 무작위 QPSK는 <strong>고정 시드</strong>로 뽑으므로 길이를 바꾸지 않는 한 같은 값이 나옵니다.</p>
+
+  <!-- 유도: 부반송파에 얹은 시퀀스 → IDFT → 시간 파형
+       소수 길이 ZC(순환 확장 없음)의 경우
+         시간 크기가 정확히 1/√N 로 전부 같다 (N=5 → 0.4472)
+         PAPR: 과표본 1배 0.0000 dB · 4배 2.59 dB(N=31) / 2.55 dB(N=47)
+       무작위 QPSK (seed 20260819, 40회 평균, 4배 과표본)
+         N=31 6.94 dB · N=47 7.09 dB · N=71 7.45 dB
+       ※ 과표본은 M칸을 M·4칸 격자의 앞쪽에 그대로 얹어서 잰다.
+         시퀀스를 회전시켜 얹으면(음의 주파수 쪽으로 감으면) 무작위 쪽 값이 달라진다 —
+         규격은 순서를 지켜 연속 부반송파에 올리므로 회전 없는 쪽이 맞다.
+       → 주파수 크기는 양쪽 다 1로 평평한데 시간 쪽은 ZC만 평평하다 -->
+  <div class="note">
+    <strong>주파수가 평평한 것만으로는 부족합니다.</strong> 무작위 QPSK도 부반송파마다 크기가 1이라
+    <strong>위 칸은 똑같이 평평합니다.</strong> 그런데 아래 칸은 전혀 다릅니다 —
+    N = 31에서 ZC가 <strong>2.59 dB</strong>인 데 비해 무작위 QPSK는 평균 <strong>6.94 dB</strong>입니다.
+    <a href="../13-uplink-physical-layer/index.html">13에서 CP-OFDM의 PAPR을 7.71 dB</a>로 쟀던 것과 같은 이야기입니다.
+    <br><br>
+    <strong>정확히 무엇이 평평한지는 짚어 둘 필요가 있습니다.</strong> 아래 칸의 <strong>점</strong>(표본 위의 값)이
+    ZC에서는 <strong>한 줄로 늘어서지만</strong> 무작위 QPSK에서는 흩어집니다 — 이게 증명되는 성질입니다.
+    <strong>표본 사이</strong>를 잇는 연한 선은 어느 시퀀스든 출렁이며, ZC라고 해서 직선이 되지는 않습니다.
+    증폭기가 겪는 것은 그 출렁임의 <strong>봉우리 높이</strong>이고, 그 값이 PAPR입니다.
+  </div>
+
+  <!-- 유도: 순환 확장이 완벽함을 깨뜨리는 정도 (M_ZC, N_ZC, 확장칸수 → 시간평탄도/PAPR(4배)/최대부엽)
+         36  ← 31  (5칸, 13.9%)  3.92배  4.46 dB  -14.9 dB
+         48  ← 47  (1칸,  2.1%)  1.14배  2.59 dB  -33.6 dB
+         72  ← 71  (1칸,  1.4%)  1.11배  2.66 dB  -37.1 dB
+         96  ← 89  (7칸,  7.3%)  3.30배  4.04 dB  -20.6 dB
+        144  ← 139 (5칸,  3.5%)  1.61배  3.14 dB  -28.5 dB
+       3276  ← 3271(5칸, 0.15%)  1.08배  2.65 dB  -56.3 dB
+       → 망가지는 정도는 확장 칸수가 아니라 '확장 비율'을 따라간다 -->
+  <div class="note">
+    <strong>길이를 줄여 보면 ZC도 흔들립니다.</strong> 규격은 소수 길이 ZC를
+    <strong>필요한 길이만큼 앞부분을 덧붙여</strong> 늘려 쓰는데(순환 확장), 이 덧붙임이
+    완벽한 성질을 깨뜨립니다. 그리고 <strong>망가지는 정도는 덧붙인 칸수가 아니라 비율을 따라갑니다</strong> —
+    M<sub>ZC</sub> = 36은 5칸(13.9%)을 덧붙여 부엽이 −14.9 dB까지 올라오는 반면,
+    M<sub>ZC</sub> = 3276도 5칸을 덧붙이지만 그건 0.15%라 −56.3 dB로 멀쩡합니다.
+    <strong>짧을수록 불리합니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>그래서 짧은 것은 ZC를 안 쓴다</h2>
+  <p>규격은 어느 길이 아래로는 <strong>ZC를 아예 포기하고</strong> 미리 계산해 넣어 둔 표를 씁니다. 그 경계가 <strong>M<sub>ZC</sub> = 36</strong>, 즉 3 RB입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>기저 시퀀스를 어떻게 만드는가 · TS 38.211 §5.2.2</caption>
+    <thead><tr><th>길이</th><th>만드는 법</th></tr></thead>
+    <tbody>
+      <tr><td>M<sub>ZC</sub> ≥ 36 <span class="src">3 RB 이상</span></td><td><strong>ZC</strong> — 소수 길이 N<sub>ZC</sub>를 순환 확장 <span class="src">§5.2.2.1</span></td></tr>
+      <tr><td>M<sub>ZC</sub> &lt; 36 <span class="src">6·12·18·24·30</span></td><td><strong>표(φ)에서 찾아 쓴다</strong> — 계산으로 최적화해 넣어 둔 값 <span class="src">§5.2.2.2</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>이유는 <strong>품질이 아니라 개수</strong>입니다. 위 인터랙션에서 M<sub>ZC</sub> = 24를 골라 보면 파형은 오히려 멀쩡합니다 — 그런데도 규격은 그 길이에서 ZC를 안 씁니다.</p>
+
+  <!-- 유도: 규격은 기저 시퀀스를 30개 그룹(u = 0…29)으로 나눈다.
+       길이 N_ZC인 ZC에서 쓸 수 있는 근은 gcd(q,N_ZC)=1 인 q, 즉 N_ZC가 소수면 N_ZC−1개.
+       규격이 쓰는 짧은 길이들의 N_ZC와 근 개수:
+         M_ZC  6 → N_ZC  5 → 근  4개
+         M_ZC 12 → N_ZC 11 → 근 10개
+         M_ZC 18 → N_ZC 17 → 근 16개
+         M_ZC 24 → N_ZC 23 → 근 22개
+         M_ZC 30 → N_ZC 29 → 근 28개
+         M_ZC 36 → N_ZC 31 → 근 30개  ← 처음으로 30에 닿는다
+       즉 36은 ZC가 30개 그룹을 처음으로 채울 수 있게 되는 길이다. -->
+  <div class="table-scroll">
+  <table>
+    <caption>ZC가 만들 수 있는 근의 개수 · 규격은 30개 그룹을 요구한다</caption>
+    <thead><tr><th class="num">M<sub>ZC</sub></th><th class="num">N<sub>ZC</sub></th><th class="num">쓸 수 있는 근</th><th class="num">부엽 [dB]</th><th>30개를 채우는가</th></tr></thead>
+    <tbody>
+      <tr><td class="num">6</td><td class="num">5</td><td class="num">4</td><td class="num">—</td><td>아니오</td></tr>
+      <tr><td class="num">12</td><td class="num">11</td><td class="num">10</td><td class="num">−21.6</td><td>아니오</td></tr>
+      <tr><td class="num">18</td><td class="num">17</td><td class="num">16</td><td class="num">—</td><td>아니오</td></tr>
+      <tr><td class="num">24</td><td class="num">23</td><td class="num">22</td><td class="num">−27.6</td><td>아니오 — <strong>부엽은 36보다 좋은데도</strong></td></tr>
+      <tr><td class="num">30</td><td class="num">29</td><td class="num">28</td><td class="num">—</td><td>아니오 · 두 개 모자란다</td></tr>
+      <tr><td class="num">36</td><td class="num">31</td><td class="num">30</td><td class="num">−14.9</td><td><strong>예 — 딱 맞는다</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>경계가 36인 이유가 여기 있습니다.</strong> 길이 N<sub>ZC</sub>인 ZC가 만들 수 있는 근은
+    <strong>N<sub>ZC</sub> − 1개</strong>뿐인데, 규격은 기저 시퀀스를 <strong>30개 그룹</strong>으로 나눠야 합니다.
+    규격이 쓰는 짧은 길이 6·12·18·24·30은 근이 각각 4·10·16·22·28개로 <strong>전부 모자랍니다.</strong>
+    M<sub>ZC</sub> = 36에서 N<sub>ZC</sub> = 31이 되어 <strong>근이 정확히 30개</strong> —
+    필요한 최소치에 처음으로 닿습니다.
+    <br><br>
+    <strong>품질 때문이 아닙니다.</strong> M<sub>ZC</sub> = 24는 부엽이 −27.6 dB로
+    오히려 36(−14.9 dB)보다 좋습니다. 짧은 길이에서 ZC를 버리는 것은
+    <strong>잘 안 되어서가 아니라 가짓수가 안 나와서</strong>입니다.
+  </div>
+
+  <!-- 유도: 순환 확장이 완벽함을 깨뜨리는 정도
+       (M_ZC, N_ZC, 확장칸수, 확장비율 → 임계표본 평탄도 / PAPR(4배) / 최대부엽)
+         36  ← 31  (5칸, 13.9%)  3.92배  4.46 dB  -14.9 dB
+         48  ← 47  (1칸,  2.1%)  1.14배  2.59 dB  -33.6 dB
+         72  ← 71  (1칸,  1.4%)  1.11배  2.66 dB  -37.1 dB
+         96  ← 89  (7칸,  7.3%)  3.30배  4.04 dB  -20.6 dB
+        144  ← 139 (5칸,  3.5%)  1.61배  3.14 dB  -28.5 dB
+       3276  ← 3271(5칸, 0.15%)  1.08배  2.65 dB  -56.3 dB
+       → 길이가 아니라 '확장 비율'이 품질을 가른다.
+         36과 3276은 똑같이 5칸을 덧붙이지만 13.9% 대 0.15%라 부엽이 40 dB 넘게 차이난다. -->
+  <h3>길이가 길다고 좋아지지는 않는다</h3>
+  <p>ZC를 쓰는 구간 안에서도 품질이 들쭉날쭉합니다. 규격이 정한 것은 <strong>"M<sub>ZC</sub>보다 작은 가장 큰 소수를 쓴다"</strong>는 규칙 하나뿐이고, 나머지는 <strong>소수가 어디 있느냐</strong>에 맡겨져 있기 때문입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>M<sub>ZC</sub>에 따른 N<sub>ZC</sub>와 품질 · 확장 비율이 클수록 나빠진다</caption>
+    <thead><tr><th class="num">RB</th><th class="num">콤</th><th class="num">M<sub>ZC</sub></th><th class="num">N<sub>ZC</sub></th><th class="num">확장</th><th class="num">비율</th><th class="num">부엽 [dB]</th></tr></thead>
+    <tbody>
+      <tr><td class="num">3</td><td class="num">1</td><td class="num">36</td><td class="num">31</td><td class="num">5</td><td class="num">13.9%</td><td class="num">−14.9</td></tr>
+      <tr><td class="num">8</td><td class="num">2</td><td class="num">48</td><td class="num">47</td><td class="num">1</td><td class="num">2.1%</td><td class="num">−33.6</td></tr>
+      <tr><td class="num">6</td><td class="num">1</td><td class="num">72</td><td class="num">71</td><td class="num">1</td><td class="num">1.4%</td><td class="num">−37.1</td></tr>
+      <tr><td class="num">16</td><td class="num">2</td><td class="num">96</td><td class="num">89</td><td class="num">7</td><td class="num">7.3%</td><td class="num">−20.6</td></tr>
+      <tr><td class="num">24</td><td class="num">2</td><td class="num">144</td><td class="num">139</td><td class="num">5</td><td class="num">3.5%</td><td class="num">−28.5</td></tr>
+      <tr><td class="num">273</td><td class="num">1</td><td class="num">3276</td><td class="num">3271</td><td class="num">5</td><td class="num">0.15%</td><td class="num">−56.3</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>망가지는 정도는 덧붙인 칸수가 아니라 비율을 따라갑니다.</strong>
+    M<sub>ZC</sub> = 36과 M<sub>ZC</sub> = 3276은 <strong>똑같이 5칸</strong>을 덧붙이지만,
+    13.9% 대 0.15%라 부엽이 −14.9 dB와 −56.3 dB로 <strong>40 dB 넘게</strong> 벌어집니다.
+    <br><br>
+    그래서 <strong>96(16 RB)이 48(8 RB)보다 길면서도 부엽이 나쁩니다</strong>(−20.6 vs −33.6 dB) —
+    48은 바로 아래에 47이 있어 1칸만 덧붙이면 되는데, 96은 가장 가까운 소수가 89라
+    7칸을 덧붙여야 하기 때문입니다. <strong>대역을 넓게 잡는다고 측정이 좋아지지는 않습니다.</strong>
+  </div>
+
+  <!-- 유도: 그룹 u → 근 q  (TS 38.211 §5.2.2.1)
+       q̄ = N_ZC·(u+1)/31,  q = ⌊q̄ + 1/2⌋ + v·(−1)^⌊2q̄⌋,  u ∈ {0..29}
+       N_ZC = 31 · v = 0 이면 q = u+1 → 근이 1,2,...,30
+         = 31과 서로소인 모든 근을 정확히 한 번씩 쓴다 (근이 딱 30개뿐이므로 당연하다)
+       N_ZC = 47 → 근 2,3,5,6,8,9,11,12,... (30개 모두 서로 다르고 gcd(q,N)=1)
+       v는 M_ZC ≥ 72 일 때만 0/1 두 값을 갖는다 -->
+  <div class="note">
+    <strong>근을 30개 그룹에 어떻게 배정하는가.</strong> 셀마다 다른 시퀀스를 써야 이웃 셀과 안 섞입니다.
+    규격은 <strong>q̄ = N<sub>ZC</sub>(u+1)/31</strong>로 그룹 u에 근을 하나씩 배정합니다.
+    N<sub>ZC</sub> = 31일 때는 이게 정확히 <strong>근 1부터 30까지</strong>가 되는데,
+    앞에서 본 대로 <strong>그 길이에는 근이 딱 30개뿐이라</strong> 달리 고를 여지가 없습니다.
+    N<sub>ZC</sub>가 커지면 근이 남아돌고, 규격은 그중 <strong>고르게 흩어진 30개</strong>를 뽑습니다.
+    길이가 72 이상이면 그룹마다 기저 시퀀스를 <strong>두 개(v = 0, 1)</strong>까지 둡니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>순환 시프트는 위상 램프다</h2>
+  <p>여러 단말이 <strong>같은 부반송파에</strong> 동시에 SRS를 쏘게 하려면 서로 구분이 돼야 합니다. 주파수영역 방식에서 그 수단이 <strong>위상 램프</strong>입니다.</p>
+
+  <div class="note">
+    <strong>r(n) = e<sup>jαn</sup> · r̄(n)</strong>, &nbsp; α = 2π·n<sub>cs</sub>/n<sub>cs</sub><sup>max</sup>
+    &nbsp;&nbsp; <span class="src">TS 38.211 §5.2.2 · 부반송파 번호 n에 비례하는 위상을 곱한다</span>
+  </div>
+
+  <p>부반송파 번호에 <strong>비례하는 위상</strong>을 곱하면, 시간 쪽에서는 파형이 <strong>통째로 밀립니다.</strong> 푸리에 변환의 성질입니다 — 한쪽의 곱셈이 다른 쪽의 이동이 됩니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 380" role="img" aria-labelledby="t4 d4">
+      <title id="t4">주파수 쪽 위상 램프가 시간 쪽 순환 이동으로 나타난다</title>
+      <desc id="d4">위 칸은 부반송파마다 곱해지는 위상으로, 부반송파 번호에 비례해 직선으로 기울어져 있다. 기울기를 키우면 직선이 더 가팔라진다. 아래 칸은 그 결과로 만들어지는 시간 파형으로, 원래 위치를 점선으로 두고 실선이 옆으로 밀려 간다. 밀린 양은 위 칸 직선의 기울기에 정비례한다. 여러 단말이 서로 다른 기울기를 쓰면 같은 부반송파를 쓰면서도 시간 위에서 떨어져 앉는다.</desc>
+      <g id="csGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="csShift">n<sub>cs</sub></label>
+    <input type="range" id="csShift" min="0" max="7" step="1" value="2" aria-describedby="csOut">
+    <span class="segmented" id="csComb" role="group" aria-label="콤 선택"></span>
+    <span class="readout" id="csOut"></span>
+  </div>
+
+  <div class="verdict" id="csBox">
+    <span class="tag" id="csTag"></span>
+    <span class="why" id="csWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="csStep">—</span><span class="t">시프트 한 칸 [μs] · 30 kHz</span></div>
+    <div><span class="n" id="csDist">—</span><span class="t">그때 견디는 지연 [m] · 편도</span></div>
+    <div><span class="n" id="csCap">—</span><span class="t">같은 심볼에 앉는 포트 수</span></div>
+    <div><span class="n" id="csCp">—</span><span class="t">일반 CP 대비 배수</span></div>
+  </div>
+
+  <!-- 유도: 순환 시프트 한 칸이 몇 μs인가
+       콤 K_TC로 K칸마다 부반송파를 쓰면 시간 파형이 1/(K·Δf) 주기로 반복된다.
+       그 한 주기를 n_cs,max 등분한 것이 시프트 한 칸.
+         30 kHz · 콤2 · n_cs,max 8  → 주기 16.667 μs → 한 칸 2.083 μs → 편도 624.6 m
+         30 kHz · 콤4 · n_cs,max 12 → 주기  8.333 μs → 한 칸 0.694 μs → 편도 208.2 m
+        120 kHz · 콤4 · n_cs,max 12 → 주기  2.083 μs → 한 칸 0.174 μs → 편도  52.0 m
+       03에서 검산한 30 kHz 일반 CP 2.344 μs 와 비교하면
+         콤2 한 칸 = CP의 0.889배 · 콤4 한 칸 = CP의 0.296배
+       다중화 인원 = n_cs,max × K_TC → 콤2 8×2 = 16 · 콤4 12×4 = 48 -->
+  <div class="note">
+    <strong>08의 "두 개의 벽"이 그대로 돌아옵니다.</strong>
+    <a href="../08-random-access/index.html">08에서 프리앰블의 순환 시프트 간격</a>이
+    셀 반경을 정했던 것과 같은 계산입니다. 시프트 한 칸이 견디는 지연보다
+    실제 지연 확산이 크면 <strong>옆 단말의 신호로 새어 들어갑니다.</strong>
+    <br><br>
+    30 kHz · 콤 2에서 한 칸은 <strong>2.083 μs</strong>인데,
+    <a href="../03-cyclic-prefix/index.html">03에서 계산한 같은 조건의 일반 CP가 2.344 μs</a>입니다 —
+    <strong>0.889배로 거의 같습니다.</strong> 우연이 아닙니다.
+    CP가 이미 "이 정도 지연까지는 견딘다"고 정해 둔 예산이라,
+    시프트 간격을 그보다 훨씬 크게 잡을 이유가 없습니다.
+  </div>
+
+  <!-- 유도: 콤 — 부반송파를 K칸마다 쓰면 시간 파형이 K번 반복된다
+       길이 5 ZC를 10칸 격자에 2칸 간격으로 얹고 IDFT하면
+       시간 표본 10개의 크기가 전부 0.2236(=1/(K√N))이고 앞 5개와 뒤 5개가 정확히 같다.
+       그래서 콤 오프셋 K개 × 순환 시프트 n_cs,max개 만큼 포트를 겹쳐 앉힐 수 있다. -->
+  <div class="note">
+    <strong>콤은 두 번째 다중화 축입니다.</strong> 부반송파를 <strong>K칸마다 하나씩</strong> 쓰면
+    (콤, comb) 시간 파형이 <strong>K번 반복</strong>됩니다. 그러면 옆 단말은
+    <strong>한 칸 옆 부반송파</strong>를 쓰면 됩니다 — 아예 겹치지 않으므로 완전히 갈라집니다.
+    순환 시프트(같은 부반송파, 다른 시간 위치)와 콤 오프셋(다른 부반송파)을 곱하면
+    <strong>콤 2에서 16개, 콤 4에서 48개</strong>의 포트가 같은 심볼에 앉습니다.
+    <br><br>
+    대신 콤을 촘촘히 할수록 <strong>반복 주기가 짧아져</strong> 시프트 한 칸이 좁아집니다.
+    콤 4는 인원이 세 배지만 견디는 지연은 <strong>3분의 1</strong>입니다 — 늘 그렇듯 공짜가 아닙니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>5G NR의 SRS는 주파수영역 ZC입니다.</strong> 시퀀스 값이 그대로 부반송파 값이 되고 시간 파형은 IFFT가 만듭니다. 같은 규격의 PRACH는 시간영역으로 정의한 뒤 DFT를 거치지만, <strong>ZC의 DFT는 다시 ZC</strong>라서 부반송파에는 어느 쪽이든 ZC가 올라갑니다 — 진짜 차이는 <strong>격자 정렬과 시프트를 거는 위치</strong>입니다.</li>
+    <li><strong>ZC가 뽑힌 이유는 양쪽이 동시에 평평하기 때문입니다.</strong> 처프라서 모든 음을 한 번씩 지나가고(주파수 쪽 크기가 1), 소리 크기가 내내 일정합니다(<strong>표본 위에서</strong> 시간 쪽 크기도 일정). 무작위 QPSK는 주파수만 평평하고 시간은 6.94 dB로 솟습니다.</li>
+    <li><strong>완벽하지는 않습니다.</strong> 소수 길이를 늘려 쓰는 순환 확장이 성질을 깨뜨리고, 그 정도는 <strong>확장 비율</strong>을 따라갑니다 — 그래서 36 미만에서는 규격이 ZC를 버리고 표를 씁니다. 96 RE가 48 RE보다 부엽이 나쁜 것도 <strong>소수가 어디 있느냐</strong>의 문제입니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../14-oran-fronthaul-split/index.html">← 14 O-RAN 프론트홀 분할</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+  /* 음수 부호는 U+2212를 쓴다 — ASCII 하이픈은 숫자 옆에서 너무 짧다 */
+  function neg(v,d){ return (v<0?'−':'')+Math.abs(v).toFixed(d); }
+
+  /* ---------- 복소수 도구 ---------- */
+  function zcSeq(M,q){                    /* §5.2.2.1: 소수 N_ZC를 M칸으로 순환 확장 */
+    var N=largestPrimeBelow(M), s=[];
+    for(var m=0;m<M;m++){
+      var i=m%N, ph=-Math.PI*q*i*(i+1)/N;
+      s.push([Math.cos(ph),Math.sin(ph)]);
+    }
+    return {seq:s,N:N};
+  }
+  function largestPrimeBelow(n){
+    for(var k=n-1;k>1;k--){
+      var p=true;
+      for(var d=2;d*d<=k;d++) if(k%d===0){p=false;break;}
+      if(p) return k;
+    }
+    return 2;
+  }
+  /* 고정 시드 난수 — 길이를 바꾸지 않는 한 같은 값이 나온다 */
+  function lcg(seed){ var s=(seed*2654435761)>>>0;
+    return function(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+  function qpskSeq(M){
+    var r=lcg(20260819), s=[];
+    for(var m=0;m<M;m++){
+      var ph=Math.PI*(2*Math.floor(r()*4)+1)/4;
+      s.push([Math.cos(ph),Math.sin(ph)]);
+    }
+    return s;
+  }
+  /* 부반송파 값 → 과표본 시간 파형. 부반송파는 0..M-1을 그대로 쓰고
+     과표본은 뒤쪽을 0으로 채워(제로 패딩) 표본 사이를 들여다본다. */
+  function timeWave(X,over){
+    var M=X.length, L=M*over, out=[];
+    for(var m=0;m<L;m++){
+      var re=0,im=0;
+      for(var k=0;k<M;k++){
+        var a=2*Math.PI*m*k/L, c=Math.cos(a), s=Math.sin(a);
+        re+=X[k][0]*c-X[k][1]*s; im+=X[k][0]*s+X[k][1]*c;
+      }
+      out.push(Math.sqrt(re*re+im*im)/M);
+    }
+    return out;
+  }
+  function paprDb(amp){
+    var p=amp.map(function(v){return v*v;});
+    var avg=p.reduce(function(a,b){return a+b;},0)/p.length;
+    return 10*Math.log10(Math.max.apply(null,p)/avg);
+  }
+  function maxSidelobe(X){                /* 순환 자기상관의 최대 부엽 (0 지연 제외) */
+    var M=X.length, worst=0;
+    for(var l=1;l<M;l++){
+      var re=0,im=0;
+      for(var m=0;m<M;m++){
+        var a=X[m], b=X[(m+l)%M];
+        re+=a[0]*b[0]+a[1]*b[1]; im+=a[1]*b[0]-a[0]*b[1];
+      }
+      worst=Math.max(worst,Math.sqrt(re*re+im*im)/M);
+    }
+    return worst;
+  }
+
+  /* ============ 1. N=5 위상 (정적) ============ */
+  (function(){
+    var G=document.getElementById('zcPhase');
+    var N=5,q=1,ph=[],deg=[];
+    for(var m=0;m<N;m++){
+      var p=-Math.PI*q*m*(m+1)/N;
+      ph.push(p);
+      var d=p*180/Math.PI; while(d<=-180)d+=360; while(d>180)d-=360;
+      deg.push(d);
+    }
+    /* --- 왼쪽: 단위원 --- */
+    var CX=200, CY=150, R=96;
+    G.appendChild(el('circle',{cx:CX,cy:CY,r:R,fill:'none',stroke:'var(--hair)','stroke-width':1.4}));
+    G.appendChild(el('line',{x1:CX-R-14,y1:CY,x2:CX+R+14,y2:CY,stroke:'var(--hair)','stroke-width':1}));
+    G.appendChild(el('line',{x1:CX,y1:CY-R-14,x2:CX,y2:CY+R+14,stroke:'var(--hair)','stroke-width':1}));
+    G.appendChild(txt(CX,26,'단위원 위의 다섯 값','celllab','var(--ul)'));
+    G.appendChild(txt(CX,298,'길이는 전부 1 · 각도만 다르다','dimlab','var(--ink-soft)'));
+    /* m=1과 m=3은 값이 같아 화살표가 겹친다 — 라벨을 합쳐 쓴다 */
+    var lab={};
+    deg.forEach(function(d,m){
+      var k=d.toFixed(3);
+      lab[k]=lab[k]?lab[k]+','+m:''+m;
+    });
+    var drawn={};
+    deg.forEach(function(d,m){
+      var k=d.toFixed(3);
+      if(drawn[k]) return; drawn[k]=1;
+      var a=d*Math.PI/180;
+      var x=CX+R*Math.cos(a), y=CY-R*Math.sin(a);
+      G.appendChild(el('line',{x1:CX,y1:CY,x2:x,y2:y,stroke:'var(--ul)','stroke-width':1.8}));
+      G.appendChild(el('circle',{cx:x,cy:y,r:5,fill:'var(--ul)'}));
+      var lx=CX+(R+26)*Math.cos(a), ly=CY-(R+26)*Math.sin(a);
+      G.appendChild(txt(lx,ly+4,'m='+lab[k],'celllab','var(--ul)'));
+    });
+    /* --- 오른쪽: 위상 계단 --- */
+    var AX=470, AW=560, TOP=56, BOT=232;
+    var lo=-780, hi=60;                   /* 접지 않은 누적 위상 [도] */
+    function py(v){ return BOT-(v-lo)/(hi-lo)*(BOT-TOP); }
+    function px(m){ return AX+m/(N-1)*AW; }
+    [0,-180,-360,-540,-720].forEach(function(v){
+      G.appendChild(el('line',{x1:AX-8,y1:py(v),x2:AX+AW,y2:py(v),stroke:'var(--hair)','stroke-width':1}));
+      G.appendChild(txt(AX-16,py(v)+4,neg(v,0)+'°','dimlab','var(--ink-soft)','end'));
+    });
+    G.appendChild(txt(AX+AW/2,26,'접지 않은 위상 — 갈수록 가팔라진다','celllab','var(--ul)'));
+    var d='';
+    for(var m=0;m<N;m++){
+      var v=-180*q*m*(m+1)/N;             /* 도 단위, 접지 않음 */
+      d+=(m?' L':'M')+px(m)+' '+py(v);
+    }
+    G.appendChild(el('path',{d:d,fill:'none',stroke:'var(--ul)','stroke-width':2}));
+    for(var m2=0;m2<N;m2++){
+      var v2=-180*q*m2*(m2+1)/N;
+      G.appendChild(el('circle',{cx:px(m2),cy:py(v2),r:5,fill:'var(--ul)'}));
+      G.appendChild(txt(px(m2),BOT+22,'m='+m2,'dimlab','var(--ink-soft)'));
+      if(m2>0){
+        var step=-180*q*(2*m2)/N;         /* 한 칸 더 도는 각도 = -72·m2·2/2 */
+        G.appendChild(txt((px(m2)+px(m2-1))/2,py((v2+(-180*q*(m2-1)*m2/N))/2)-10,
+          neg(step,0)+'°','dimlab','var(--ink-soft)'));
+      }
+    }
+    G.appendChild(txt(AX+AW/2,298,'한 칸씩 더 도는 각도가 일정하게 커진다 = 주파수가 미끄러진다',
+      'dimlab','var(--ink-soft)'));
+  })();
+
+  /* ============ 2. 파형 — ZC vs 무작위 QPSK ============ */
+  var LENS=[12,24,36,48,72,96,144];
+  var KINDS=[{label:'자도프-추'},{label:'무작위 QPSK'}];
+  var kindSel=0;
+  var WG=document.getElementById('wvGrid');
+  var wvLen=document.getElementById('wvLen');
+  var syncKind=mkSeg(document.getElementById('wvKind'),KINDS,
+    function(){return kindSel;}, function(v){kindSel=v;}, function(){drawWv();});
+
+  function drawWv(){
+    var M=LENS[parseInt(wvLen.value,10)];
+    var isZc=(kindSel===0);
+    var X, NZ=null;
+    if(isZc){ var z=zcSeq(M,1); X=z.seq; NZ=z.N; } else { X=qpskSeq(M); }
+    var over=4, amp=timeWave(X,over);
+    var papr=paprDb(amp), side=maxSidelobe(X);
+    var mx=Math.max.apply(null,amp), mn=Math.min.apply(null,amp);
+    /* 평탄도는 '표본 위'에서 잰다. 과표본 파형은 표본 사이에서 0 가까이 내려가는 것이
+       당연하므로 최대÷최소가 수십 배로 나오는데, 그건 시퀀스의 성질이 아니다.
+       PAPR은 반대로 증폭기가 겪는 것이라 과표본 쪽에서 재는 게 맞다.
+       뒤쪽 0채움 과표본이라 amp[n*over]가 곧 표본값이다 — 따로 계산하지 않는다. */
+    var ampCrit=[];
+    for(var ci=0;ci<M;ci++) ampCrit.push(amp[ci*over]);
+    var cMx=Math.max.apply(null,ampCrit), cMn=Math.min.apply(null,ampCrit);
+    clear(WG);
+
+    var AX=120, AW=930;
+    /* --- 위: 부반송파 크기 --- */
+    var T0=54, TH=110;
+    WG.appendChild(txt(6,T0+TH/2,'부반송파','celllab','var(--ink-soft)','start'));
+    WG.appendChild(txt(6,T0+TH/2+18,'크기','dimlab','var(--ink-soft)','start'));
+    WG.appendChild(txt(AX+AW/2,34,'부반송파에 얹은 값의 크기 — 어느 쪽이든 1로 평평하다',
+      'celllab','var(--ink-soft)'));
+    WG.appendChild(el('line',{x1:AX,y1:T0+TH,x2:AX+AW,y2:T0+TH,stroke:'var(--hair)','stroke-width':1}));
+    WG.appendChild(el('line',{x1:AX,y1:T0,x2:AX+AW,y2:T0,stroke:'var(--hair)','stroke-width':1,'stroke-dasharray':'4 3'}));
+    WG.appendChild(txt(AX-10,T0+5,'1','dimlab','var(--ink-soft)','end'));
+    WG.appendChild(txt(AX-10,T0+TH+5,'0','dimlab','var(--ink-soft)','end'));
+    var bw=AW/M;
+    for(var k=0;k<M;k++){
+      WG.appendChild(el('rect',{x:AX+k*bw+bw*0.15,y:T0,width:Math.max(bw*0.7,0.8),height:TH,
+        fill:isZc?'var(--ul)':'var(--alert)',opacity:0.55}));
+    }
+
+    /* --- 아래: 시간 포락선 --- */
+    var B0=228, BH=120;
+    var scale=Math.max(mx,1/Math.sqrt(M)*1.2);
+    function by(v){ return B0+BH-v/scale*BH; }
+    WG.appendChild(txt(6,B0+BH/2,'시간','celllab','var(--ink-soft)','start'));
+    WG.appendChild(txt(6,B0+BH/2+18,'포락선','dimlab','var(--ink-soft)','start'));
+    WG.appendChild(txt(AX+AW/2,208,'IFFT가 만드는 시간 파형 — 점이 표본, 선이 그 사이',
+      'celllab','var(--ink-soft)'));
+    WG.appendChild(el('line',{x1:AX,y1:B0+BH,x2:AX+AW,y2:B0+BH,stroke:'var(--hair)','stroke-width':1}));
+    /* 평균선 */
+    var avg=Math.sqrt(amp.reduce(function(a,b){return a+b*b;},0)/amp.length);
+    WG.appendChild(el('line',{x1:AX,y1:by(avg),x2:AX+AW,y2:by(avg),
+      stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'5 4'}));
+    WG.appendChild(txt(AX+AW+8,by(avg)+4,'실효값','dimlab','var(--ink-soft)','start'));
+    var d='';
+    for(var n=0;n<amp.length;n++){
+      d+=(n?' L':'M')+(AX+n/(amp.length-1)*AW).toFixed(1)+' '+by(amp[n]).toFixed(1);
+    }
+    /* 표본 사이는 연하게 — 여기가 출렁이는 것은 어느 시퀀스나 마찬가지다 */
+    WG.appendChild(el('path',{d:d,fill:'none',stroke:isZc?'var(--ul)':'var(--alert)',
+      'stroke-width':1.4,opacity:0.4}));
+    /* 표본 위의 값이 이 절의 증거다 — 진하게 찍는다.
+       ZC면 점이 한 줄로 늘어서고 무작위면 흩어진다. */
+    var dotR=Math.max(1.4,Math.min(3,220/M));
+    for(var ci2=0;ci2<M;ci2++){
+      WG.appendChild(el('circle',{cx:AX+ci2*over/(amp.length-1)*AW,cy:by(ampCrit[ci2]),
+        r:dotR,fill:isZc?'var(--ul)':'var(--alert)'}));
+    }
+    /* 최고점 */
+    var pi=amp.indexOf(mx), ppx=AX+pi/(amp.length-1)*AW;
+    WG.appendChild(el('circle',{cx:ppx,cy:by(mx),r:4.5,fill:'none',
+      stroke:'var(--alert)','stroke-width':1.8}));
+    /* PAPR 글자는 곡선 위에 두면 안 읽힌다 — 칸 오른쪽 위 고정 자리에 흰 바탕을 깔고 쓴다 */
+    WG.appendChild(el('rect',{x:AX+AW-116,y:B0+2,width:116,height:18,fill:'#fff',opacity:0.88}));
+    WG.appendChild(txt(AX+AW-4,B0+15,'PAPR '+papr.toFixed(2)+' dB','celllab','var(--alert)','end'));
+    WG.appendChild(txt(AX+AW/2,B0+BH+34,
+      '가로축은 한 심볼 안의 시간 · 점은 표본 '+M+'개, 선은 4배 과표본',
+      'dimlab','var(--ink-soft)'));
+
+    /* --- 읽을거리 --- */
+    document.getElementById('wvOut').textContent='M_ZC '+M+' · '+KINDS[kindSel].label;
+    document.getElementById('wvPapr').textContent=papr.toFixed(2);
+    document.getElementById('wvFlat').textContent=(cMx/cMn).toFixed(2)+'배';
+    document.getElementById('wvSide').textContent=neg(20*Math.log10(side),1);
+    document.getElementById('wvNzc').textContent=isZc?(NZ+' · '+(M-NZ)+'칸'):'—';
+
+    var ext=isZc?(M-NZ)/M:0;
+    var roots=isZc?NZ-1:0;              /* gcd(q,N_ZC)=1 인 근의 개수 */
+    var box=document.getElementById('wvBox');
+    /* 판정은 네 갈래다. 근이 모자란 것과 확장이 큰 것은 서로 다른 문제라서 따로 말한다 —
+       M=24는 확장이 1칸(4.2%)이라 파형은 멀쩡한데도 근이 22개뿐이라 규격이 못 쓴다. */
+    var enough=isZc&&roots>=30;
+    var steady=isZc&&ext<0.05;
+    box.className='verdict '+((enough&&steady)?'ok':'bad');
+    document.getElementById('wvTag').textContent=
+      !isZc?'주파수만 평평하다'
+      :(!enough?'근이 모자란다'
+      :(steady?'양쪽 다 평평하다':'확장이 커서 흔들린다'));
+    document.getElementById('wvWhy').textContent=
+      !isZc
+        ? '부반송파 크기는 ZC와 똑같이 1로 평평한데 시간 파형은 봉우리가 '+papr.toFixed(2)
+          +' dB까지 솟습니다. 주파수를 평평하게 만드는 것만으로는 부족하다는 뜻입니다 — '
+          + '값들이 어떤 순서로 놓이느냐가 시간 파형을 정합니다.'
+        : (!enough
+          ? 'N_ZC = '+NZ+'이라 쓸 수 있는 근이 '+roots+'개뿐인데 규격은 기저 시퀀스를 '
+            + '30개 그룹으로 나눠야 합니다. 파형 자체는 PAPR '+papr.toFixed(2)
+            +' dB로 나쁘지 않은데도 규격이 이 길이에서 ZC를 못 쓰는 이유가 이것입니다 — '
+            + '품질이 아니라 개수가 모자랍니다.'
+          : (steady
+            ? 'N_ZC = '+NZ+'이라 근이 '+roots+'개로 충분하고, '+(M-NZ)+'칸('
+              +(ext*100).toFixed(1)+'%)만 덧붙여서 성질도 거의 안 깨졌습니다. PAPR '
+              +papr.toFixed(2)+' dB에 자기상관 부엽 '+neg(20*Math.log10(side),1)+' dB입니다.'
+            : '근은 '+roots+'개로 충분한데, 가장 가까운 소수가 '+NZ+'이라 '+(M-NZ)+'칸('
+              +(ext*100).toFixed(1)+'%)이나 덧붙여야 했습니다. 부엽이 '
+              +neg(20*Math.log10(side),1)+' dB까지 올라왔습니다 — '
+              + '소수가 어디 있느냐에 따라 같은 ZC라도 품질이 달라집니다.'));
+  }
+  wvLen.addEventListener('input',drawWv);
+
+  /* ============ 3. 순환 시프트 = 위상 램프 ============ */
+  var COMBS=[{label:'콤 2',k:2,max:8},{label:'콤 4',k:4,max:12}];
+  var combSel=0;
+  var CG=document.getElementById('csGrid');
+  var csShift=document.getElementById('csShift');
+  var syncComb=mkSeg(document.getElementById('csComb'),COMBS,
+    function(){return combSel;}, function(v){
+      combSel=v;
+      /* 콤에 따라 시프트 칸수가 달라진다 — 슬라이더 범위도 같이 바꾼다 */
+      csShift.max=String(COMBS[v].max-1);
+      if(+csShift.value>COMBS[v].max-1) csShift.value=String(COMBS[v].max-1);
+    }, function(){drawCs();});
+
+  var CS_SCS=30;                          /* 이 절은 30 kHz 고정 */
+  var CP30=144*64*(1/(480e3*4096))*1e6/2; /* 03에서 검산한 2.344 μs */
+
+  function drawCs(){
+    var C=COMBS[combSel], ncs=parseInt(csShift.value,10);
+    var period=1/(C.k*CS_SCS*1e3)*1e6;    /* 시간영역 반복 주기 [μs] */
+    var step=period/C.max;
+    clear(CG);
+
+    var AX=120, AW=900;
+    /* --- 위: 위상 램프 --- */
+    var T0=56, TH=120, M=24;
+    CG.appendChild(txt(6,T0+TH/2,'주파수','celllab','var(--ink-soft)','start'));
+    CG.appendChild(txt(6,T0+TH/2+18,'곱해지는 위상','dimlab','var(--ink-soft)','start'));
+    CG.appendChild(txt(AX+AW/2,34,'부반송파 번호에 비례하는 위상 — 기울기가 곧 시프트 양',
+      'celllab','var(--ink-soft)'));
+    /* ±2π가 칸 안에 들어오도록 반높이로 나눈다 — TH로 나누면 칸 밖으로 두 배 뻗는다 */
+    function ty(v){ return T0+TH/2-v/(2*Math.PI)*(TH/2); }
+    [-2*Math.PI,0,2*Math.PI].forEach(function(v,i){
+      CG.appendChild(el('line',{x1:AX,y1:ty(v),x2:AX+AW,y2:ty(v),
+        stroke:'var(--hair)','stroke-width':1}));
+      CG.appendChild(txt(AX-10,ty(v)+4,['−2π','0','+2π'][i],'dimlab','var(--ink-soft)','end'));
+    });
+    var alpha=2*Math.PI*ncs/C.max;
+    var d='';
+    for(var n=0;n<M;n++){
+      var v=alpha*n; while(v>Math.PI*2) v-=Math.PI*4;   /* 보기 좋게 접는다 */
+      d+=(n?' L':'M')+(AX+n/(M-1)*AW).toFixed(1)+' '+ty(v).toFixed(1);
+    }
+    CG.appendChild(el('path',{d:d,fill:'none',stroke:'var(--ul)','stroke-width':2}));
+    for(var n2=0;n2<M;n2++){
+      var v2=alpha*n2; while(v2>Math.PI*2) v2-=Math.PI*4;
+      CG.appendChild(el('circle',{cx:AX+n2/(M-1)*AW,cy:ty(v2),r:2.6,fill:'var(--ul)'}));
+    }
+    CG.appendChild(txt(AX+AW/2,T0+TH+22,'부반송파 번호 n →','dimlab','var(--ink-soft)'));
+
+    /* --- 아래: 시간 위치 --- */
+    var B0=248, BH=76;
+    CG.appendChild(txt(6,B0+BH/2,'시간','celllab','var(--ink-soft)','start'));
+    CG.appendChild(txt(6,B0+BH/2+18,'파형 위치','dimlab','var(--ink-soft)','start'));
+    CG.appendChild(el('rect',{x:AX,y:B0,width:AW,height:BH,fill:'none',
+      stroke:'var(--hair)','stroke-width':1}));
+    /* 콤 때문에 K번 반복되는 것을 칸으로 보인다 */
+    for(var r=1;r<C.k;r++){
+      CG.appendChild(el('line',{x1:AX+r*AW/C.k,y1:B0,x2:AX+r*AW/C.k,y2:B0+BH,
+        stroke:'var(--hair)','stroke-width':1,'stroke-dasharray':'3 3'}));
+    }
+    /* 한 반복 구간 안에서 n_cs,max 등분 */
+    var seg=AW/C.k;
+    for(var s=0;s<C.max;s++){
+      for(var rr=0;rr<C.k;rr++){
+        var x=AX+rr*seg+s*seg/C.max;
+        CG.appendChild(el('line',{x1:x,y1:B0+BH-10,x2:x,y2:B0+BH,
+          stroke:'var(--hair)','stroke-width':1}));
+      }
+    }
+    /* 기준(시프트 0)과 현재 */
+    for(var rr2=0;rr2<C.k;rr2++){
+      var x0=AX+rr2*seg+0.5*seg/C.max;
+      CG.appendChild(el('rect',{x:x0-seg/C.max*0.34,y:B0+14,width:seg/C.max*0.68,height:BH-30,
+        fill:'none',stroke:'var(--ink-soft)','stroke-width':1.4,'stroke-dasharray':'4 3'}));
+      var xc=AX+rr2*seg+(ncs+0.5)*seg/C.max;
+      CG.appendChild(el('rect',{x:xc-seg/C.max*0.34,y:B0+14,width:seg/C.max*0.68,height:BH-30,
+        fill:'var(--ul-bg)',stroke:'var(--ul)','stroke-width':1.8}));
+    }
+    /* 기준(n_cs = 0) 자리는 점선 칸이 이미 나타내므로 글자를 따로 붙이지 않는다 —
+       콤 4에서는 칸 간격이 좁아 현재 라벨과 겹친다. 대신 아래 설명에서 밝힌다. */
+    CG.appendChild(txt(Math.min(AX+(ncs+0.5)*seg/C.max,AX+AW-60),B0-10,
+      'n_cs = '+ncs,'celllab','var(--ul)'));
+    CG.appendChild(txt(AX+AW/2,B0+BH+26,
+      '점선 칸이 n_cs = 0 자리 · 한 반복 주기 '+period.toFixed(3)+' μs 를 '+C.max
+      +'칸으로 나눈다 · 콤 '+C.k+'이라 이 그림이 '+C.k+'번 되풀이된다',
+      'dimlab','var(--ink-soft)'));
+
+    /* --- 읽을거리 --- */
+    document.getElementById('csOut').textContent='n_cs '+ncs+' / '+C.max+' · '+C.label+' · 30 kHz';
+    document.getElementById('csStep').textContent=step.toFixed(3);
+    document.getElementById('csDist').textContent=Math.round(step*299.792458);
+    document.getElementById('csCap').textContent=(C.max*C.k)+'개';
+    document.getElementById('csCp').textContent=(step/CP30).toFixed(3)+'배';
+
+    var roomy=(step>=CP30*0.5);
+    var box=document.getElementById('csBox');
+    box.className='verdict '+(roomy?'ok':'bad');
+    document.getElementById('csTag').textContent=
+      roomy?'CP가 감당하는 만큼 벌어져 있다':'CP보다 좁다';
+    document.getElementById('csWhy').textContent=roomy
+      ? '시프트 한 칸이 '+step.toFixed(3)+' μs로 같은 조건의 일반 CP('+CP30.toFixed(3)
+        +' μs)의 '+(step/CP30).toFixed(3)+'배입니다. CP가 이미 견딘다고 정해 둔 지연이라면 '
+        + '이 간격도 견딥니다. 같은 심볼에 '+(C.max*C.k)+'개 포트가 앉습니다.'
+      : '시프트 한 칸이 '+step.toFixed(3)+' μs로 일반 CP('+CP30.toFixed(3)+' μs)의 '
+        +(step/CP30).toFixed(3)+'배밖에 안 됩니다. 인원은 '+(C.max*C.k)
+        +'개로 늘었지만 CP가 견디는 지연을 이 간격은 못 견딥니다 — '
+        + '지연 확산이 큰 셀에서는 옆 포트로 새어 들어갑니다.';
+  }
+  csShift.addEventListener('input',drawCs);
+
+  drawWv();
+  drawCs();
+})();
+</script>
+
+</body>
+</html>

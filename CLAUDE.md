@@ -86,11 +86,11 @@
 
 ## 7. 로드맵 (작성 예정)
 
-- 15 측정과 핸드오버 — RSRP·A3 이벤트·핑퐁
-- 16 채널 코딩 — LDPC와 Polar
-- 17 5G 코어와 세션 — PDU Session, QoS Flow
+- 16 측정과 핸드오버 — RSRP·A3 이벤트·핑퐁
+- 17 채널 코딩 — LDPC와 Polar
+- 18 5G 코어와 세션 — PDU Session, QoS Flow
 
-14까지 작성 완료. 목록은 루트 `index.html` 참조.
+15까지 작성 완료. 목록은 루트 `index.html` 참조.
 
 14는 3GPP가 아니라 O-RAN Alliance 규격을 다룬다. 이런 자료를 더 쓸 때는
 **어느 표준화 기구의 문서인지를 자료 맨 앞에서 밝히고**, `refs/3gpp-notes.md`의
