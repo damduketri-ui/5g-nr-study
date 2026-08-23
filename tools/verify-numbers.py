@@ -8,7 +8,9 @@
 """
 
 import math
+import pathlib
 import random
+import re
 
 Tc = 1 / (480_000 * 4096)   # §4.1  ≈ 0.50863 ns
 KAPPA = 64                  # §4.1  Ts/Tc
@@ -80,6 +82,7 @@ def main():
     ok &= check_uplink()
     ok &= check_oran()
     ok &= check_zc()
+    ok &= check_offline()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -566,6 +569,68 @@ def check_zc():
     ok &= rep and flat
     print(f"  길이 {N} ZC를 {K}칸 간격으로 → 앞 {N}개와 뒤 {N}개가 같은가 {rep}"
           f" · 크기가 전부 같은가 {flat}  {'✓' if rep and flat else '✗'}")
+
+    return ok
+
+
+# ── 오프라인 꾸러미 무결성 ──────────────────────────────────
+# 수치 검산은 아니지만 같은 성격의 실수를 막는다:
+# 자료를 새로 만들고 sw.js의 목록에 넣는 것을 잊으면
+# 그 자료만 오프라인에서 안 열리는데, 온라인에서는 멀쩡해서 눈치채기 어렵다.
+
+def check_offline():
+    ok = True
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    topics = sorted(p.parent.name for p in root.glob('topics/*/index.html'))
+    sw = (root / 'sw.js').read_text()
+    listed = re.findall(r"'\./topics/([^/]+)/index\.html'", sw)
+
+    print("\n[오프라인] sw.js의 목록이 실제 자료와 맞는가")
+    missing = [t for t in topics if t not in listed]
+    extra = [t for t in listed if t not in topics]
+    ok &= not missing and not extra
+    print(f"  자료 {len(topics)}개 · sw.js에 적힌 것 {len(listed)}개"
+          f"  {'✓' if not missing and not extra else '✗'}")
+    for t in missing:
+        print(f"    ✗ sw.js에 빠졌다 — 오프라인에서 안 열린다: {t}")
+    for t in extra:
+        print(f"    ✗ sw.js에만 있고 실물이 없다: {t}")
+
+    for f in ('index.html', 'assets/base.css'):
+        hit = f"'./{f}'" in sw
+        ok &= hit
+        print(f"  {f:<18} 목록에 있는가  {'✓' if hit else '✗ 빠졌다'}")
+
+    print("\n[오프라인] 모든 페이지가 서비스 워커를 부르는가")
+    pages = [root / 'index.html'] + sorted(root.glob('topics/*/index.html'))
+    bad = []
+    for f in pages:
+        t = f.read_text()
+        rel = '' if f.parent == root else '../../'
+        need = [f'href="{rel}manifest.json"', f'src="{rel}assets/app.js"',
+                f'href="{rel}assets/icon-180.png"']
+        miss = [n for n in need if n not in t]
+        if miss:
+            bad.append((f.relative_to(root), miss))
+    ok &= not bad
+    print(f"  페이지 {len(pages)}개 전부 연결됐는가  {'✓' if not bad else '✗'}")
+    for f, miss in bad:
+        print(f"    ✗ {f}: {', '.join(miss)}")
+
+    print("\n[오프라인] 그 밖의 파일")
+    for f in ('sw.js', 'manifest.json', 'assets/app.js',
+              'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png'):
+        hit = (root / f).exists()
+        ok &= hit
+        print(f"  {f:<22} {'✓' if hit else '✗ 없다'}")
+
+    # 캐시 이름이 버전을 달고 있는지 — 안 그러면 갱신이 단말에 안 내려간다
+    ver = re.search(r"const VERSION = '([^']+)'", sw)
+    ok &= bool(ver)
+    print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
+          f"  {'✓' if ver else ''}")
+    print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
 
     return ok
 
