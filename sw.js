@@ -13,10 +13,10 @@
      빠뜨리면 그 자료만 오프라인에서 안 열린다.
      tools/verify-numbers.py 의 check_offline() 이 이 목록을 대조한다. */
 
-const VERSION = '2026-08-23a';
+const VERSION = '2026-08-24a';
 const CACHE = 'nr-study-' + VERSION;
 
-/* 미리 받아 둘 것 — 자료 16개와 공통 스타일 */
+/* 미리 받아 둘 것 — 자료 16개와 목차, 공통 스타일 */
 const PAGES = [
   './',
   './index.html',
@@ -36,6 +36,7 @@ const PAGES = [
   './topics/13-uplink-physical-layer/index.html',
   './topics/14-oran-fronthaul-split/index.html',
   './topics/15-zadoff-chu-srs/index.html',
+  './topics/16-gold-sequence-csi-rs/index.html',
 ];
 
 /* 구글 폰트는 다른 출처라 미리 받아 둘 수 없다(응답 내용을 읽지 못한다).

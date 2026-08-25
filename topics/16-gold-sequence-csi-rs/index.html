@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16 골드 시퀀스와 CSI-RS — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>16 / 골드 시퀀스와 CSI-RS</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">16 · gold sequence</p>
+  <h1>같은 난수표를<br><em>나눠 가진다</em></h1>
+  <p class="lead"><a href="../15-zadoff-chu-srs/index.html">15에서 SRS는 자도프-추를 쓴다</a>고 했는데, <strong>CSI-RS는 골드 시퀀스를 씁니다.</strong> 같은 "채널을 재는 신호"인데 왜 족보가 다를까요. 답은 <strong>무엇을 재느냐</strong>에 있습니다 — 그리고 그 차이가 <strong>21억 대 30</strong>이라는 숫자로 나타납니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>왜 시퀀스가 두 종류인가</h2>
+  <p><a href="../15-zadoff-chu-srs/index.html">15의 마지막</a>에서 ZC가 벽에 부딪히는 것을 봤습니다. 길이 N인 ZC가 만들 수 있는 <strong>근은 N−1개</strong>뿐이라, 규격이 요구하는 30개 그룹을 채우려면 M<sub>ZC</sub> = 36까지 올라가야 했습니다. <strong>겨우 30개였습니다.</strong></p>
+
+  <p>그런데 CSI-RS는 <strong>훨씬 많은 가짓수</strong>가 필요합니다. 셀마다 달라야 하고, 자원마다 달라야 하고, <strong>심볼마다·슬롯마다도 달라야</strong> 합니다. 30개로는 어림도 없습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 "기준 신호"인데 요구가 다르다</caption>
+    <thead><tr><th></th><th>SRS · PRACH <span class="src">ZC</span></th><th>CSI-RS · DMRS <span class="src">골드</span></th></tr></thead>
+    <tbody>
+      <tr><td><strong>무엇을 재나</strong></td><td><strong>지연</strong> — 언제 도착했나</td><td><strong>세기와 위상</strong> — 얼마나 잘 도착했나</td></tr>
+      <tr><td>그래서 필요한 성질</td><td><strong>날카로운 자기상관</strong><br>지연 0에서만 솟아야 한다</td><td><strong>많은 가짓수</strong><br>서로 안 닮기만 하면 된다</td></tr>
+      <tr><td>타이밍은?</td><td>이걸로 맞춘다</td><td><a href="../04-ssb-initial-access/index.html">이미 맞춰져 있다</a></td></tr>
+      <tr><td class="num">가짓수</td><td class="num"><strong>30</strong> <span class="src">M_ZC=36</span></td><td class="num"><strong>2,147,483,648</strong> <span class="src">2³¹</span></td></tr>
+      <tr><td>길이 제약</td><td>소수 근처여야 · 순환 확장이 성질을 깎는다</td><td><strong>아무 데서나 잘라 쓴다</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>이 자료의 비유는 난수표 하나입니다.</strong> 기지국과 단말이 <strong>똑같은 난수표</strong>를 한 권씩 갖고 있다고 생각하십시오.
+    표에 적힌 숫자는 <strong>남이 보면 잡음</strong>이지만, 두 사람은 <strong>몇 쪽을 펼지만 맞추면</strong> 완전히 같은 값을 읽습니다.
+    <br><br>
+    그 쪽 번호가 <strong>c<sub>init</sub></strong>이고, <strong>31비트 — 21억 쪽</strong>짜리 책입니다.
+    게다가 쪽 번호를 <strong>주고받을 필요조차 없습니다.</strong> 셀 번호와 시각으로 <strong>각자 계산해서</strong> 같은 쪽을 폅니다.
+    이 자료는 그 책이 어떻게 만들어지고, 쪽 번호를 어떻게 정하는지를 봅니다.
+  </div>
+
+  <p>ZC가 <strong>정교하게 설계된 자</strong>라면, 골드는 <strong>엄청나게 두꺼운 난수표</strong>입니다. 자로 잴 것이 아니라 <strong>구분만 하면 되는 곳</strong>에는 두꺼운 쪽이 낫습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>난수표를 만드는 법 — 되먹임 레지스터</h2>
+  <p>진짜 난수를 책으로 찍어 나눠 가질 수는 없습니다. <strong>양쪽이 각자 만들어 낼 수 있어야</strong> 합니다. 그래서 쓰는 것이 <strong>되먹임 시프트 레지스터</strong>입니다.</p>
+
+  <p>칸 몇 개를 늘어놓고, 매 박자마다 <strong>한 칸씩 밀고</strong>, 빈 자리는 <strong>정해진 칸 몇 개를 XOR한 값</strong>으로 채웁니다. 규칙은 이게 전부인데도 결과는 난수처럼 보입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 320" role="img" aria-labelledby="t1 d1">
+      <title id="t1">되먹임 시프트 레지스터가 한 칸씩 밀며 비트를 뱉는 모습</title>
+      <desc id="d1">위쪽에 다섯 칸짜리 레지스터가 있고 각 칸에 0 또는 1이 들어 있다. 맨 왼쪽 칸의 값이 출력으로 빠져나가고, 정해진 두 칸의 값을 XOR한 결과가 맨 오른쪽 빈 칸으로 되먹여 들어간다. 아래쪽에는 지금까지 나온 출력 비트가 순서대로 늘어서 있으며, 서른한 박자가 지나면 처음 상태로 되돌아와 같은 비트열이 되풀이된다.</desc>
+      <g id="lfsrGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="lfStep">박자</label>
+    <input type="range" id="lfStep" min="0" max="62" step="1" value="8" aria-describedby="lfOut">
+    <span class="segmented" id="lfPoly" role="group" aria-label="되먹임 규칙 선택"></span>
+    <span class="readout" id="lfOut"></span>
+  </div>
+
+  <div class="verdict" id="lfBox">
+    <span class="tag" id="lfTag"></span>
+    <span class="why" id="lfWhy"></span>
+  </div>
+
+  <!-- 유도: 길이 m 레지스터의 상태는 2^m 가지인데, 전부 0인 상태는
+       되먹임도 0이라 영원히 벗어나지 못한다(막다른 상태).
+       그래서 쓸 수 있는 상태는 2^m − 1 가지이고,
+       되먹임 규칙(다항식)이 원시다항식이면 그 전부를 한 바퀴 돈다 → 주기 2^m − 1.
+       m=5 → 31.  31칸 중 1이 16개, 0이 15개 (하나 차이는 막다른 상태를 뺐기 때문)
+       자기상관: 지연 0에서 31, 나머지 모든 지연에서 정확히 −1 (계산으로 확인) -->
+  <div class="stats">
+    <div><span class="n">31</span><span class="t">주기 · 2⁵ − 1</span></div>
+    <div><span class="n">16</span><span class="t">한 주기의 1 개수 · 0은 15개</span></div>
+    <div><span class="n">−1</span><span class="t">지연이 0이 아닐 때의 자기상관</span></div>
+    <div><span class="n">1</span><span class="t">이 규칙이 만드는 서로 다른 수열</span></div>
+  </div>
+
+  <div class="note">
+    <strong>왜 하필 2<sup>m</sup> − 1인가.</strong> 칸이 m개면 상태는 2<sup>m</sup>가지인데,
+    <strong>전부 0인 상태는 되먹임도 0이라 영원히 못 벗어납니다.</strong>
+    그 하나를 뺀 <strong>2<sup>m</sup> − 1가지를 한 바퀴 도는 것</strong>이 가장 긴 주기이고,
+    그렇게 도는 수열을 <strong>m-시퀀스</strong>라고 합니다.
+    1이 0보다 정확히 하나 많은 것도 그 뺀 상태 때문입니다.
+    <br><br>
+    <strong>이 막다른 상태가 뒤에서 다시 나옵니다.</strong> 규격이 c<sub>init</sub>을 정하는 방식에
+    이 함정을 피하는 장치가 들어 있습니다.
+  </div>
+
+  <p>그런데 m-시퀀스에는 <strong>치명적인 한계</strong>가 있습니다. 되먹임 규칙 하나가 만드는 수열은 <strong>사실상 하나뿐</strong>입니다. 시작 상태를 바꿔 봐야 <strong>같은 수열을 몇 칸 돌린 것</strong>이 나올 뿐입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>골드 — 둘을 겹친다</h2>
+  <p>수열 하나로는 셀을 구분할 수 없습니다. 그래서 <strong>규칙이 다른 레지스터 두 개</strong>를 돌리고, <strong>둘의 출력을 XOR</strong>합니다. 한쪽을 몇 칸 돌려 놓느냐에 따라 <strong>매번 다른 수열</strong>이 나옵니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t2 d2">
+      <title id="t2">골드 시퀀스는 되먹임 규칙이 다른 두 레지스터의 출력을 XOR해서 만든다</title>
+      <desc id="d2">위와 아래에 되먹임 규칙이 서로 다른 레지스터가 하나씩 있고, 두 레지스터의 출력이 오른쪽에서 만나 배타적 논리합을 거쳐 하나의 비트열로 합쳐진다. 위쪽 레지스터는 시작 상태가 고정되어 있고, 아래쪽 레지스터의 시작 상태만 바꾼다. 아래쪽을 몇 칸 돌려 놓느냐에 따라 서로 다른 수열이 나오며, 그 가짓수가 골드 집합의 크기가 된다.</desc>
+
+      <defs>
+        <marker id="ar16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <text x="8" y="60" class="rowlab" fill="var(--dl)">레지스터 1</text>
+      <text x="8" y="78" class="dimlab" fill="var(--ink-soft)">시작 상태 고정</text>
+      <rect x="180" y="38" width="380" height="52" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.5"/>
+      <text x="370" y="60" text-anchor="middle" class="celllab" fill="var(--dl)">x₁ · 되먹임 규칙 A</text>
+      <text x="370" y="78" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">언제나 같은 수열이 나온다</text>
+      <line x1="568" y1="64" x2="654" y2="64" stroke="var(--ink-soft)" stroke-width="1.4"/>
+      <line x1="654" y1="64" x2="654" y2="128" stroke="var(--ink-soft)" stroke-width="1.4"/>
+
+      <text x="8" y="200" class="rowlab" fill="var(--dl)">레지스터 2</text>
+      <text x="8" y="218" class="dimlab" fill="var(--ink-soft)">시작 상태 = c_init</text>
+      <rect x="180" y="178" width="380" height="52" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="2.4"/>
+      <text x="370" y="200" text-anchor="middle" class="celllab" fill="var(--dl)">x₂ · 되먹임 규칙 B</text>
+      <text x="370" y="218" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">시작 상태만큼 돌아간 수열</text>
+      <text x="370" y="256" text-anchor="middle" class="dimlab" fill="var(--ink)">← 여기가 난수표의 쪽 번호다</text>
+      <line x1="568" y1="204" x2="654" y2="204" stroke="var(--ink-soft)" stroke-width="1.4"/>
+      <line x1="654" y1="204" x2="654" y2="140" stroke="var(--ink-soft)" stroke-width="1.4"/>
+
+      <circle cx="654" cy="134" r="22" fill="none" stroke="var(--ink)" stroke-width="1.8"/>
+      <text x="654" y="141" text-anchor="middle" class="celllab" fill="var(--ink)">XOR</text>
+      <line x1="678" y1="134" x2="764" y2="134" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#ar16)"/>
+
+      <rect x="772" y="108" width="240" height="52" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.5"/>
+      <text x="892" y="130" text-anchor="middle" class="celllab" fill="var(--dl)">골드 수열 c(n)</text>
+      <text x="892" y="148" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">CSI-RS가 읽는 난수표</text>
+    </svg>
+  </div>
+  <p class="caption">가로 위치는 신호 흐름일 뿐이고 <strong>시간이나 길이를 나타내지 않습니다.</strong> 굵은 테두리를 두른 아래쪽 레지스터의 <strong>시작 상태가 곧 c<sub>init</sub></strong>이며, 이것 하나로 수열이 정해집니다.</p>
+
+  <!-- 유도: 길이 m 레지스터 둘로 만드는 골드 집합의 크기
+       {A} ∪ {B} ∪ {A ⊕ (B를 s칸 돌린 것) : s = 0…2^m−2}  →  2 + (2^m−1) = 2^m + 1
+       m=5 → 33개.  실제로 만들어 세어 보면 33개가 전부 서로 다르다(검산 확인).
+       상호상관은 세 값에만 묶인다: {−1, −t, t−2},  t = 1 + 2^((m+1)/2)
+       m=5 → t = 9 → {−1, −9, 7}.  최대 크기 9/31 = 0.290 = −10.74 dB -->
+  <div class="stats">
+    <div><span class="n">33</span><span class="t">길이 5로 만드는 수열 수 · 2⁵ + 1</span></div>
+    <div><span class="n">3</span><span class="t">상호상관이 갖는 값의 가짓수</span></div>
+    <div><span class="n">−9 · −1 · 7</span><span class="t">그 세 값 · 31로 나누기 전</span></div>
+    <div><span class="n">−10.7</span><span class="t">최악 상호상관 [dB] · 9/31</span></div>
+  </div>
+
+  <div class="note">
+    <strong>가짓수가 확 늘어납니다.</strong> 레지스터 하나로는 <strong>수열이 하나</strong>였는데,
+    둘을 겹치면 <strong>2<sup>m</sup> + 1개</strong>가 됩니다. 길이 5짜리 장난감으로도 33개입니다.
+    <br><br>
+    그러면서 <strong>서로 안 닮은 정도가 보장</strong>됩니다. 아무 두 개를 골라 상관을 재도
+    값이 <strong>−9 · −1 · 7 셋 중 하나</strong>로만 나옵니다. 최악이라도 9/31, 즉 <strong>−10.7 dB</strong>입니다.
+    "적당히 안 닮았다"가 아니라 <strong>얼마나 안 닮았는지가 못 박혀 있다</strong>는 것이 골드의 값어치입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>규격의 난수표 — 그리고 1600</h2>
+  <p>5G NR은 같은 구조를 <strong>31칸짜리</strong>로 씁니다. 이 하나로 CSI-RS도, DMRS도, 스크램블링도 전부 만듭니다.</p>
+
+  <div class="note">
+    <strong>c(n) = ( x₁(n + N<sub>C</sub>) + x₂(n + N<sub>C</sub>) ) mod 2</strong>, &nbsp; N<sub>C</sub> = 1600
+    <br>
+    <span class="src">x₁: x³¹ + x³ + 1 · x₂: x³¹ + x³ + x² + x + 1 · TS 38.211 §5.2.1</span>
+    <br>
+    <span class="src">x₁ 시작 상태는 (1, 0, …, 0) 고정 · x₂ 시작 상태 31비트가 곧 c<sub>init</sub></span>
+  </div>
+
+  <p>주기는 <strong>2³¹ − 1 = 21억 4748만</strong>이고, 쪽 번호는 <strong>31비트 = 21억 4748만 가지</strong>입니다. <a href="../15-zadoff-chu-srs/index.html">15에서 ZC가 겨우 30개</a>였던 것과 견주면 <strong>7158만 배</strong>입니다.</p>
+
+  <p>그런데 식에 이상한 것이 하나 있습니다. <strong>앞의 1600칸을 그냥 버립니다.</strong> 왜 그럴까요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 330" role="img" aria-labelledby="t3 d3">
+      <title id="t3">앞부분을 얼마나 버리느냐에 따라 이웃한 쪽 번호가 얼마나 달라지는가</title>
+      <desc id="d3">쪽 번호가 1만큼만 다른 두 수열의 비트열을 위아래로 나란히 놓았다. 그 아래에는 두 비트열이 서로 다른 자리를 표시한 줄이 있다. 버리는 칸 수를 0으로 두면 두 비트열이 거의 같아서 다른 자리가 드문드문하고, 규격이 정한 천육백으로 올리면 절반 가까이가 서로 달라져 뒤섞인 상태가 된다.</desc>
+      <g id="ncGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="ncSkip">버리는 칸</label>
+    <input type="range" id="ncSkip" min="0" max="2000" step="50" value="0" aria-describedby="ncOut">
+    <span class="segmented" id="ncPair" role="group" aria-label="비교할 쪽 번호 선택"></span>
+    <span class="readout" id="ncOut"></span>
+  </div>
+
+  <div class="verdict" id="ncBox">
+    <span class="tag" id="ncTag"></span>
+    <span class="why" id="ncWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="ncDiff">—</span><span class="t">다른 비트 비율 · 50%가 목표</span></div>
+    <div><span class="n" id="ncRun">—</span><span class="t">가장 긴 연속 일치 구간</span></div>
+    <div><span class="n" id="ncSkipN">—</span><span class="t">버린 칸</span></div>
+    <div><span class="n">1600</span><span class="t">규격이 정한 값</span></div>
+  </div>
+
+  <!-- 유도: c_init을 1만 바꾸고 첫 64비트를 비교했을 때 다른 비트의 비율
+       (c_init = 1024·5000·100000·7654321 네 쌍의 평균, 계산으로 확인)
+         버리지 않음     6.2/64 =  9.8%
+         100칸 버림      8.0/64 = 12.5%
+         1600칸 버림(규격) 27.2/64 = 42.6%
+       → 레지스터는 한 박자에 한 칸만 섞이므로, 시작 상태가 비슷하면
+         한동안 출력도 비슷하다. 1600칸을 돌려야 그 흔적이 지워진다. -->
+  <div class="note">
+    <strong>1600은 "충분히 섞일 때까지 돌린다"는 뜻입니다.</strong>
+    레지스터는 <strong>한 박자에 한 칸씩만</strong> 섞입니다. 그래서 시작 상태가 비슷하면
+    <strong>처음 한동안은 출력도 비슷하게</strong> 나옵니다.
+    <br><br>
+    쪽 번호를 <strong>1만 바꿨을 때</strong> 첫 64비트 중 다른 비트가
+    <strong>안 버리면 9.8%, 1600칸 버리면 42.6%</strong>입니다.
+    난수라면 50%여야 하니, <strong>1600칸을 돌려야 비로소 난수처럼</strong> 됩니다.
+    <br><br>
+    이게 왜 중요하냐면 — <strong>이웃한 셀은 쪽 번호도 이웃합니다.</strong>
+    n<sub>ID</sub>가 0인 셀과 1인 셀이 비슷한 수열을 쓰면 서로 간섭을 걷어내지 못합니다.
+    1600은 <strong>그 사고를 막는 값</strong>입니다.
+  </div>
+
+  <!-- 유도: c_init = 0 이면 x2 시작 상태가 전부 0 → 되먹임도 0 → x2는 영원히 0
+       그래서 c(n) = x1(n) 이 되어 버린다. 골드가 아니라 m-시퀀스 하나다.
+       계산으로 확인: c_init=0 의 출력이 x1 단독 출력과 완전히 같다.
+       1의 비율도 0.396으로 치우친다(다른 c_init은 0.46~0.50). -->
+  <div class="note">
+    <strong>쪽 번호 0은 쓰면 안 됩니다.</strong> c<sub>init</sub> = 0이면 x₂의 시작 상태가 전부 0인데,
+    앞에서 본 <strong>막다른 상태</strong>가 바로 이것입니다. x₂는 영원히 0만 뱉고,
+    결과는 <strong>x₁ 하나짜리 m-시퀀스</strong>가 됩니다 — 골드가 아닙니다.
+    실제로 계산해 보면 c<sub>init</sub> = 0의 출력이 x₁ 단독 출력과 <strong>완전히 같고</strong>,
+    1의 비율도 0.396으로 치우칩니다.
+    <br><br>
+    다음 절에서 볼 CSI-RS의 쪽 번호 공식에는 <strong>이 값이 절대 안 나오게 하는 장치</strong>가 들어 있습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>CSI-RS는 쪽 번호를 어떻게 정하는가</h2>
+  <p><a href="../11-reference-signals/index.html">11에서 본 CSI-RS</a>는 "아직 쓰지 않는 빔·포트의 채널을 재라"고 쏘는 신호입니다. 그 값이 바로 이 난수표에서 나옵니다.</p>
+
+  <div class="note">
+    <strong>c<sub>init</sub> = ( 2¹⁰ · (N<sub>symb</sub><sup>slot</sup>·n<sub>s,f</sub><sup>μ</sup> + l + 1) · (2·n<sub>ID</sub> + 1) + n<sub>ID</sub> ) mod 2³¹</strong>
+    <br>
+    <span class="src">TS 38.211 §7.4.1.5.2 · n<sub>ID</sub> 상위 계층이 준 번호(0–1023) · l 슬롯 안의 심볼 번호 · n<sub>s,f</sub> 프레임 안의 슬롯 번호</span>
+  </div>
+
+  <p>그리고 그 비트로 <strong>QPSK 심볼</strong>을 만들어 부반송파에 얹습니다. 비트 두 개가 자원 요소 하나입니다.</p>
+
+  <div class="note">
+    <strong>r(m) = (1 − 2c(2m)) / √2 &nbsp; + &nbsp; j (1 − 2c(2m+1)) / √2</strong>
+    <span class="src">TS 38.211 §7.4.1.5.2 · 크기가 언제나 1인 QPSK</span>
+  </div>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="t4 d4">
+      <title id="t4">셀 번호와 시각으로 쪽 번호를 계산하고 그 자리의 비트를 읽는 과정</title>
+      <desc id="d4">위쪽에는 셀 번호와 슬롯 번호, 심볼 번호가 식에 어떻게 들어가 쪽 번호가 되는지가 단계별로 적혀 있다. 아래쪽에는 그 쪽 번호로 만든 비트열과, 비트 두 개씩 묶어 만든 QPSK 심볼이 늘어서 있다. 어느 값 하나만 바꿔도 비트열 전체가 완전히 달라진다.</desc>
+      <g id="ciGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="ciNid">n<sub>ID</sub></label>
+    <input type="range" id="ciNid" min="0" max="1023" step="1" value="0" aria-describedby="ciOut">
+    <label for="ciSym">심볼 l</label>
+    <input type="range" id="ciSym" min="0" max="13" step="1" value="0" aria-describedby="ciOut">
+    <span class="readout" id="ciOut"></span>
+  </div>
+
+  <div class="verdict" id="ciBox">
+    <span class="tag" id="ciTag"></span>
+    <span class="why" id="ciWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="ciInit">—</span><span class="t">쪽 번호 c_init</span></div>
+    <div><span class="n" id="ciCmp">—</span><span class="t">n_ID = 0 · l = 0 과 다른 비트</span></div>
+    <div><span class="n" id="ciXc">—</span><span class="t">그것과의 상호상관 [dB] · 546비트</span></div>
+    <div><span class="n" id="ciMod">—</span><span class="t">mod 2³¹ 이 돌았는가</span></div>
+  </div>
+
+  <!-- 유도: c_init = (2^10·(14·n_s + l + 1)·(2·n_ID+1) + n_ID) mod 2^31
+       n_s=0, l=0 → 앞 괄호가 1이므로
+         n_ID=0    → 1024×1    + 0    = 1,024
+         n_ID=1    → 1024×3    + 1    = 3,073
+         n_ID=1023 → 1024×2047 + 1023 = 2,097,151
+       같은 셀에서 심볼만 바꾸면 (n_ID=0) → 1024×(l+1) : 1024, 2048, 3072, … 14336
+
+       [0이 나오지 않는 이유]  (l+1) ≥ 1 이고 (2·n_ID+1) 은 언제나 홀수 ≥ 1 이므로
+       모듈러 전 값이 2^10 이상이다. 전 조합(μ=0…4, n_ID 0–1023, 모든 슬롯·심볼)에서
+       c_init = 0 이 되는 경우가 0개임을 계산으로 확인했다.
+
+       [mod 2^31 이 실제로 도는가]  모듈러 전 최댓값 / 2^31
+         μ=0 0.137 · μ=1 0.273 · μ=2 0.547 · μ=3 1.093 · μ=4 2.186
+       → 120 kHz(μ=3)부터 실제로 돈다.
+
+       [충돌]  μ=1은 286,720 조합이 전부 다른 c_init,
+               μ=3은 1,146,880 조합이 전부 다른 c_init (겹침 0) -->
+  <div class="table-scroll">
+  <table>
+    <caption>손으로 따라가는 예시 · n<sub>s</sub> = 0, l = 0 이면 앞의 괄호가 1이 된다</caption>
+    <thead><tr><th class="num">n<sub>ID</sub></th><th class="num">2·n<sub>ID</sub>+1</th><th>계산</th><th class="num">c<sub>init</sub></th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">1</td><td>1024 × 1 + 0</td><td class="num">1,024</td></tr>
+      <tr><td class="num">1</td><td class="num">3</td><td>1024 × 3 + 1</td><td class="num">3,073</td></tr>
+      <tr><td class="num">2</td><td class="num">5</td><td>1024 × 5 + 2</td><td class="num">5,122</td></tr>
+      <tr><td class="num">1023</td><td class="num">2047</td><td>1024 × 2047 + 1023</td><td class="num">2,097,151</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>식이 하는 일은 셋입니다.</strong>
+    <br><br>
+    <strong>① 셀을 가른다</strong> — n<sub>ID</sub>가 (2n<sub>ID</sub>+1)로 곱해집니다.
+    <strong>홀수</strong>라서 서로 다른 셀이 같은 배수로 겹치지 않습니다.
+    <br>
+    <strong>② 시각마다 바꾼다</strong> — 슬롯과 심볼이 앞의 괄호에 들어갑니다.
+    같은 셀이라도 <strong>심볼이 다르면 완전히 다른 수열</strong>이 나옵니다.
+    간섭이 한 곳에 쌓이지 않고 <strong>흩어집니다.</strong>
+    <br>
+    <strong>③ 0을 피한다</strong> — (l + 1)이 1 이상이고 (2n<sub>ID</sub>+1)이 홀수라
+    모듈러 전 값이 <strong>언제나 1024 이상</strong>입니다.
+    앞에서 본 <strong>막다른 쪽 번호 0에 절대 닿지 않습니다.</strong>
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <caption>전 조합을 세어 본 결과 · n<sub>ID</sub> 0–1023 × 프레임 안의 모든 슬롯 · 심볼</caption>
+    <thead><tr><th class="num">μ</th><th class="num">슬롯/프레임</th><th class="num">조합 수</th><th>mod 2³¹ 이 도는가</th><th>c<sub>init</sub>=0</th><th>겹침</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">10</td><td class="num">143,360</td><td>안 돈다 <span class="src">0.137배</span></td><td>0개</td><td>—</td></tr>
+      <tr><td class="num">1</td><td class="num">20</td><td class="num">286,720</td><td>안 돈다 <span class="src">0.273배</span></td><td>0개</td><td><strong>0</strong></td></tr>
+      <tr><td class="num">2</td><td class="num">40</td><td class="num">573,440</td><td>안 돈다 <span class="src">0.547배</span></td><td>0개</td><td>—</td></tr>
+      <tr><td class="num">3</td><td class="num">80</td><td class="num">1,146,880</td><td><strong>돈다</strong> <span class="src">1.093배</span></td><td>0개</td><td><strong>0</strong></td></tr>
+      <tr><td class="num">4</td><td class="num">160</td><td class="num">2,293,760</td><td><strong>돈다</strong> <span class="src">2.186배</span></td><td>0개</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>모듈러가 도는데도 겹치지 않습니다.</strong> 120 kHz(μ=3)부터는 계산값이 2³¹을 넘어
+    실제로 <strong>모듈러가 돕니다.</strong> 그러면 서로 다른 (셀, 슬롯, 심볼)이 <strong>같은 쪽 번호로
+    떨어질 위험</strong>이 생기는데, 실제로 세어 보면 <strong>114만 조합이 전부 서로 다릅니다.</strong>
+    μ=1(28만 조합)도 마찬가지입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>짧게 자르면 이야기가 달라진다</h2>
+  <p>앞에서 골드의 상호상관이 <strong>세 값에 묶인다</strong>고 했습니다. 그런데 그건 <strong>한 주기를 통째로 썼을 때</strong>의 이야기입니다.</p>
+
+  <!-- 유도: CSI-RS 한 심볼이 쓰는 비트 수 = RE 수 × 2 (QPSK)
+       100 MHz 273 RB, 밀도 1 → RE 273개 → 546비트
+       주기 2^31−1 대비 546/2147483647 = 2.54e-07 배
+       [측정] 무작위 c_init 쌍 60개의 |상호상관|/L 평균 (고정 시드 20260824)
+         L=  240 : 0.0482  (-26.3 dB)  · 무작위 기준 1/√L = 0.0645 → 0.75배
+         L= 1200 : 0.0205  (-33.8 dB)  · 0.0289 → 0.71배
+         L=20000 : 0.0058  (-44.7 dB)  · 0.0071 → 0.83배
+       → 유한 구간에서는 난수와 비슷한 수준이다.
+       [이론·전주기] 선호쌍이면 상한 t(31) = 1+2^16 = 65537,
+         정규화 65537/(2^31−1) = 3.05e-05 = −90.3 dB.
+         이 값은 21억 비트를 다 써야 나오는 값이라 CSI-RS는 절대 도달하지 못한다. -->
+  <div class="stats">
+    <div><span class="n">546</span><span class="t">CSI-RS 한 심볼의 비트 · 100 MHz 밀도1</span></div>
+    <div><span class="n">2.1억</span><span class="t">난수표 한 주기 · 2³¹−1</span></div>
+    <div><span class="n">0.000025%</span><span class="t">실제로 쓰는 몫</span></div>
+    <div><span class="n">−26</span><span class="t">그 길이의 실제 상호상관 [dB]</span></div>
+  </div>
+
+  <div class="note">
+    <strong>흔한 오해를 하나 짚습니다.</strong> "골드는 상호상관이 −90 dB로 극히 낮다"는 설명을 보게 되는데,
+    그 값(<strong>t(31) = 65537, 정규화 −90.3 dB</strong>)은 <strong>21억 비트를 다 써야</strong> 나옵니다.
+    <br><br>
+    CSI-RS가 한 심볼에 쓰는 것은 <strong>546비트</strong> — 주기의 <strong>0.000025%</strong>입니다.
+    그 짧은 토막에서 실제로 재 보면 상호상관이 <strong>−26 dB 언저리</strong>이고,
+    이는 <strong>같은 길이의 난수와 거의 같은 수준</strong>(0.7~0.8배)입니다.
+    <br><br>
+    <strong>그래도 문제가 없습니다.</strong> CSI-RS에 필요한 것은 "완벽하게 직교"가 아니라
+    <strong>"평균적으로 안 닮았고 가짓수가 많다"</strong>이기 때문입니다.
+    <a href="../15-zadoff-chu-srs/index.html">15의 ZC가 −29.24 dB에서 정확했던 것</a>과 대비되는데,
+    <strong>ZC는 그 정확함을 30개라는 가짓수로 샀습니다.</strong>
+  </div>
+
+  <p>정리하면 이렇습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 −26에서 −30 dB인데 성격이 다르다</caption>
+    <thead><tr><th></th><th>ZC <span class="src">15번</span></th><th>골드 <span class="src">이 자료</span></th></tr></thead>
+    <tbody>
+      <tr><td>상호상관</td><td><strong>정확히</strong> 1/√N</td><td><strong>평균적으로</strong> 난수 수준</td></tr>
+      <tr><td>자기상관</td><td>지연 0 밖에서 <strong>정확히 0</strong></td><td>0은 아니고 작다</td></tr>
+      <tr><td>가짓수</td><td>N−1개 <span class="src">M_ZC=36에서 30</span></td><td><strong>2³¹개</strong></td></tr>
+      <tr><td>길이</td><td>소수에 묶인다</td><td><strong>아무 데서나 자른다</strong></td></tr>
+      <tr><td>그래서 어디에</td><td>지연을 재는 곳 — SRS · PRACH</td><td>구분만 하면 되는 곳 — CSI-RS · DMRS · 스크램블링</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>하나의 생성기, 여러 쓰임</h2>
+  <p>이 난수표는 CSI-RS 전용이 아닙니다. 규격은 <strong>§5.2.1 하나</strong>를 만들어 두고, <strong>쪽 번호를 정하는 규칙만 다르게</strong> 해서 여기저기 씁니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 §5.2.1 생성기 · c<sub>init</sub>만 다르다</caption>
+    <thead><tr><th>쓰임</th><th>c<sub>init</sub>에 들어가는 것</th><th>조항</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CSI-RS</strong></td><td>n<sub>ID</sub> · 슬롯 · 심볼</td><td><span class="src">§7.4.1.5.2</span></td></tr>
+      <tr><td>PDSCH 스크램블링</td><td>RNTI · 코드워드 번호 · n<sub>ID</sub> <span class="src">— <a href="../10-physical-layer-chain/index.html">10에서 자리 배치를 본 그 식</a></span></td><td><span class="src">§7.3.1.1</span></td></tr>
+      <tr><td>PDSCH DMRS</td><td>슬롯 · 심볼 · 스크램블링 ID</td><td><span class="src">§7.4.1.1.1</span></td></tr>
+      <tr><td>PDCCH DMRS</td><td>슬롯 · 심볼 · CORESET의 ID <span class="src">— <a href="../12-pdcch-blind-decoding/index.html">12의 REG당 3 RE</a>가 이것</span></td><td><span class="src">§7.4.1.3.1</span></td></tr>
+      <tr><td>PBCH DMRS</td><td>셀 ID · SSB 번호 <span class="src">— <a href="../04-ssb-initial-access/index.html">04에서 v = N_ID mod 4</a>로 만난 그 신호</span></td><td><span class="src">§7.4.1.4.1</span></td></tr>
+      <tr><td>PUSCH 스크램블링</td><td>RNTI · n<sub>ID</sub></td><td><span class="src">§6.3.1.1</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>왜 하나로 통일했는가.</strong> 단말은 이 생성기를 <strong>한 번만 구현하면</strong> 됩니다.
+    쪽 번호 계산식만 자리마다 다르게 넣으면 CSI-RS도, DMRS도, 스크램블링도 전부 나옵니다.
+    <a href="../10-physical-layer-chain/index.html">10에서 스크램블링의 c<sub>init</sub>이
+    RNTI·코드워드·셀 ID가 서로 자리를 안 뺏도록 비트를 나눠 쓴다</a>고 했는데,
+    그 "자리 배치"가 결국 <strong>이 난수표의 몇 쪽을 펴느냐</strong>를 정하는 일이었습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>ZC와 골드는 경쟁하지 않습니다.</strong> 재는 것이 다릅니다 — <strong>지연을 재려면 날카로운 자기상관</strong>이 필요하고(ZC), <strong>서로 구분만 하면 될 때는 가짓수</strong>가 필요합니다(골드). CSI-RS는 타이밍이 이미 맞은 뒤에 세기를 재는 신호라 후자입니다.</li>
+    <li><strong>c<sub>init</sub>은 난수표의 쪽 번호이고 21억 쪽입니다.</strong> 셀 번호와 시각으로 <strong>양쪽이 각자 계산</strong>하므로 주고받을 필요가 없습니다. 심볼마다 쪽을 넘겨서 <strong>간섭이 한곳에 쌓이지 않게</strong> 합니다.</li>
+    <li><strong>규격의 사소해 보이는 장치에 이유가 있습니다.</strong> 1600칸을 버리는 것은 <strong>이웃한 쪽 번호가 비슷하게 시작하는 것</strong>을 지우려는 것이고(9.8% → 42.6%), CSI-RS 식이 <strong>(l+1)</strong>과 <strong>홀수 (2n<sub>ID</sub>+1)</strong>을 쓰는 것은 <strong>막다른 쪽 번호 0</strong>을 피하려는 것입니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../15-zadoff-chu-srs/index.html">← 15 자도프-추 시퀀스와 SRS</a>
+  <span>—</span>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+  function neg(v,d){ return (v<0?'−':'')+Math.abs(v).toFixed(d); }
+
+  /* ============ 1. 되먹임 레지스터 ============ */
+  /* 되먹임 규칙은 '어느 칸을 XOR해서 새 비트를 만드는가'로 적는다.
+     A: x^5+x^2+1 → 0번과 2번 칸,  B: x^5+x^4+x^3+x^2+1 → 0·2·3·4번 칸 */
+  var POLYS=[{label:'규칙 A',taps:[0,2],name:'x⁵+x²+1'},
+             {label:'규칙 B',taps:[0,2,3,4],name:'x⁵+x⁴+x³+x²+1'}];
+  var polySel=0, M=5;
+  var LG=document.getElementById('lfsrGrid');
+  var lfStep=document.getElementById('lfStep');
+  var syncPoly=mkSeg(document.getElementById('lfPoly'),POLYS,
+    function(){return polySel;}, function(v){polySel=v;}, function(){drawLf();});
+
+  function runLfsr(taps,steps){
+    var s=[1,0,0,0,0], out=[], states=[s.slice()];
+    for(var i=0;i<steps;i++){
+      out.push(s[0]);
+      var fb=0; for(var t=0;t<taps.length;t++) fb^=s[taps[t]];
+      s=s.slice(1).concat([fb]);
+      states.push(s.slice());
+    }
+    return {out:out,states:states};
+  }
+
+  function drawLf(){
+    var step=parseInt(lfStep.value,10), P=POLYS[polySel];
+    var r=runLfsr(P.taps,63);
+    var st=r.states[step];
+    clear(LG);
+
+    /* --- 레지스터 칸 --- */
+    var CW=64, CX=330, CY=56;
+    /* 행 이름은 왼쪽 끝에 붙인다 — 레지스터 옆에 두면 출력 화살표 선이 글자를 관통한다 */
+    LG.appendChild(txt(8,CY+34,'레지스터','celllab','var(--ink-soft)','start'));
+    LG.appendChild(txt(8,CY+52,'지금 상태','dimlab','var(--ink-soft)','start'));
+    for(var i=0;i<M;i++){
+      var isTap=P.taps.indexOf(i)>=0;
+      LG.appendChild(el('rect',{x:CX+i*CW,y:CY,width:CW-6,height:56,rx:4,
+        fill:st[i]?'var(--dl-bg)':'var(--card)',stroke:'var(--dl)',
+        'stroke-width':isTap?2.4:1.2}));
+      LG.appendChild(txt(CX+i*CW+(CW-6)/2,CY+37,String(st[i]),'celllab','var(--dl)'));
+      LG.appendChild(txt(CX+i*CW+(CW-6)/2,CY-8,String(i),'dimlab','var(--ink-soft)'));
+      if(isTap){
+        /* 되먹임에 쓰는 칸에서 아래로 선을 내려 XOR로 모은다 */
+        LG.appendChild(el('line',{x1:CX+i*CW+(CW-6)/2,y1:CY+56,x2:CX+i*CW+(CW-6)/2,y2:CY+92,
+          stroke:'var(--ink-soft)','stroke-width':1.2}));
+        /* 게이트 한가운데까지 긋지 않고 테두리에서 멈춘다 — 글자를 덮지 않게 */
+        LG.appendChild(el('line',{x1:CX+i*CW+(CW-6)/2,y1:CY+92,x2:CX+M*CW+30-22,y2:CY+92,
+          stroke:'var(--ink-soft)','stroke-width':1.2}));
+      }
+    }
+    /* XOR 과 되먹임 경로 */
+    var XX=CX+M*CW+30;
+    /* 골드 구성도와 같은 표기로 맞춘다 — ⊕ 글리프는 작은 크기에서 점처럼 보인다 */
+    LG.appendChild(el('circle',{cx:XX,cy:CY+92,r:22,fill:'#fff',stroke:'var(--ink)','stroke-width':1.6}));
+    LG.appendChild(txt(XX,CY+97,'XOR','celllab','var(--ink)'));
+    LG.appendChild(el('path',{d:'M'+(XX+22)+' '+(CY+92)+' L'+(XX+46)+' '+(CY+92)
+      +' L'+(XX+46)+' '+(CY+28)+' L'+(CX+M*CW-9)+' '+(CY+28),
+      fill:'none',stroke:'var(--ink-soft)','stroke-width':1.4}));
+    LG.appendChild(txt(XX+46,CY+14,'되먹임','dimlab','var(--ink-soft)'));
+    /* 출력 화살표 */
+    LG.appendChild(el('line',{x1:CX-8,y1:CY+28,x2:CX-62,y2:CY+28,
+      stroke:'var(--dl)','stroke-width':1.6}));
+    LG.appendChild(txt(CX-70,CY+32,'출력 →','dimlab','var(--dl)','end'));
+    LG.appendChild(txt(CX+M*CW/2,CY-30,P.name+' · 굵은 칸이 되먹임에 쓰인다',
+      'celllab','var(--ink-soft)'));
+
+    /* --- 출력 비트열 --- */
+    /* 행 이름이 x=8에서 시작하므로 비트열은 그 오른쪽에서 시작해야 한다 */
+    var BY=200, BW=15, BX=118;
+    LG.appendChild(txt(8,BY+12,'나온 비트','celllab','var(--ink-soft)','start'));
+    for(var n=0;n<step;n++){
+      var x=BX+n*BW;
+      if(x>1040) break;
+      /* 한 주기(31)를 넘어가면 같은 값이 되풀이된다 — 옅게 그려 구분한다 */
+      var rep=n>=31;
+      LG.appendChild(el('rect',{x:x,y:BY,width:BW-3,height:26,
+        fill:r.out[n]?'var(--dl)':'var(--card)',stroke:'var(--dl)','stroke-width':1,
+        opacity:rep?0.4:1}));
+      if(BW>=14) LG.appendChild(txt(x+(BW-3)/2,BY+18,String(r.out[n]),'dimlab',
+        r.out[n]?'#fff':'var(--dl)'));
+    }
+    if(step>31){
+      var px=BX+31*BW;
+      LG.appendChild(el('line',{x1:px-2,y1:BY-10,x2:px-2,y2:BY+40,
+        stroke:'var(--ink)','stroke-width':1.6,'stroke-dasharray':'4 3'}));
+      LG.appendChild(txt(px+4,BY-16,'여기서부터 되풀이','dimlab','var(--ink)','start'));
+    }
+    LG.appendChild(txt(550,BY+62,'한 박자에 한 칸씩 민다 · 31박자가 지나면 처음 상태로 돌아온다',
+      'dimlab','var(--ink-soft)'));
+
+    /* --- 읽을거리 --- */
+    var ones=0; for(var q=0;q<Math.min(step,31);q++) ones+=r.out[q];
+    document.getElementById('lfOut').textContent=step+'박자 · '+P.label;
+    var done=step>=31;
+    var box=document.getElementById('lfBox');
+    box.className='verdict '+(done?'ok':'bad');
+    document.getElementById('lfTag').textContent=done?'한 바퀴를 돌았다':'아직 도는 중';
+    document.getElementById('lfWhy').textContent=done
+      ? '31박자 만에 처음 상태로 돌아왔습니다. 칸이 5개니 상태는 32가지인데, '
+        + '전부 0인 상태는 되먹임도 0이라 빠져나올 수 없어 빼면 31가지 — 그 전부를 '
+        + '한 번씩 거쳐 온 것입니다. 한 주기에 1이 16개, 0이 15개로 거의 반반입니다.'
+      : '지금까지 '+step+'박자를 돌았고 1이 '+ones+'개 나왔습니다. '
+        + '규칙은 "한 칸 밀고 빈 자리를 XOR로 채운다"뿐인데도 비트열에 규칙성이 안 보입니다. '
+        + '끝까지 밀어 보면 언제 되풀이되는지 알 수 있습니다.';
+  }
+  lfStep.addEventListener('input',drawLf);
+
+  /* ============ 2. N_C = 1600 의 효과 ============ */
+  /* 규격의 골드 생성기 (TS 38.211 §5.2.1). skip 칸을 버리고 n비트를 낸다. */
+  function nrGold(cInit, n, skip){
+    var x1=new Array(31), x2=new Array(31), i;
+    for(i=0;i<31;i++){ x1[i]=0; x2[i]=0; }
+    x1[0]=1;
+    /* c_init 이 31비트라 32비트 정수 연산의 부호 문제를 피하려고 나눗셈으로 뽑는다 */
+    var v=cInit;
+    for(i=0;i<31;i++){ x2[i]=v%2; v=Math.floor(v/2); }
+    var out=[];
+    for(var k=0;k<skip+n;k++){
+      if(k>=skip) out.push(x1[0]^x2[0]);
+      var f1=x1[0]^x1[3];
+      var f2=x2[0]^x2[1]^x2[2]^x2[3];
+      x1.shift(); x1.push(f1);
+      x2.shift(); x2.push(f2);
+    }
+    return out;
+  }
+
+  var PAIRS=[{label:'1024 · 1025',a:1024},{label:'5000 · 5001',a:5000},
+             {label:'7654321 · 7654322',a:7654321}];
+  var pairSel=0;
+  var NG=document.getElementById('ncGrid');
+  var ncSkip=document.getElementById('ncSkip');
+  var syncPair=mkSeg(document.getElementById('ncPair'),PAIRS,
+    function(){return pairSel;}, function(v){pairSel=v;}, function(){drawNc();});
+
+  function drawNc(){
+    var skip=parseInt(ncSkip.value,10), base=PAIRS[pairSel].a, N=64;
+    var a=nrGold(base,N,skip), b=nrGold(base+1,N,skip);
+    /* 선두에서 몇 개가 같은지는 우연에 휘둘려 주장과 반대로 읽힌다.
+       (안 섞였는데 첫 비트가 우연히 다를 수 있다)
+       구간 전체에서 '가장 길게 이어진 일치'를 재면 섞인 정도를 제대로 따라간다. */
+    var diff=[], nd=0, run=0, cur=0, runAt=0, curAt=0;
+    for(var i=0;i<N;i++){
+      var d=a[i]!==b[i]?1:0; diff.push(d); nd+=d;
+      if(d){ cur=0; } else { if(cur===0) curAt=i; cur++; if(cur>run){ run=cur; runAt=curAt; } }
+    }
+    clear(NG);
+
+    /* 행 이름 자리를 비워 두고 시작한다 — 안 그러면 첫 비트를 덮는다 */
+    var BX=118, BW=14.6, RY=[58,116,190];
+    ['쪽 번호 '+base,'쪽 번호 '+(base+1),'다른 자리'].forEach(function(lab,ri){
+      NG.appendChild(txt(8,RY[ri]+18,lab,'dimlab','var(--ink-soft)','start'));
+    });
+    for(var n=0;n<N;n++){
+      var x=BX+n*BW;
+      [a,b].forEach(function(seq,ri){
+        NG.appendChild(el('rect',{x:x,y:RY[ri],width:BW-3,height:26,
+          fill:seq[n]?'var(--dl)':'var(--card)',stroke:'var(--dl)','stroke-width':0.9}));
+      });
+      /* 세 번째 줄은 두 줄이 서로 다른 자리만 채운다 — 촘촘할수록 잘 섞인 것 */
+      NG.appendChild(el('rect',{x:x,y:RY[2],width:BW-3,height:26,
+        fill:diff[n]?'var(--dl)':'none',stroke:'var(--hair)','stroke-width':0.9}));
+    }
+    NG.appendChild(txt(BX+N*BW/2,RY[2]+74,
+      '세 번째 줄이 촘촘할수록 두 쪽이 잘 갈라진 것이다 · 절반이 채워지면 난수와 같은 상태',
+      'dimlab','var(--ink-soft)'));
+    NG.appendChild(txt(BX+N*BW/2,26,
+      '쪽 번호를 1만 바꿨을 때 앞 64비트',' celllab'.trim(),'var(--ink-soft)'));
+
+    /* 가장 길게 이어진 일치 구간을 표시한다 — 길수록 안 섞인 것이다 */
+    if(run>=3){
+      NG.appendChild(el('rect',{x:BX+runAt*BW-2,y:RY[2]-6,width:run*BW+2,height:38,
+        fill:'none',stroke:'var(--alert)','stroke-width':1.6}));
+      NG.appendChild(txt(Math.min(Math.max(BX+(runAt+run/2)*BW,BX+70),BX+N*BW-70),
+        RY[2]+50,run+'비트가 내리 똑같다','dimlab','var(--alert)'));
+    }
+
+    var pct=nd/N*100;
+    document.getElementById('ncOut').textContent=skip+'칸 버림 · '+PAIRS[pairSel].label;
+    document.getElementById('ncDiff').textContent=pct.toFixed(1)+'%';
+    document.getElementById('ncRun').textContent=run+'비트';
+    document.getElementById('ncSkipN').textContent=skip;
+
+    var mixed=pct>=35;
+    var box=document.getElementById('ncBox');
+    box.className='verdict '+(mixed?'ok':'bad');
+    document.getElementById('ncTag').textContent=mixed?'충분히 섞였다':'아직 흔적이 남아 있다';
+    document.getElementById('ncWhy').textContent=mixed
+      ? skip+'칸을 버리니 다른 비트가 '+pct.toFixed(1)+'%입니다. 난수라면 50%이므로 '
+        + '거의 그 수준입니다 — 이웃한 쪽 번호를 쓰는 두 셀이 서로 다른 수열을 갖게 됩니다.'
+      : '다른 비트가 '+pct.toFixed(1)+'%밖에 안 되고, 최대 '+run+'비트가 내리 똑같습니다. '
+        + '레지스터는 한 박자에 한 칸씩만 섞이므로, 시작 상태가 1만 다르면 '
+        + '한동안 출력도 거의 같습니다. 버리는 칸을 늘려 보십시오 — '
+        + '규격이 1600을 쓰는 이유가 여기 있습니다.';
+  }
+  ncSkip.addEventListener('input',drawNc);
+
+  /* ============ 3. CSI-RS 의 쪽 번호 ============ */
+  var CG=document.getElementById('ciGrid');
+  var ciNid=document.getElementById('ciNid'), ciSym=document.getElementById('ciSym');
+  var NBITS=64;
+  var REF=null;                       /* n_ID=0, l=0 의 비트열 — 비교 기준 */
+
+  function csiInit(nid,l,ns){
+    /* c_init = (2^10·(14·n_s + l + 1)·(2·n_ID+1) + n_ID) mod 2^31
+       2^31을 넘길 수 있어 나머지 연산을 직접 한다(비트 연산은 32비트에서 부호가 꼬인다) */
+    var mult=(14*ns+l+1)*1024;
+    var raw=mult*(2*nid+1)+nid;
+    return {raw:raw, val:raw%2147483648, wrapped:raw>=2147483648};
+  }
+
+  function drawCi(){
+    var nid=parseInt(ciNid.value,10), l=parseInt(ciSym.value,10), ns=0;
+    var c=csiInit(nid,l,ns);
+    var bits=nrGold(c.val,NBITS,1600);
+    if(!REF) REF=nrGold(csiInit(0,0,0).val,NBITS,1600);
+    var nd=0; for(var i=0;i<NBITS;i++) if(bits[i]!==REF[i]) nd++;
+    clear(CG);
+
+    /* --- 식을 단계로 보인다 --- */
+    var steps=[
+      ['14·n_s + l + 1', (14*ns+l+1)],
+      ['× 2¹⁰', (14*ns+l+1)*1024],
+      ['× (2·n_ID + 1) = '+(2*nid+1), (14*ns+l+1)*1024*(2*nid+1)],
+      ['+ n_ID = '+nid, c.raw]
+    ];
+    CG.appendChild(txt(8,30,'쪽 번호 계산','celllab','var(--ink-soft)','start'));
+    steps.forEach(function(s,i){
+      var y=30;
+      var x=170+i*225;
+      CG.appendChild(el('rect',{x:x,y:y-20,width:206,height:44,rx:4,
+        fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':1.2}));
+      CG.appendChild(txt(x+103,y-3,s[0],'dimlab','var(--ink-soft)'));
+      CG.appendChild(txt(x+103,y+16,s[1].toLocaleString(),'celllab','var(--dl)'));
+    });
+    if(c.wrapped){
+      CG.appendChild(txt(550,74,'mod 2³¹ 이 돌았다 → '+c.val.toLocaleString(),
+        'celllab','var(--alert)'));
+    }
+
+    /* --- 비트열 --- */
+    var BX=118, BW=14.6, BY=112;
+    CG.appendChild(txt(8,BY+18,'그 쪽의 비트','dimlab','var(--ink-soft)','start'));
+    for(var n=0;n<NBITS;n++){
+      CG.appendChild(el('rect',{x:BX+n*BW,y:BY,width:BW-3,height:26,
+        fill:bits[n]?'var(--dl)':'var(--card)',stroke:'var(--dl)','stroke-width':0.9}));
+    }
+
+    /* --- QPSK 심볼 --- */
+    var QY=186;
+    CG.appendChild(txt(8,QY+22,'QPSK 심볼','dimlab','var(--ink-soft)','start'));
+    CG.appendChild(txt(8,QY+40,'비트 둘에 하나','dimlab','var(--ink-soft)','start'));
+    for(var m=0;m<16;m++){
+      var I=1-2*bits[2*m], Q=1-2*bits[2*m+1];
+      var cx=BX+m*58+22, cy=QY+30, R=17;
+      CG.appendChild(el('circle',{cx:cx,cy:cy,r:R,fill:'none',
+        stroke:'var(--hair)','stroke-width':1}));
+      CG.appendChild(el('line',{x1:cx,y1:cy,x2:cx+I*R*0.72,y2:cy-Q*R*0.72,
+        stroke:'var(--dl)','stroke-width':2}));
+      CG.appendChild(el('circle',{cx:cx+I*R*0.72,cy:cy-Q*R*0.72,r:3,fill:'var(--dl)'}));
+    }
+    CG.appendChild(txt(550,QY+72,
+      '크기는 언제나 1이고 방향만 넷 중 하나 — 부반송파마다 같은 힘이 실린다',
+      'dimlab','var(--ink-soft)'));
+
+    /* --- 읽을거리 --- */
+    var ref=csiInit(0,0,0).val;
+    document.getElementById('ciOut').textContent='n_ID '+nid+' · l '+l+' · 슬롯 0';
+    document.getElementById('ciInit').textContent=c.val.toLocaleString();
+    document.getElementById('ciCmp').textContent=(nd/NBITS*100).toFixed(0)+'%';
+    /* 상호상관은 CSI-RS 한 심볼 분량(546비트)으로 잰다 */
+    var A=nrGold(c.val,546,1600), B=nrGold(ref,546,1600), s=0;
+    for(var k=0;k<546;k++) s+=(1-2*A[k])*(1-2*B[k]);
+    var xc=Math.abs(s)/546;
+    document.getElementById('ciXc').textContent=(c.val===ref)?'—':neg(20*Math.log10(xc),1);
+    document.getElementById('ciMod').textContent=c.wrapped?'돌았다':'안 돌았다';
+
+    var same=(c.val===ref);
+    var box=document.getElementById('ciBox');
+    box.className='verdict '+(same?'bad':'ok');
+    document.getElementById('ciTag').textContent=same?'기준과 같은 쪽':'다른 쪽이 열렸다';
+    document.getElementById('ciWhy').textContent=same
+      ? '지금은 기준(n_ID = 0, l = 0)과 같은 설정이라 같은 쪽을 펴고 있습니다. '
+        + 'n_ID나 심볼을 하나만 움직여 보십시오.'
+      : 'n_ID나 심볼을 바꿨더니 쪽 번호가 '+c.val.toLocaleString()+'이 되고, '
+        + '기준과 비트가 '+(nd/NBITS*100).toFixed(0)+'% 다릅니다 — 거의 절반이니 '
+        + '완전히 다른 수열입니다. 546비트로 잰 상호상관은 '
+        + neg(20*Math.log10(xc),1)+' dB입니다. '
+        + '심볼 번호만 바뀌어도 이렇게 달라지므로 간섭이 한곳에 쌓이지 않습니다.';
+  }
+  ciNid.addEventListener('input',drawCi);
+  ciSym.addEventListener('input',drawCi);
+
+  drawLf();
+  drawNc();
+  drawCi();
+})();
+</script>
+
+</body>
+</html>

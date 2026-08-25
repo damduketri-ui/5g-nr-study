@@ -82,6 +82,7 @@ def main():
     ok &= check_uplink()
     ok &= check_oran()
     ok &= check_zc()
+    ok &= check_gold()
     ok &= check_offline()
     ok &= check_harq()
 
@@ -631,6 +632,236 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 16 골드 시퀀스와 CSI-RS ─────────────────────────────────
+# 근거: TS 38.211 §5.2.1(의사난수 수열) · §7.4.1.5.2(CSI-RS 수열과 c_init)
+# m-시퀀스와 골드의 성질은 대수이고 규격값이 아니다.
+# 규격에서 온 것은 두 다항식, N_C = 1600, 그리고 c_init 식뿐이다.
+
+NC_SKIP = 1600
+
+
+def _lfsr(taps, init, n):
+    """taps에 적힌 칸을 XOR해 새 비트를 만든다(피보나치 구성)"""
+    st = list(init)
+    out = []
+    for _ in range(n):
+        out.append(st[0])
+        fb = 0
+        for t in taps:
+            fb ^= st[t]
+        st = st[1:] + [fb]
+    return out
+
+
+def _cyc_corr_bits(x, y):
+    """0/1 비트를 ±1로 바꿔 상관"""
+    return sum((1 - 2 * a) * (1 - 2 * b) for a, b in zip(x, y))
+
+
+def nr_gold(c_init, n, skip=NC_SKIP):
+    """TS 38.211 §5.2.1 — x1은 시작 상태 고정, x2의 시작 상태가 c_init"""
+    x1 = [0] * 31
+    x1[0] = 1
+    x2 = [(c_init >> i) & 1 for i in range(31)]
+    out = []
+    for k in range(skip + n):
+        if k >= skip:
+            out.append(x1[0] ^ x2[0])
+        f1 = x1[0] ^ x1[3]
+        f2 = x2[0] ^ x2[1] ^ x2[2] ^ x2[3]
+        x1 = x1[1:] + [f1]
+        x2 = x2[1:] + [f2]
+    return out
+
+
+def csi_c_init(n_ID, l, n_s, nsym=14):
+    """TS 38.211 §7.4.1.5.2"""
+    return (2 ** 10 * (nsym * n_s + l + 1) * (2 * n_ID + 1) + n_ID) % 2 ** 31
+
+
+def check_gold():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>13.6g}  게시 {want:<12} {'✓' if hit else '✗ 불일치'}")
+
+    A_TAPS, B_TAPS, M = (0, 2), (0, 2, 3, 4), 5
+    period = 2 ** M - 1
+
+    print("\n[16] 작은 예시 — 길이 5 레지스터의 m-시퀀스")
+    for name, taps in [('규칙 A', A_TAPS), ('규칙 B', B_TAPS)]:
+        seq = _lfsr(taps, [1, 0, 0, 0, 0], 200)
+        per = next(p for p in range(1, 200) if all(seq[i] == seq[i + p] for i in range(100)))
+        ones = sum(seq[:period])
+        hit = per == period and ones == 16
+        ok &= hit
+        print(f"  {name}: 주기 {per:>3} (게시 31) · 한 주기의 1 개수 {ones} (게시 16)"
+              f"  {'✓' if hit else '✗ 불일치'}")
+
+    a = _lfsr(A_TAPS, [1, 0, 0, 0, 0], period)
+    print("\n[16] m-시퀀스의 자기상관 — 지연 0 밖에서 전부 −1인가")
+    side = {_cyc_corr_bits(a, a[l:] + a[:l]) for l in range(1, period)}
+    hit = side == {-1}
+    ok &= hit
+    eq("지연 0의 자기상관", _cyc_corr_bits(a, a), 31, 0)
+    print(f"  나머지 지연에서 나오는 값 {sorted(side)}  게시 [-1]  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 골드 집합 — 2^m + 1 개가 나오는가")
+    b = _lfsr(B_TAPS, [1, 0, 0, 0, 0], period)
+    gold = [a, b] + [[p ^ q for p, q in zip(a, b[s:] + b[:s])] for s in range(period)]
+    hit = len(gold) == 2 ** M + 1 and len({tuple(g) for g in gold}) == len(gold)
+    ok &= hit
+    print(f"  만든 수열 {len(gold)}개 (게시 33) · 전부 서로 다른가 "
+          f"{len({tuple(g) for g in gold}) == len(gold)}  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 골드의 상호상관 — 세 값에만 묶이는가")
+    cc = set()
+    for i in range(len(gold)):
+        for j in range(i + 1, len(gold)):
+            cc.add(_cyc_corr_bits(gold[i], gold[j]))
+    t = 1 + 2 ** ((M + 1) // 2)
+    want = {-1, -t, t - 2}
+    hit = cc == want
+    ok &= hit
+    print(f"  나온 값 {sorted(cc)}  게시 {sorted(want)} (t = 1+2^((m+1)/2) = {t})"
+          f"  {'✓' if hit else '✗ 불일치'}")
+    worst = max(abs(v) for v in cc)
+    eq("최악 상호상관 [dB] · 9/31", 20 * math.log10(worst / period), -10.74, 0.01)
+
+    print("\n[16] 규격의 골드 — c_init = 0 은 골드가 아니다")
+    # x2 시작 상태가 전부 0 → 되먹임도 0 → x2는 영원히 0 → 출력이 x1 단독이 된다
+    x1_only = _lfsr((0, 3), [1] + [0] * 30, NC_SKIP + 4000)[NC_SKIP:]
+    g0 = nr_gold(0, 4000)
+    hit = g0 == x1_only
+    ok &= hit
+    print(f"  c_init=0 의 출력이 x1 단독과 같은가  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+    r0 = sum(g0) / len(g0)
+    eq("그때 1의 비율 (치우친다)", r0, 0.3957, 0.001)
+    r1 = sum(nr_gold(1, 4000)) / 4000
+    print(f"  견줌: c_init=1 의 1 비율 {r1:.4f}  (0.5에 가깝다)")
+
+    print("\n[16] N_C = 1600 을 왜 버리는가")
+    bases = (1024, 5000, 100000, 7654321)
+    for skip, pub in [(0, 9.8), (100, 12.5), (1600, 42.6)]:
+        tot = sum(sum(p != q for p, q in zip(nr_gold(b, 64, skip), nr_gold(b + 1, 64, skip)))
+                  for b in bases)
+        pct = tot / (64 * len(bases)) * 100
+        hit = abs(pct - pub) < 0.1
+        ok &= hit
+        print(f"  {skip:>4}칸 버림: c_init을 1만 바꿨을 때 다른 비트 {pct:5.1f}%"
+              f"  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 1600이라야 난수 수준(50%)에 가까워진다
+    p0 = sum(sum(x != y for x, y in zip(nr_gold(b, 64, 0), nr_gold(b + 1, 64, 0)))
+             for b in bases) / (64 * len(bases))
+    p1600 = sum(sum(x != y for x, y in zip(nr_gold(b, 64, 1600), nr_gold(b + 1, 64, 1600)))
+                for b in bases) / (64 * len(bases))
+    claim = p0 < 0.15 and p1600 > 0.35
+    ok &= claim
+    print(f"  버리지 않으면 흔적이 남고(<15%) 1600이면 섞이는가(>35%)"
+          f"  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] CSI-RS 의 c_init — 손으로 따라가는 예시 (n_s=0, l=0)")
+    for nid, pub in [(0, 1024), (1, 3073), (2, 5122), (1023, 2097151)]:
+        got = csi_c_init(nid, 0, 0)
+        hit = got == pub
+        ok &= hit
+        print(f"  n_ID={nid:>4}: 1024×{2*nid+1:<5} + {nid:<5} = {got:>10,}"
+              f"  게시 {pub:<10,} {'✓' if hit else '✗ 불일치'}")
+    for l, pub in [(0, 1024), (1, 2048), (2, 3072), (13, 14336)]:
+        got = csi_c_init(0, l, 0)
+        hit = got == pub
+        ok &= hit
+        print(f"  n_ID=0 · l={l:>2}: {got:>10,}  게시 {pub:<10,} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] c_init = 0 이 나오는 조합이 있는가 — 전 조합 확인")
+    for mu in range(5):
+        slots = 10 * 2 ** mu
+        zero = sum(1 for nid in range(1024) for ns in range(slots) for l in range(14)
+                   if csi_c_init(nid, l, ns) == 0)
+        hit = zero == 0
+        ok &= hit
+        print(f"  μ={mu} (슬롯 {slots:>3}): 조합 {1024*slots*14:>9,}개 중 c_init=0 이 {zero}개"
+              f"  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] mod 2^31 이 실제로 도는가")
+    for mu, pub_ratio, pub_wrap in [(0, 0.137, False), (1, 0.273, False), (2, 0.547, False),
+                                    (3, 1.093, True), (4, 2.186, True)]:
+        slots = 10 * 2 ** mu
+        mx = 2 ** 10 * (14 * (slots - 1) + 13 + 1) * (2 * 1023 + 1) + 1023
+        ratio = mx / 2 ** 31
+        hit = abs(ratio - pub_ratio) < 0.001 and (mx >= 2 ** 31) == pub_wrap
+        ok &= hit
+        print(f"  μ={mu}: 모듈러 전 최댓값 / 2^31 = {ratio:6.3f}배"
+              f"  {'돈다' if mx >= 2**31 else '안 돈다':<8} 게시 {pub_ratio:<6}"
+              f" {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 서로 다른 (셀, 슬롯, 심볼)이 같은 c_init 을 쓰는가")
+    for mu in (1, 3):
+        slots = 10 * 2 ** mu
+        seen = set()
+        for nid in range(1024):
+            for ns in range(slots):
+                for l in range(14):
+                    seen.add(csi_c_init(nid, l, ns))
+        tot = 1024 * slots * 14
+        hit = len(seen) == tot
+        ok &= hit
+        print(f"  μ={mu}: 조합 {tot:>9,}개 · 서로 다른 c_init {len(seen):>9,}개"
+              f" · 겹침 {tot - len(seen)}  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] CSI-RS 한 심볼이 쓰는 비트 — 주기의 얼마인가")
+    for rb, dens, pub in [(273, 1, 546), (273, 3, 1638), (52, 1, 104)]:
+        bits = rb * dens * 2                      # RE 하나에 QPSK 2비트
+        hit = bits == pub
+        ok &= hit
+        print(f"  {rb:>3}RB 밀도{dens}: RE {rb*dens:>4}개 → {bits:>5}비트"
+              f"  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    frac = 546 / (2 ** 31 - 1)
+    eq("546비트가 주기에서 차지하는 몫", frac * 100, 2.5425e-05, 1e-9)
+
+    print("\n[16] 짧게 자르면 상호상관이 난수 수준인가 (고정 시드)")
+    rnd = random.Random(20260824)
+    ratios = []
+    for L, pub_avg in [(240, 0.0482), (1200, 0.0205), (20000, 0.0058)]:
+        vals = []
+        for _ in range(60):
+            u = rnd.randrange(1, 2 ** 31)
+            v = rnd.randrange(1, 2 ** 31)
+            vals.append(abs(_cyc_corr_bits(nr_gold(u, L), nr_gold(v, L))) / L)
+        avg = sum(vals) / len(vals)
+        base = 1 / math.sqrt(L)
+        ratios.append(avg / base)
+        hit = abs(avg - pub_avg) < 0.0001
+        ok &= hit
+        print(f"  길이 {L:>6}: 평균 {avg:.4f} ({20*math.log10(avg):6.1f} dB)"
+              f" · 무작위 기준 1/√L = {base:.4f} · 비 {avg/base:.2f}배"
+              f"  게시 {pub_avg:<8} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: 유한 구간에서는 난수와 비슷한 수준이다(전주기 이론값과 다르다).
+    # 위에서 잰 세 길이의 평균을 그대로 쓴다 — 몇 쌍만 골라 보면 우연히 치우친다.
+    like_random = all(0.5 < r < 1.5 for r in ratios)
+    ok &= like_random
+    print(f"  세 길이 모두 난수 기준의 0.5–1.5배인가 "
+          f"({', '.join(f'{r:.2f}' for r in ratios)})"
+          f"  {'✓' if like_random else '✗ 자료의 주장과 다름'}")
+    # 그리고 전주기 이론값(−90 dB)과는 확연히 다르다 — 자료가 짚는 오해의 핵심
+    far_from_theory = 20 * math.log10(ratios[0] / math.sqrt(240)) > -60
+    ok &= far_from_theory
+    print(f"  240비트에서의 값이 전주기 이론값(−90.3 dB)과 확연히 다른가"
+          f"  {'✓' if far_from_theory else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] 전주기 이론값 (계산이 아니라 대수의 결과 — 자료에도 그렇게 적었다)")
+    t31 = 1 + 2 ** 16
+    eq("t(31) = 1 + 2^16", t31, 65537, 0)
+    eq("정규화 t(31)/(2^31−1) [dB]", 20 * math.log10(t31 / (2 ** 31 - 1)), -90.3, 0.05)
+    eq("c_init 가짓수 2^31", 2 ** 31, 2147483648, 0)
+    eq("15의 ZC 30개 대비 배수", 2 ** 31 / 30, 71582788, 1)
 
     return ok
 
