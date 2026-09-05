@@ -2,5 +2,9 @@
 Thumbs.db
 node_modules/
 *.log
+
+# 파이썬 바이트코드 — verify-numbers.py 를 모듈로 불러들이면 생긴다
+__pycache__/
+*.py[cod]
 .vscode/
 .idea/
