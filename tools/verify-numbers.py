@@ -7,6 +7,7 @@
 근거: TS 38.211 §4.1(Tc, κ), §4.2(SCS), §5.3.1(CP)
 """
 
+import itertools
 import math
 import pathlib
 import random
@@ -87,6 +88,7 @@ def main():
     ok &= check_offline()
     ok &= check_dmrs()
     ok &= check_ho()
+    ok &= check_coding()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -665,6 +667,224 @@ def check_offline():
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
 
     return ok
+
+
+# ── 20 채널 코딩 ─────────────────────────────────────────────
+# 근거: TS 38.212 §5.3.1(Polar), §5.3.2(LDPC), §5.2.2(코드블록 분할),
+#       §5.4.2.1(순환 버퍼), Table 5.3.1.2-1(신뢰도 순서), Table 5.3.2-1(들어올리기 크기)
+# 차수 분포는 OAI nrLDPCdecoder_defs.h 에서 옮겼다 — 규격 표를 구현이 풀어 적은 것이다.
+
+# 검사노드 차수와 그 개수 · 비트노드 차수별 개수(차수 1..30) · 앞쪽 열의 차수
+CD_BG1 = ([3, 4, 5, 6, 7, 8, 9, 10, 19], [1, 5, 18, 8, 5, 2, 2, 1, 4],
+          [42, 0, 0, 1, 1, 2, 4, 3, 1, 4, 3, 4, 1] + [0] * 14 + [1, 0, 1],
+          [30, 28, 7, 11, 9, 4, 8, 12, 8, 7, 12, 10, 12,
+           11, 10, 7, 10, 10, 13, 7, 8, 11, 12, 5, 6, 6])
+CD_BG2 = ([3, 4, 5, 6, 8, 10], [6, 20, 9, 3, 2, 2],
+          [38, 0, 0, 0, 2, 1, 1, 1, 2, 1, 0, 1, 1, 1, 0, 1] + [0] * 5 + [1, 1] + [0] * 7,
+          [22, 23, 10, 5, 5, 14, 7, 13, 6, 8, 9, 16, 9, 12])
+
+LIFT = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20,
+        22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 52, 56, 60, 64, 72, 80, 88,
+        96, 104, 112, 120, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384]
+
+# 자료의 인터랙션과 같은 작은 부호 — 설명용이며 규격의 부호가 아니다.
+# 검사 i 는 정보 {i, i+1, i+2 mod 8} 과 검사비트 8+i 를 본다.
+SMALL_CHECKS = [tuple(sorted({i % 8, (i + 1) % 8, (i + 2) % 8})) + (8 + i,) for i in range(8)]
+
+
+def peel(erased, checks=SMALL_CHECKS):
+    """검사식이 지워진 것을 하나만 보면 그것을 되살린다 — 더 못 갈 때까지."""
+    unknown = set(erased)
+    changed = True
+    while changed:
+        changed = False
+        for c in checks:
+            miss = [b for b in c if b in unknown]
+            if len(miss) == 1:
+                unknown.discard(miss[0])
+                changed = True
+    return unknown
+
+
+def bec_polarize(eps0, n):
+    """지움 채널을 n 번 엮는다. ε⁻ = 2ε − ε², ε⁺ = ε²"""
+    e = [eps0]
+    for _ in range(n):
+        e = [v for x in e for v in (2 * x - x * x, x * x)]
+    return e
+
+
+def check_coding():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[20] 기저 그래프 — 같은 행렬을 세 방향에서 센다")
+    for name, rows, cols, kb, ncore, dat, e_pub, sp_pub in (
+            ("BG1", 46, 68, 22, 26, CD_BG1, 316, 10.10),
+            ("BG2", 42, 52, 10, 14, CD_BG2, 197, 9.02)):
+        cdeg, ccnt, bcnt, core = dat
+        e_cn = sum(d * c for d, c in zip(cdeg, ccnt))
+        e_bn = sum((i + 1) * c for i, c in enumerate(bcnt))
+        e_col = sum(core) + (cols - ncore)
+        hit = (sum(ccnt) == rows and sum(bcnt) == cols
+               and e_cn == e_bn == e_col == e_pub
+               and kb + rows == cols and bcnt[0] == cols - ncore
+               and abs(e_cn / (rows * cols) * 100 - sp_pub) < 0.01)
+        ok &= hit
+        print(f"  {name}: {rows}×{cols} · 검사노드 {e_cn} · 비트노드 {e_bn} · 열별 {e_col} "
+              f"· 성김 {e_cn/(rows*cols)*100:.2f} % · 차수1인 열 {bcnt[0]}"
+              f"  {'✓' if hit else '✗'}")
+    eq("BG1 검사식 하나가 보는 비트", 316 / 46, 6.87, 0.005)
+    eq("BG1 비트 하나가 걸린 검사식", 316 / 68, 4.65, 0.005)
+    eq("BG2 검사식 하나가 보는 비트", 197 / 42, 4.69, 0.005)
+    eq("BG2 비트 하나가 걸린 검사식", 197 / 52, 3.79, 0.005)
+    eq("BG1 차수1인 열의 비율 [%]", 42 / 68 * 100, 62, 0.5)
+
+    print("\n[20] 어미 부호율과 순환 버퍼 — 06 의 66·50 이 여기서 나온다")
+    for name, kb, cols, buf_pub, rate_pub in (("BG1", 22, 68, 66, 1 / 3), ("BG2", 10, 52, 50, 1 / 5)):
+        buf = cols - 2                       # 앞 2Z 비트는 보내지 않는다
+        hit = buf == buf_pub and abs(kb / buf - rate_pub) < 1e-12
+        ok &= hit
+        print(f"  {name}: ({cols}−2)·Z = {buf}Z · 전송 기준 어미율 {kb}/{buf} = {kb/buf:.6f}"
+              f"  {'✓' if hit else '✗'}")
+    # 68·52 로 나누면 딱 떨어지지 않는다는 것도 확인
+    ok &= abs(22 / 68 - 1 / 3) > 1e-3 and abs(10 / 52 - 1 / 5) > 1e-3
+    print("  68·52 로 나누면 1/3·1/5 로 떨어지지 않는다 (66·50 이라야 떨어진다)  ✓")
+
+    print("\n[20] 들어올리기 크기 Z = a·2^j")
+    derived = sorted({a * 2 ** j for a in (2, 3, 5, 7, 9, 11, 13, 15)
+                      for j in range(9) if a * 2 ** j <= 384})
+    hit = derived == LIFT and len(derived) == 51
+    ok &= hit
+    print(f"  a·2^j 집합이 OAI 표와 일치 · {len(derived)}가지 · 최대 {max(derived)}"
+          f"  {'✓' if hit else '✗'}")
+    for a, cnt in ((2, 8), (3, 8), (5, 7), (7, 6), (9, 6), (11, 6), (13, 5), (15, 5)):
+        n = len([1 for j in range(9) if a * 2 ** j <= 384])
+        ok &= n == cnt
+        if n != cnt:
+            print(f"    ✗ a={a} 의 개수가 {n} (게시 {cnt})")
+    print("  갈래별 개수 8·8·7·6·6·6·5·5 = 51  ✓")
+
+    print("\n[20] K_cb 는 정보열 수 × 최대 Z 다")
+    eq("BG1 K_cb", 22 * 384, 8448, 0.5)
+    eq("BG2 K_cb", 10 * 384, 3840, 0.5)
+    eq("두 부호가 담는 크기의 배수", 22 * 384 / 1024, 8.25, 0.01)
+
+    print("\n[20] 작은 부호의 지우개 복호 — 2^16 패턴 전수")
+    deg = [0] * 16
+    for c in SMALL_CHECKS:
+        for b in c:
+            deg[b] += 1
+    hit = deg[:8] == [3] * 8 and deg[8:] == [1] * 8 and sum(deg) == 32
+    ok &= hit
+    print(f"  정보비트 차수 3 · 검사비트 차수 1 · 간선 {sum(deg)}  {'✓' if hit else '✗'}")
+    tot = [0] * 17
+    good = [0] * 17
+    for mask in range(1 << 16):
+        er = {b for b in range(16) if mask >> b & 1}
+        tot[len(er)] += 1
+        if not peel(er):
+            good[len(er)] += 1
+    PUB = {0: 100.0, 1: 100.0, 2: 100.0, 3: 100.0, 4: 99.1, 5: 95.4,
+           6: 85.4, 7: 64.1, 8: 30.0, 9: 0.0, 10: 0.0, 11: 0.0, 12: 0.0}
+    for k, pub in PUB.items():
+        rate = good[k] / tot[k] * 100
+        hit = abs(rate - pub) < 0.05
+        ok &= hit
+        if not hit:
+            print(f"    ✗ 지움 {k}개 성공률 {rate:.1f} % (게시 {pub})")
+    print("  지움 0~12개의 성공률이 자료의 표와 전부 일치 "
+          "(0~3 100 % · 4 99.1 · 5 95.4 · 6 85.4 · 7 64.1 · 8 30.0 · 9~ 0)  ✓")
+    ok &= all(v == 0 for v in good[9:])
+    print("  검사식이 8개뿐이라 9개부터는 0 % — 부호의 한계  ✓")
+    # 못 푸는 가장 작은 패턴
+    smallest = None
+    for k in range(1, 6):
+        for er in itertools.combinations(range(16), k):
+            if peel(set(er)):
+                smallest = er
+                break
+        if smallest:
+            break
+    hit = smallest == (0, 1, 9, 14)
+    ok &= hit
+    print(f"  가장 작은 정지집합 {list(smallest)} · 크기 {len(smallest)}  게시 {{0,1,9,14}}"
+          f"  {'✓' if hit else '✗'}")
+
+    print("\n[20] 편극 — 지움 채널에서는 정확히 계산된다")
+    for eps0 in (0.5, 0.3, 0.9):
+        for n in (1, 3, 10):
+            e = bec_polarize(eps0, n)
+            mean = sum(e) / len(e)
+            hit = abs(mean - eps0) < 1e-9
+            ok &= hit
+            if not hit:
+                print(f"    ✗ ε₀={eps0} n={n} 에서 평균 {mean} — 용량이 보존되지 않았다")
+    print("  ε₀ = 0.5·0.3·0.9, n = 1·3·10 에서 평균이 ε₀ 그대로 (1e-9 이내)  ✓")
+    e = bec_polarize(0.5, 10)
+    g = sum(1 for v in e if v < 0.01) / len(e) * 100
+    b = sum(1 for v in e if v > 0.99) / len(e) * 100
+    eq("ε₀=0.5 N=1024 · 거의 완벽 [%]", g, 37.3, 0.05)
+    eq("ε₀=0.5 N=1024 · 거의 쓸모없음 [%]", b, 37.3, 0.05)
+    eq("ε₀=0.5 N=1024 · 가운데 [%]", 100 - g - b, 25.4, 0.05)
+    e = bec_polarize(0.5, 14)
+    eq("ε₀=0.5 N=16384 · 거의 완벽 [%]",
+       sum(1 for v in e if v < 0.01) / len(e) * 100, 44.1, 0.05)
+    # 나쁜 채널에서도 몫이 남지만, N 이 작으면 용량에 한참 못 미친다
+    for n, pub in ((10, 4.88), (14, 7.35), (18, 8.71)):
+        e = bec_polarize(0.9, n)
+        eq(f"ε₀=0.9 N={2**n} · 거의 완벽 [%]",
+           sum(1 for v in e if v < 0.01) / len(e) * 100, pub, 0.01)
+    print("  → 용량 10 % 로 가지만 N=1024 에서는 아직 4.88 % — 편극은 N 이 커져야 완성된다")
+
+    print("\n[20] Polar 신뢰도 순서 — TS 38.212 Table 5.3.1.2-1")
+    seq = _polar_seq()
+    if seq is None:
+        print("  (OAI 소스가 없어 건너뜀 — 이 저장소만 받은 사람도 통과해야 한다)")
+    else:
+        q10 = seq[10]
+        hit = len(q10) == 1024 and sorted(q10) == list(range(1024))
+        ok &= hit
+        print(f"  Q(1024) 는 0..1023 의 순열 · 앞 8개 {q10[:8]}  {'✓' if hit else '✗'}")
+        nest = all([q for q in q10 if q < (1 << n)] == seq[n] for n in range(1, 10))
+        ok &= nest
+        print(f"  중첩 성질: N=2~512 아홉 가지 전부 1024 수열에서 걸러낸 것과 일치"
+              f"  {'✓' if nest else '✗'}")
+        # 지움 채널로 매긴 순서와 얼마나 겹치는가
+        e = bec_polarize(0.5, 10)
+        bec = sorted(range(1024), key=lambda i: -e[i])
+        for K, pub in ((64, 94), (256, 97), (512, 97)):
+            share = len(set(q10[-K:]) & set(bec[-K:])) / K * 100
+            hit = abs(share - pub) < 1.0
+            ok &= hit
+            print(f"  K={K:3d} 정보비트 선택이 규격과 {share:.0f} % 겹친다  게시 {pub} %"
+                  f"  {'✓' if hit else '✗'}")
+
+    return ok
+
+
+def _polar_seq():
+    """OAI 가 담고 있는 TS 38.212 Table 5.3.1.2-1 을 읽는다.
+    소스를 안 받았으면 조용히 건너뛴다 — 이 저장소만 받아도 검산이 통과해야 한다."""
+    root = _oai_root()
+    if root is None:
+        return None
+    f = root / 'openair1/PHY/CODING/nrPolar_tools/nr_polar_sequence_pattern.c'
+    if not f.is_file():
+        return None
+    out = {}
+    for m in re.finditer(r'Q_0_Nminus1_(\d+)\[(\d+)\]\s*=\s*\{(.*?)\}', f.read_text(), re.S):
+        n, size, body = int(m.group(1)), int(m.group(2)), m.group(3)
+        vals = [int(x) for x in re.findall(r'-?\d+', body)]
+        if len(vals) != size:
+            return None
+        out[n] = vals
+    return out if 10 in out else None
 
 
 # ── 19 측정과 핸드오버 ───────────────────────────────────────
