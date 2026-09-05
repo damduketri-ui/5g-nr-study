@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>17 OpenAirInterface — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>17 / OpenAirInterface</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">17 · openairinterface</p>
+  <h1>설계도와<br><em>지어진 집</em></h1>
+  <p class="lead">앞의 열여섯 편은 전부 <strong>규격</strong>을 읽었습니다. 규격은 <strong>치수만</strong> 적습니다 — 실제로 지으려면 규격이 <strong>안 정한 것을 전부 정해야</strong> 합니다. OAI는 그렇게 지어진 집이고, 소스가 공개돼 있어 <strong>안을 들여다볼 수 있습니다.</strong></p>
+</header>
+
+<section class="wrap">
+  <div class="note">
+    <strong>먼저 짚을 것 — 이 자료는 규격이 아니라 구현입니다.</strong>
+    <a href="../14-oran-fronthaul-split/index.html">14가 O-RAN을 다룰 때</a>와 같은 이유로 출처 계통을 먼저 밝힙니다.
+    지금까지 셋이 되었습니다 — <strong>3GPP(규격) · O-RAN(분할 규격) · OAI(오픈소스 구현).</strong>
+    <br><br>
+    <strong>구현은 규격이 아닙니다.</strong> 코드가 규격을 잘못 읽었을 수도 있고,
+    규격이 허용하는 여러 방식 중 하나를 고른 것일 수도 있습니다.
+    그래서 이 자료의 인용은 <strong>"규격이 이렇다"가 아니라 "OAI는 이렇게 했다"</strong>입니다.
+    <br><br>
+    <strong>코드는 규격과 달리 움직입니다.</strong> <span class="src">TS 38.211 §5.2.1</span>은 안 변하지만
+    파일의 줄 번호는 다음 주에 틀릴 수 있습니다. 그래서 <strong>커밋을 박아 둡니다.</strong>
+    <span class="src">openairinterface/openairinterface5g · 태그 2026.w36 · 커밋 b3930e3</span>
+  </div>
+
+  <h2>왜 구현을 읽는가</h2>
+  <p>재미로 읽는 것이 아닙니다. 이 저장소에는 <strong>구현을 읽어야만 풀리는 문제</strong>가 실제로 있었습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>구현이 이 저장소에 실제로 해 준 일</caption>
+    <thead><tr><th>무엇이</th><th>어떻게 되었나</th></tr></thead>
+    <tbody>
+      <tr><td><strong>미검증 항목을 줄였다</strong></td><td><a href="../16-gold-sequence-csi-rs/index.html">16</a>의 N<sub>C</sub>=1600과 두 다항식, <a href="../15-zadoff-chu-srs/index.html">15</a>의 그룹 수 30과 소수 표 — 규격 원문을 못 봐 미검증으로 남겼던 것들이 코드에 그대로 있었다</td></tr>
+      <tr><td><strong>비트까지 맞춰 봤다</strong></td><td>OAI의 골드 수열 구현을 떼어 컴파일해 16의 게시 비트와 대조 — <strong>c<sub>init</sub> 5종 × 64비트 완전 일치</strong></td></tr>
+      <tr><td><strong>틀린 서술을 잡았다</strong></td><td>15가 "M<sub>ZC</sub> &lt; 36은 표를 쓴다"고 적었는데, 코드의 <code>M_ZC == 30</code> 분기가 <strong>표가 아니었다.</strong> 15를 정정했다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>세 번째 줄이 이 자료의 존재 이유입니다.</strong>
+    규격 문장은 여러 갈래로 읽힐 수 있고, 저는 그중 하나로 읽고 자료를 썼습니다.
+    <strong>구현은 반드시 하나를 고릅니다.</strong> 고른 것이 제 독해와 다르면 거기가 제가 틀렸을 자리입니다.
+    <br><br>
+    실제로 M<sub>ZC</sub> = 30이 그랬습니다. 저는 "36 미만은 전부 표"라고 뭉갰는데,
+    코드는 30만 따로 빼서 <strong>길이 31 ZC를 잘라 쓰고</strong> 있었습니다.
+    <a href="../15-zadoff-chu-srs/index.html">15에 그 절을 새로 넣었습니다.</a>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>저장소의 지도</h2>
+  <p>C 코드 <strong>66만 줄</strong>, 파일 <strong>4,344개</strong>입니다. 처음 열면 어디부터 볼지 막막한데, 위층부터 아래층으로 갈라져 있습니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1140 400" role="img" aria-labelledby="t1 d1">
+      <title id="t1">OAI 저장소의 디렉터리가 통신 계층에 어떻게 대응하는가</title>
+      <desc id="d1">왼쪽에 통신 규격의 계층이 위에서 아래로 코어망, 무선 자원 제어, 매체 접근 제어, 물리계층, 무선 장치 순으로 놓여 있고, 오른쪽에 그에 대응하는 디렉터리 이름이 짝지어져 있다. 물리계층 칸이 가장 크고 그 안이 다시 채널, 기준신호, 채널추정, 부호화, 변조 같은 하위 디렉터리로 나뉜다. 맨 아래에는 실행 파일과 설정 파일이 따로 놓여 있다.</desc>
+
+      <text x="8" y="30" class="rowlab" fill="var(--ink-soft)">계층</text>
+      <text x="300" y="30" class="rowlab" fill="var(--ink-soft)">디렉터리</text>
+      <text x="640" y="30" class="rowlab" fill="var(--ink-soft)">이 저장소의 자료</text>
+
+      <!-- 위층 -->
+      <rect x="8" y="44" width="250" height="42" rx="4" fill="none" stroke="var(--hair)" stroke-width="1.4"/>
+      <text x="133" y="70" text-anchor="middle" class="celllab" fill="var(--ink-soft)">코어망 연동</text>
+      <text x="300" y="70" class="celllab" fill="var(--ink-soft)">openair3/</text>
+      <text x="640" y="70" class="dimlab" fill="var(--ink-soft)">— (아직 없음)</text>
+
+      <rect x="8" y="92" width="250" height="42" rx="4" fill="none" stroke="var(--hair)" stroke-width="1.4"/>
+      <text x="133" y="118" text-anchor="middle" class="celllab" fill="var(--ink-soft)">RRC · PDCP · RLC · MAC</text>
+      <text x="300" y="118" class="celllab" fill="var(--ink-soft)">openair2/</text>
+      <text x="640" y="118" class="dimlab" fill="var(--ink-soft)">06의 HARQ가 여기서 물린다</text>
+
+      <!-- 물리계층 (이 저장소가 다뤄 온 곳) -->
+      <rect x="8" y="140" width="250" height="180" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="2.4"/>
+      <text x="133" y="166" text-anchor="middle" class="celllab" fill="var(--dl)">물리계층</text>
+      <text x="133" y="184" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">01–16이 다뤄 온 곳</text>
+      <text x="300" y="166" class="celllab" fill="var(--dl)">openair1/PHY/</text>
+
+      <rect x="300" y="180" width="300" height="132" rx="4" fill="none" stroke="var(--dl)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <text x="312" y="202" class="dimlab" fill="var(--dl)">NR_TRANSPORT/ — 채널</text>
+      <text x="312" y="224" class="dimlab" fill="var(--dl)">NR_REFSIG/ — 기준신호</text>
+      <text x="312" y="246" class="dimlab" fill="var(--dl)">NR_ESTIMATION/ — 채널추정</text>
+      <text x="312" y="268" class="dimlab" fill="var(--dl)">CODING/ — LDPC · Polar</text>
+      <text x="312" y="290" class="dimlab" fill="var(--dl)">MODULATION/ — FFT · CP</text>
+
+      <text x="640" y="202" class="dimlab" fill="var(--ink-soft)">10 · 12 · 13</text>
+      <text x="640" y="224" class="dimlab" fill="var(--ink-soft)">11 · 15 · 16</text>
+      <text x="640" y="246" class="dimlab" fill="var(--ink-soft)">11</text>
+      <text x="640" y="268" class="dimlab" fill="var(--ink-soft)">06 (로드맵의 18)</text>
+      <text x="640" y="290" class="dimlab" fill="var(--ink-soft)">01 · 03</text>
+
+      <!-- 아래층 -->
+      <rect x="8" y="326" width="250" height="42" rx="4" fill="none" stroke="var(--hair)" stroke-width="1.4"/>
+      <text x="133" y="352" text-anchor="middle" class="celllab" fill="var(--ink-soft)">무선 장치</text>
+      <text x="300" y="352" class="celllab" fill="var(--ink-soft)">radio/</text>
+      <text x="640" y="352" class="dimlab" fill="var(--ink-soft)">14의 O-RU 자리 · RFsimulator</text>
+
+      <line x1="860" y1="44" x2="860" y2="368" stroke="var(--hair)" stroke-width="1"/>
+      <text x="876" y="70" class="celllab" fill="var(--ink-soft)" text-anchor="start">따로 노는 것</text>
+      <text x="876" y="96" class="dimlab" fill="var(--ink-soft)" text-anchor="start">executables/</text>
+      <text x="876" y="114" class="dimlab" fill="var(--ink-soft)" text-anchor="start">  진입점 (gNB · UE)</text>
+      <text x="876" y="140" class="dimlab" fill="var(--ink-soft)" text-anchor="start">targets/.../CONF/</text>
+      <text x="876" y="158" class="dimlab" fill="var(--ink-soft)" text-anchor="start">  설정 파일 80개</text>
+      <text x="876" y="184" class="dimlab" fill="var(--ink-soft)" text-anchor="start">doc/</text>
+      <text x="876" y="202" class="dimlab" fill="var(--ink-soft)" text-anchor="start">  문서 52개</text>
+      <text x="876" y="228" class="dimlab" fill="var(--ink-soft)" text-anchor="start">nfapi/ · fronthaul/</text>
+      <text x="876" y="246" class="dimlab" fill="var(--ink-soft)" text-anchor="start">  14의 분할 인터페이스</text>
+    </svg>
+  </div>
+  <p class="caption">칸의 크기는 <strong>중요도가 아니라 이 저장소가 다룬 범위</strong>를 나타냅니다. 실제 코드량은 물리계층 바깥이 더 많습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>01–16이 코드 어디에 있는가</h2>
+  <p>이 저장소를 읽은 사람에게 가장 쓸모 있는 것은 <strong>개념과 파일의 짝</strong>입니다. 규격 조항으로 배운 것을 코드에서 찾을 수 있으면, 그다음부터는 스스로 읽을 수 있습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>자료 ↔ 소스 대응 · 커밋 b3930e3 기준 · 줄 번호는 바뀔 수 있어 파일과 이름만 적는다</caption>
+    <thead><tr><th class="num">자료</th><th>개념</th><th>파일</th></tr></thead>
+    <tbody>
+      <tr><td class="num"><a href="../01-frame-numerology/index.html">01</a></td><td>뉴머롤로지 · 슬롯</td><td><code>openair1/PHY/INIT/nr_init.c</code></td></tr>
+      <tr><td class="num"><a href="../04-ssb-initial-access/index.html">04</a></td><td>PSS · SSS · PBCH</td><td><code>openair1/PHY/NR_REFSIG/pss_nr.h · sss_nr.h · ss_pbch_nr.h</code></td></tr>
+      <tr><td class="num"><a href="../08-random-access/index.html">08</a></td><td>PRACH 프리앰블</td><td><code>openair1/PHY/NR_TRANSPORT/nr_prach.c</code></td></tr>
+      <tr><td class="num"><a href="../10-physical-layer-chain/index.html">10</a></td><td>전송 블록 → 신호</td><td><code>openair1/PHY/NR_TRANSPORT/nr_dlsch_coding.c · nr_dlsch.c</code></td></tr>
+      <tr><td class="num"><a href="../11-reference-signals/index.html">11</a></td><td>DMRS · PT-RS</td><td><code>openair1/PHY/NR_REFSIG/dmrs_nr.c · ptrs_nr.c</code></td></tr>
+      <tr><td class="num"><a href="../12-pdcch-blind-decoding/index.html">12</a></td><td>DCI · PDCCH</td><td><code>openair1/PHY/NR_TRANSPORT/nr_dci.c</code></td></tr>
+      <tr><td class="num"><a href="../15-zadoff-chu-srs/index.html">15</a></td><td>자도프-추 기저 시퀀스</td><td><code>openair1/PHY/NR_REFSIG/ul_ref_seq_nr.c</code> · 소수 표는 <code>.h</code></td></tr>
+      <tr><td class="num"><a href="../16-gold-sequence-csi-rs/index.html">16</a></td><td>골드 수열 생성기</td><td><code>openair1/PHY/gold.h</code> · <code>NR_REFSIG/dmrs_nr.c</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- 유도: 이 대응은 커밋 b3930e3(2026.w36)에서 실제로 파일을 열어 확인한 것이다.
+       코드는 움직이므로 verify-numbers.py의 check_oai()가
+       'OAI 클론이 있으면' 인용한 파일과 이름이 아직 있는지 대조한다.
+       클론이 없으면 조용히 건너뛴다 — 이 저장소만 받은 사람도 검산이 통과해야 하므로. -->
+  <div class="note">
+    <strong>인용이 썩지 않게 해 두었습니다.</strong> 규격 조항과 달리 파일 경로는 언제든 바뀝니다.
+    그래서 <span class="src">tools/verify-numbers.py</span>의 <code>check_oai()</code>가
+    <strong>위 표의 파일과 이름이 아직 있는지 대조</strong>합니다.
+    OAI 소스를 받아 두지 않았으면 <strong>조용히 건너뜁니다</strong> —
+    이 저장소만 받은 사람도 검산이 통과해야 하니까요.
+  </div>
+
+  <h3>10번의 사슬을 코드로 따라가기</h3>
+  <p><a href="../10-physical-layer-chain/index.html">10에서 그린 사슬</a>이 실제로 어떤 함수를 거치는지 보면, 규격의 절 번호가 함수 이름으로 바뀌어 있을 뿐 <strong>순서가 같습니다.</strong></p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1180 260" role="img" aria-labelledby="t2 d2">
+      <title id="t2">10번 자료의 하향 처리 사슬과 OAI 함수의 대응</title>
+      <desc id="d2">위 줄에는 자료 10에서 설명한 하향 처리 단계가 전송 블록 시작부터 자원 요소 매핑까지 차례로 놓여 있고, 아래 줄에는 그에 대응하는 오픈에어인터페이스의 함수 이름이 같은 순서로 놓여 있다. 앞의 세 단계는 부호화 파일에, 뒤의 세 단계는 채널 파일에 들어 있다.</desc>
+
+      <text x="8" y="60" class="rowlab" fill="var(--dl)">자료 10</text>
+      <text x="8" y="150" class="rowlab" fill="var(--ink-soft)">OAI 함수</text>
+      <text x="8" y="222" class="dimlab" fill="var(--ink-soft)">들어 있는 파일</text>
+
+      <!-- 여섯 단계 -->
+      <g>
+        <rect x="150" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="225" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">CRC 붙이기</text>
+        <text x="225" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">crc24a()</text>
+
+        <rect x="312" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="387" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">코드블록 쪼개기</text>
+        <text x="387" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_segmentation()</text>
+
+        <rect x="474" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="549" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">LDPC · 레이트 매칭</text>
+        <text x="549" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">ldpc_encoder()</text>
+
+        <rect x="636" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="711" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">스크램블링</text>
+        <text x="711" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_codeword_scrambling()</text>
+
+        <rect x="798" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="873" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">변조</text>
+        <text x="873" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_modulation()</text>
+
+        <rect x="960" y="36" width="150" height="40" rx="4" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.4"/>
+        <text x="1035" y="61" text-anchor="middle" class="celllab" fill="var(--dl)">레이어 매핑</text>
+        <text x="1035" y="150" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_layer_mapping()</text>
+      </g>
+
+      <!-- 이어짐 표시 -->
+      <line x1="150" y1="100" x2="1110" y2="100" stroke="var(--dl)" stroke-width="1.4"/>
+      <g fill="var(--dl)">
+        <circle cx="225" cy="100" r="4"/><circle cx="387" cy="100" r="4"/><circle cx="549" cy="100" r="4"/>
+        <circle cx="711" cy="100" r="4"/><circle cx="873" cy="100" r="4"/><circle cx="1035" cy="100" r="4"/>
+      </g>
+
+      <!-- 파일 구분 -->
+      <rect x="150" y="182" width="474" height="34" rx="4" fill="none" stroke="var(--hair)" stroke-width="1.2"/>
+      <text x="387" y="204" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_dlsch_coding.c</text>
+      <rect x="636" y="182" width="474" height="34" rx="4" fill="none" stroke="var(--hair)" stroke-width="1.2"/>
+      <text x="873" y="204" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">nr_dlsch.c</text>
+    </svg>
+  </div>
+  <p class="caption">가로 위치는 <strong>처리 순서일 뿐</strong>이고 시간이나 비용을 나타내지 않습니다. 함수 이름은 커밋 <span class="src">b3930e3</span> 기준입니다.</p>
+
+  <div class="note">
+    <strong>규격에 없던 것이 코드에는 있습니다.</strong> 10에서 "전송 블록에 CRC 24비트를 붙인다"고 했는데,
+    코드에는 <strong>짧은 페이로드용 16비트 갈래</strong>(<code>crc16</code>)가 함께 있습니다.
+    규격도 그 갈래를 정하고 있고, <strong>10이 그 경우를 안 다뤘던 것</strong>입니다.
+    구현을 읽으면 이렇게 <strong>자료가 뭉갠 자리</strong>가 드러납니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>설정 한 줄이 자료 한 편</h2>
+  <p>OAI를 돌릴 때 주는 것은 <strong>설정 파일</strong> 하나입니다. 그 안을 열어 보면 앞의 자료들이 그대로 들어 있습니다.</p>
+
+  <!-- 유도: targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.usrpb210.conf 에서 그대로 옮김
+       NR-ARFCN → 주파수 (3 GHz~24.25 GHz): F = 3000 MHz + 15 kHz × (N − 600000)
+         absoluteFrequencySSB       641280 → 3000 + 0.015×41280 = 3619.20 MHz
+         dl_absoluteFrequencyPointA 640008 → 3000 + 0.015×40008 = 3600.12 MHz
+       dl_carrierBandwidth 106 RB → 106 × 12 × 30 kHz = 38.16 MHz 점유 (05의 표: 40 MHz 채널)
+       반송파 구간 3600.12 ~ 3638.28 MHz 안에 SSB(3619.20)가 든다 ✓ -->
+  <div class="table-scroll">
+  <table>
+    <caption>실제 설정 파일에서 그대로 옮긴 다섯 줄 · <span class="src">gnb.sa.band78.fr1.106PRB.usrpb210.conf</span></caption>
+    <thead><tr><th>설정</th><th>뜻</th><th class="num">자료</th></tr></thead>
+    <tbody>
+      <tr><td><code>dl_subcarrierSpacing = 1</code></td><td>μ = 1 → 30 kHz · 슬롯 0.5 ms</td><td class="num"><a href="../01-frame-numerology/index.html">01</a></td></tr>
+      <tr><td><code>dl_frequencyBand = 78</code></td><td>n78 대역</td><td class="num"><a href="../04-ssb-initial-access/index.html">04</a></td></tr>
+      <tr><td><code>dl_absoluteFrequencyPointA = 640008</code></td><td><strong>Point A</strong> = 3600.12 MHz — 모든 자원블록 번호의 원점</td><td class="num"><a href="../05-bandwidth-part/index.html">05</a></td></tr>
+      <tr><td><code>absoluteFrequencySSB = 641280</code></td><td>SSB를 3619.2 MHz에 놓는다</td><td class="num"><a href="../04-ssb-initial-access/index.html">04</a></td></tr>
+      <tr><td><code>dl_carrierBandwidth = 106</code></td><td>106 RB = 38.16 MHz 점유 (40 MHz 채널)</td><td class="num"><a href="../05-bandwidth-part/index.html">05</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>이 다섯 줄은 <strong>서로 아무렇게나 정할 수 없습니다.</strong> SSB는 반송파 <strong>안에</strong> 들어가야 합니다. 직접 움직여 보십시오.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 300" role="img" aria-labelledby="t3 d3">
+      <title id="t3">설정 파일의 값들이 주파수 축 위에서 서로 어떻게 묶여 있는가</title>
+      <desc id="d3">가로가 주파수 축이다. 기준점에서 시작하는 반송파 구간이 넓은 띠로 그려져 있고, 그 안 어딘가에 동기 신호 블록이 좁은 띠로 놓여 있다. 대역폭을 줄이거나 동기 신호의 위치를 옮기면 동기 신호가 반송파 밖으로 밀려나며, 그때는 설정이 성립하지 않는다.</desc>
+      <g id="cfGrid"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="cfSsb">SSB ARFCN</label>
+    <input type="range" id="cfSsb" min="640100" max="642600" step="20" value="641280" aria-describedby="cfOut">
+    <span class="segmented" id="cfBw" role="group" aria-label="대역폭 선택"></span>
+    <span class="readout" id="cfOut"></span>
+  </div>
+
+  <div class="verdict" id="cfBox">
+    <span class="tag" id="cfTag"></span>
+    <span class="why" id="cfWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="cfFssb">—</span><span class="t">SSB 주파수 [MHz]</span></div>
+    <div><span class="n" id="cfSpan">—</span><span class="t">반송파 구간 [MHz]</span></div>
+    <div><span class="n" id="cfOcc">—</span><span class="t">점유 대역 [MHz] · RB × 12 × 30 kHz</span></div>
+    <div><span class="n" id="cfMar">—</span><span class="t">SSB 양옆 여유 [MHz]</span></div>
+  </div>
+  <p class="caption">Point A는 실제 설정값 <strong>640008(3600.12 MHz)</strong>로 고정했습니다. SSB는 240 부반송파(20 RB)를 차지하는데, 여기서는 <strong>중심이 반송파 안에 드는지만</strong> 봅니다 — 실제 규격은 동기 래스터 위의 허용 자리까지 함께 따집니다(<a href="../04-ssb-initial-access/index.html">04</a>). RB 수는 <a href="../05-bandwidth-part/index.html">05에서 검산한 30 kHz 표</a>를 씁니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>하드웨어 없이 굴리는 구조</h2>
+  <p>OAI를 돌리려면 보통 <strong>USRP 같은 무선 장비</strong>가 필요합니다. 그런데 <strong>RF 보드 자리에 소켓을 끼워 넣는</strong> 장치가 들어 있습니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 240" role="img" aria-labelledby="t4 d4">
+      <title id="t4">RF 보드 자리에 시뮬레이터를 끼워 넣어 기지국과 단말을 잇는 구조</title>
+      <desc id="d4">위쪽은 실제 장비를 쓸 때의 구성으로, 기지국 소프트웨어와 단말 소프트웨어가 각각 무선 장비에 연결되고 그 사이는 공중으로 이어진다. 아래쪽은 시뮬레이터를 쓸 때의 구성으로, 무선 장비가 있던 자리에 소켓 연결이 들어가 두 소프트웨어가 표본을 직접 주고받는다. 소프트웨어 쪽은 양쪽이 완전히 같다.</desc>
+
+      <defs>
+        <marker id="ar17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <text x="8" y="52" class="rowlab" fill="var(--ink-soft)">실제 장비</text>
+      <text x="8" y="164" class="rowlab" fill="var(--ul)">RFsimulator</text>
+
+      <!-- 실제 장비 -->
+      <rect x="150" y="30" width="170" height="44" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.4"/>
+      <text x="235" y="57" text-anchor="middle" class="celllab" fill="var(--ink-soft)">nr-softmodem</text>
+      <rect x="360" y="30" width="130" height="44" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <text x="425" y="57" text-anchor="middle" class="celllab" fill="var(--ink-soft)">USRP</text>
+      <text x="565" y="50" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">공중</text>
+      <text x="565" y="66" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">))) (((</text>
+      <rect x="640" y="30" width="130" height="44" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <text x="705" y="57" text-anchor="middle" class="celllab" fill="var(--ink-soft)">USRP</text>
+      <rect x="810" y="30" width="180" height="44" rx="4" fill="none" stroke="var(--ink-soft)" stroke-width="1.4"/>
+      <text x="900" y="57" text-anchor="middle" class="celllab" fill="var(--ink-soft)">nr-uesoftmodem</text>
+      <line x1="328" y1="52" x2="352" y2="52" stroke="var(--ink-soft)" stroke-width="1.2" marker-end="url(#ar17)"/>
+      <line x1="778" y1="52" x2="802" y2="52" stroke="var(--ink-soft)" stroke-width="1.2" marker-end="url(#ar17)"/>
+
+      <line x1="8" y1="100" x2="1092" y2="100" stroke="var(--hair)" stroke-width="1"/>
+
+      <!-- RFsimulator -->
+      <rect x="150" y="140" width="170" height="44" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="235" y="167" text-anchor="middle" class="celllab" fill="var(--ul)">nr-softmodem</text>
+      <rect x="360" y="140" width="410" height="44" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="2.4"/>
+      <text x="565" y="161" text-anchor="middle" class="celllab" fill="var(--ul)">RFsimulator — 소켓으로 표본을 주고받는다</text>
+      <text x="565" y="178" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">채널 모형(AWGN 등)을 여기서 씌운다</text>
+      <rect x="810" y="140" width="180" height="44" rx="4" fill="var(--ul-bg)" stroke="var(--ul)" stroke-width="1.4"/>
+      <text x="900" y="167" text-anchor="middle" class="celllab" fill="var(--ul)">nr-uesoftmodem</text>
+      <line x1="328" y1="162" x2="352" y2="162" stroke="var(--ul)" stroke-width="1.2" marker-end="url(#ar17)"/>
+      <line x1="778" y1="162" x2="802" y2="162" stroke="var(--ul)" stroke-width="1.2" marker-end="url(#ar17)"/>
+
+      <text x="565" y="216" text-anchor="middle" class="dimlab" fill="var(--ink)">소프트웨어 쪽은 위아래가 완전히 같다 — 바뀌는 것은 RF 보드 자리뿐</text>
+    </svg>
+  </div>
+
+  <div class="note">
+    <strong>핵심은 "소프트웨어가 안 바뀐다"입니다.</strong> RFsimulator는 <strong>RF 보드 드라이버를 대신</strong>합니다.
+    기지국과 단말 쪽에서 보면 <strong>진짜 보드처럼 보이는데</strong>, 공중으로 쏘는 대신
+    <strong>양 끝 사이로 표본을 넘겨줍니다.</strong>
+    <span class="src">radio/rfsimulator/README.md</span>
+    <br><br>
+    대신 <strong>실시간이 아닙니다.</strong> CPU가 넉넉하면 실시간보다 빠르게, 모자라면 느리게 돕니다 —
+    RF 표본율에 묶이지 않고 <strong>CPU에 묶입니다.</strong> 그래서 타이밍을 재는 실험에는 그대로 못 씁니다.
+  </div>
+
+  <div class="note">
+    <strong>실행 절차는 이 자료에 싣지 않았습니다.</strong> 정직하게 밝히면 —
+    <strong>저는 OAI를 빌드하지도, 돌려 보지도 않았습니다.</strong>
+    무선 장비도 없고 빌드에 필요한 것도 갖춰지지 않은 곳에서 소스만 읽었습니다.
+    <br><br>
+    이 저장소의 첫 번째 규칙이 <strong>"추측으로 채우지 않는다"</strong>입니다.
+    돌려 보지 않고 적은 실행 절차는 그 규칙을 어기는 것이라 넣지 않았습니다.
+    실제로 돌리실 때는 저장소가 스스로 담고 있는 문서를 보십시오 —
+    <span class="src">doc/BUILD.md · doc/NR_SA_Tutorial_COTS_UE.md · radio/rfsimulator/README.md</span>
+    <br><br>
+    이 자료가 대신 해 드리는 것은 <strong>그 문서를 읽을 때 무엇이 무엇인지 아는 것</strong>입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>규격이 안 정한 것</h2>
+  <p>구현을 읽는 진짜 재미는 여기 있습니다. 규격은 <strong>"무엇을"</strong>만 정하고 <strong>"어떻게"</strong>는 대부분 안 정합니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 규격을 따라도 구현마다 달라지는 것</caption>
+    <thead><tr><th>규격이 정한 것</th><th>규격이 안 정한 것 — 구현이 골라야 한다</th><th class="num">자료</th></tr></thead>
+    <tbody>
+      <tr><td>DCI를 어디에 놓을 수 있는가</td><td><strong>어느 후보에 실제로 놓을지</strong> · 집성수준을 언제 올릴지</td><td class="num"><a href="../12-pdcch-blind-decoding/index.html">12</a></td></tr>
+      <tr><td>RV 시작 위치 네 개</td><td><strong>어떤 순서로 보낼지</strong> (0→2→3→1은 관행)</td><td class="num"><a href="../06-harq-timing/index.html">06</a></td></tr>
+      <tr><td>코드북과 PMI 필드</td><td><strong>어느 랭크를 고를지</strong> · 링크 적응 목표</td><td class="num"><a href="../09-precoding-codebook/index.html">09</a></td></tr>
+      <tr><td>BWP를 설정할 수 있다</td><td><strong>언제 바꿀지</strong> · 타이머를 얼마로 둘지</td><td class="num"><a href="../05-bandwidth-part/index.html">05</a></td></tr>
+      <tr><td>SRS 자원을 설정할 수 있다</td><td><strong>얼마나 자주 받을지</strong> · 누구에게 줄지</td><td class="num"><a href="../15-zadoff-chu-srs/index.html">15</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>스케줄러가 규격 밖에 있습니다.</strong> 위 표의 오른쪽 칸은 대부분 <strong>스케줄러의 판단</strong>입니다.
+    3GPP는 <strong>"이렇게 알리면 단말이 알아듣는다"</strong>까지만 정하고,
+    <strong>"무엇을 알릴지"</strong>는 정하지 않습니다. 거기가 장비 회사들이 경쟁하는 자리이기도 합니다.
+    <br><br>
+    그래서 <strong>OAI를 읽는 것과 규격을 읽는 것은 다른 일입니다.</strong>
+    규격은 <strong>지켜야 할 약속</strong>을, 구현은 <strong>그 약속 안에서 내린 결정</strong>을 보여 줍니다.
+    둘을 같은 것으로 읽으면 "이게 규격이구나" 하고 잘못 배웁니다 —
+    이 자료가 맨 앞에서 출처 계통을 밝힌 이유입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>구현은 규격 독해를 검산해 줍니다.</strong> 규격 문장은 여러 갈래로 읽히지만 <strong>코드는 반드시 하나를 고릅니다.</strong> 실제로 16의 골드 생성기는 비트까지 일치했고, 15의 M<sub>ZC</sub> = 30 서술은 <strong>틀린 것으로 드러나 고쳤습니다.</strong></li>
+    <li><strong>규격은 "무엇을"만 정합니다.</strong> 어느 후보에 DCI를 놓을지, RV를 어떤 순서로 보낼지, 랭크를 언제 올릴지는 전부 <strong>구현의 몫</strong>입니다. 코드를 규격으로 착각하면 안 되고, 그래서 출처 계통을 셋으로 나눠 적습니다.</li>
+    <li><strong>안 해 본 것은 안 썼습니다.</strong> 빌드도 실행도 하지 않았으므로 실행 절차는 싣지 않았습니다. 이 자료가 주는 것은 <strong>지도</strong>이고, 길은 저장소의 문서를 따라가시면 됩니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../16-gold-sequence-csi-rs/index.html">← 16 골드 시퀀스와 CSI-RS</a>
+  <a href="../18-dmrs-channel-estimation/index.html">18 DMRS와 채널 추정 →</a>
+</nav>
+
+<script>
+(function(){
+  var ns='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(ns,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y,'text-anchor':anchor||'middle'});
+    if(cls)t.setAttribute('class',cls); if(fill)t.setAttribute('fill',fill);
+    t.textContent=s; return t;
+  }
+  function clear(g){ while(g.firstChild) g.removeChild(g.firstChild); }
+  function mkSeg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.label; b.dataset.i=i;
+      b.addEventListener('click',function(){ set(i); sync(); redraw(); });
+      host.appendChild(b);
+    });
+    function sync(){
+      [].forEach.call(host.children,function(b){
+        b.setAttribute('aria-pressed', String(+b.dataset.i===get()));
+      });
+    }
+    sync(); return sync;
+  }
+
+  /* ---- 05에서 검산한 30 kHz 표. 채널 대역 → 자원블록 수 ---- */
+  var BWS=[{label:'10 MHz',rb:24},{label:'20 MHz',rb:51},{label:'40 MHz',rb:106},
+           {label:'50 MHz',rb:133},{label:'100 MHz',rb:273}];
+  var bwSel=2;                                  /* 실제 설정 파일과 같은 40 MHz */
+  var POINT_A=640008;                           /* 설정 파일의 dl_absoluteFrequencyPointA */
+  var SCS=30e-3;                                /* MHz */
+
+  /* NR-ARFCN → 주파수 [MHz] · 3 GHz~24.25 GHz 구간 */
+  function arfcnToMHz(n){ return 3000 + 0.015*(n - 600000); }
+
+  var CG=document.getElementById('cfGrid');
+  var cfSsb=document.getElementById('cfSsb');
+  var syncBw=mkSeg(document.getElementById('cfBw'),BWS,
+    function(){return bwSel;}, function(v){bwSel=v;}, function(){drawCf();});
+
+  function drawCf(){
+    var ssbN=parseInt(cfSsb.value,10), rb=BWS[bwSel].rb;
+    var fA=arfcnToMHz(POINT_A);                 /* 반송파 시작 */
+    var occ=rb*12*SCS;                          /* 점유 대역 */
+    var fEnd=fA+occ;
+    var fS=arfcnToMHz(ssbN);
+    var ssbW=240*SCS;                           /* SSB 240 부반송파 */
+    clear(CG);
+
+    /* --- 주파수 축 — 반송파와 SSB가 둘 다 보이도록 범위를 맞춘다.
+           고정 범위로 잡으면 100 MHz에서 반송파가 축 밖으로 나간다. --- */
+    var AX=90, AW=940;
+    var LO=Math.min(fA, fS-ssbW)-3, HI=Math.max(fEnd, fS+ssbW)+3;
+    function px(f){ return AX+(f-LO)/(HI-LO)*AW; }
+    var BASE=180;
+    CG.appendChild(el('line',{x1:AX,y1:BASE,x2:AX+AW,y2:BASE,stroke:'var(--hair)','stroke-width':1}));
+    /* 눈금 간격도 폭에 맞춘다 — 안 그러면 촘촘해서 숫자가 겹친다 */
+    var span=HI-LO, step=span>80?20:(span>40?10:5);
+    for(var f=Math.ceil(LO/step)*step;f<=HI;f+=step){
+      CG.appendChild(el('line',{x1:px(f),y1:BASE,x2:px(f),y2:BASE+7,stroke:'var(--hair)','stroke-width':1}));
+      CG.appendChild(txt(px(f),BASE+24,String(f),'dimlab','var(--ink-soft)'));
+    }
+    CG.appendChild(txt(AX+AW/2,BASE+48,'주파수 [MHz]','dimlab','var(--ink-soft)'));
+
+    /* --- 반송파 구간 --- */
+    var inRange=(fS>=fA && fS<=fEnd);
+    CG.appendChild(el('rect',{x:px(fA),y:96,width:Math.max(px(fEnd)-px(fA),2),height:64,
+      fill:'var(--dl-bg)',stroke:'var(--dl)','stroke-width':1.6}));
+    CG.appendChild(txt(6,132,'반송파','celllab','var(--ink-soft)','start'));
+    CG.appendChild(txt(6,150,rb+' RB','dimlab','var(--ink-soft)','start'));
+    CG.appendChild(txt(Math.min(Math.max((px(fA)+px(fEnd))/2,AX+80),AX+AW-80),132,
+      rb+' RB · '+occ.toFixed(2)+' MHz','celllab','var(--dl)'));
+    /* Point A 표시 — 선은 라벨 아래에서 시작해야 글자를 관통하지 않는다 */
+    CG.appendChild(el('line',{x1:px(fA),y1:92,x2:px(fA),y2:BASE,
+      stroke:'var(--ink)','stroke-width':1.6,'stroke-dasharray':'5 4'}));
+    CG.appendChild(txt(px(fA),60,'Point A '+fA.toFixed(2),'dimlab','var(--ink)'));
+
+    /* --- SSB --- */
+    var col=inRange?'var(--ul)':'var(--alert)';
+    var bg=inRange?'var(--ul-bg)':'var(--alert-bg)';
+    CG.appendChild(el('rect',{x:px(fS-ssbW/2),y:106,width:Math.max(px(fS+ssbW/2)-px(fS-ssbW/2),3),
+      height:44,fill:bg,stroke:col,'stroke-width':2}));
+    /* SSB 라벨은 띠 위에 둔다 — 축 아래에 두면 가로축 제목과 겹치고,
+       거기까지 선을 내리면 눈금 숫자를 관통한다.
+       Point A 라벨과는 줄이 달라서 x가 겹쳐도 부딪히지 않는다. */
+    CG.appendChild(txt(Math.min(Math.max(px(fS),AX+70),AX+AW-70),82,
+      'SSB '+fS.toFixed(2)+' MHz','celllab',col));
+    CG.appendChild(el('line',{x1:px(fS),y1:88,x2:px(fS),y2:106,
+      stroke:col,'stroke-width':1.2,'stroke-dasharray':'3 3'}));
+
+    /* --- 읽을거리 --- */
+    var marLo=fS-fA, marHi=fEnd-fS;
+    document.getElementById('cfOut').textContent='ARFCN '+ssbN+' · '+BWS[bwSel].label;
+    document.getElementById('cfFssb').textContent=fS.toFixed(2);
+    document.getElementById('cfSpan').textContent=fA.toFixed(1)+'–'+fEnd.toFixed(1);
+    document.getElementById('cfOcc').textContent=occ.toFixed(2);
+    document.getElementById('cfMar').textContent=inRange
+      ? Math.min(marLo,marHi).toFixed(2)
+      : '벗어남';
+
+    var box=document.getElementById('cfBox');
+    box.className='verdict '+(inRange?'ok':'bad');
+    document.getElementById('cfTag').textContent=inRange?'설정이 성립한다':'SSB가 반송파 밖이다';
+    document.getElementById('cfWhy').textContent=inRange
+      ? 'Point A('+fA.toFixed(2)+' MHz)에서 '+rb+' RB만큼 편 반송파가 '+fEnd.toFixed(2)
+        +' MHz까지인데, SSB가 '+fS.toFixed(2)+' MHz라 그 안에 듭니다. '
+        + '가까운 쪽 여유가 '+Math.min(marLo,marHi).toFixed(2)+' MHz입니다. '
+        + '설정 파일의 다섯 줄이 이렇게 서로 묶여 있습니다.'
+      : 'SSB가 '+fS.toFixed(2)+' MHz인데 반송파는 '+fA.toFixed(2)+'–'+fEnd.toFixed(2)
+        +' MHz까지입니다. 단말은 SSB를 찾아야 셀에 붙는데(04) 그 SSB가 이 반송파 안에 없으니 '
+        + '설정이 성립하지 않습니다. 대역폭을 넓히거나 SSB를 안쪽으로 옮기십시오 — '
+        + '설정 한 줄만 따로 고칠 수 없다는 것이 이 절의 요점입니다.';
+  }
+  cfSsb.addEventListener('input',drawCf);
+
+  drawCf();
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>19 측정과 핸드오버 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>19 / 측정과 핸드오버</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">19 · measurement · handover</p>
+  <h1>언제 넘어갈지<br><em>망설이는</em> 법</h1>
+  <p class="lead">차를 몰고 두 방송국의 경계를 지난다고 합시다. A가 잦아들고 B가 또렷해집니다. <strong>B가 더 크게 들리는 순간</strong> 주파수를 돌리면 될 것 같지만, 그렇게 하면 경계에서 <strong>수십 번을 오갑니다.</strong> 규격이 이 문제에 붙인 답은 방어 셋입니다 — <strong>평균내고, 문턱을 벌리고, 버팁니다.</strong> 셋 다 같은 대가를 치릅니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>경계에서 벌어지는 일</h2>
+  <p>기지국 둘이 500 m 떨어져 있고 단말이 그 사이를 지나갑니다. 거리가 멀어지면 신호가 약해집니다 — <a href="../07-beamforming/index.html">07에서 본</a> 경로손실입니다.</p>
+
+  <!-- 유도: RSRP(d) = P0 − 10·n·log10(d),  경로손실 지수 n = 3.5 (도심 가정, 규격값 아님)
+       250 m 에서 −95 dBm 이 되도록 P0 = −95 + 35·log10(250) = −11.07 dBm
+       50 m −70.5 · 250 m −95.0 · 450 m −103.9 dBm
+       두 셀의 차 Δ(x) = Mn − Mp = 10n·log10(x/(D−x))
+       중간지점 기울기 = dΔ/dx = (10n/ln10)·(4/D) = 0.1216 dB/m  (n=3.5, D=500) -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 380" role="img" aria-labelledby="tGeo dGeo">
+      <title id="tGeo">두 기지국 사이를 지나는 단말이 받는 신호 세기</title>
+      <desc id="dGeo">가로축은 두 기지국 사이의 위치다. 왼쪽 셀의 신호는 오른쪽으로 갈수록 약해지고 오른쪽 셀은 그 반대다. 두 곡선은 가운데에서 만나며, 그 부근에서는 둘의 차이가 작아 어느 쪽이 나은지 판단하기 어렵다. 가운데 부근의 좁은 띠가 그 애매한 구간이다.</desc>
+      <g id="geoG"></g>
+    </svg>
+  </div>
+  <p class="caption">경로손실 지수 3.5는 <strong>도심을 가정한 값이며 규격이 정하는 것이 아닙니다.</strong> 250 m에서 −95 dBm이 되도록 세기를 맞췄습니다. 이 그림에는 <strong>그림자 페이딩이 없습니다</strong> — 뒤에서 넣습니다. <span class="src">경로손실은 물리 모형 · 3GPP 규격값이 아님</span></p>
+
+  <div class="note">
+    <strong>문제는 가운데다.</strong> 중간지점에서 두 셀의 차이는 <strong>미터당 0.12 dB</strong>씩만 벌어집니다.
+    <span class="src">dΔ/dx = (10n/ln10)·(4/D), n = 3.5, D = 500 m</span>
+    즉 <strong>±25 m 안에서는 둘의 차이가 3 dB도 안 됩니다.</strong>
+    그런데 실제 채널은 건물과 지형 때문에 <strong>그보다 훨씬 크게 출렁입니다</strong> — 도심의 그림자 페이딩은 표준편차가 6 dB쯤입니다.
+    <strong>차이보다 요동이 큰 구간</strong>, 이것이 핸드오버가 어려운 이유의 전부입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>무엇을 재는가</h2>
+  <p>단말은 <a href="../04-ssb-initial-access/index.html">04에서 본 SSB</a>와 <a href="../16-gold-sequence-csi-rs/index.html">16의 CSI-RS</a>를 재서 세 가지 값을 만듭니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>세 가지 측정량 <span class="src">TS 38.215 §5.1</span></caption>
+    <thead><tr><th>양</th><th>무엇인가</th><th>단위</th><th>언제 쓰나</th></tr></thead>
+    <tbody>
+      <tr><td><strong>RSRP</strong><br><span class="src">§5.1.1</span></td>
+          <td>기준신호를 나르는 자원 요소들의 <strong>전력 평균</strong></td>
+          <td class="num">dBm</td>
+          <td><strong>핸드오버 판단의 기본.</strong> 간섭과 무관하게 "이 셀이 얼마나 가까운가"만 본다</td></tr>
+      <tr><td><strong>RSRQ</strong><br><span class="src">§5.1.3</span></td>
+          <td>N × RSRP ÷ 전체 수신 전력(RSSI)</td>
+          <td class="num">dB</td>
+          <td>같은 세기라도 <strong>주변이 붐비면</strong> 값이 떨어진다 — 부하를 본다</td></tr>
+      <tr><td><strong>SINR</strong><br><span class="src">§5.1.5</span></td>
+          <td>기준신호 전력 ÷ (잡음 + 간섭)</td>
+          <td class="num">dB</td>
+          <td>실제로 <strong>얼마나 빠를지</strong>에 가장 가깝다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- RSRP-Range ::= INTEGER(0..127)  — TS 38.331 ASN.1
+       보고값 k ↔ (k − 156) dBm, 1 dB 눈금 (OAI 주석: "the RSRP value is (IE value – 156) dBm")
+       k=0 → −156 dBm,  k=126 → −30 dBm,  k=127 은 열린 위쪽
+       1 dB 눈금이 덮는 폭 = 125 dB -->
+  <div class="stats">
+    <div><span class="n">7</span><span class="t">RSRP 보고에 쓰는 비트 수</span></div>
+    <div><span class="n">1</span><span class="t">눈금 하나의 크기 [dB]</span></div>
+    <div><span class="n">−156</span><span class="t">눈금 0이 뜻하는 값 [dBm]</span></div>
+    <div><span class="n">125</span><span class="t">눈금이 덮는 폭 [dB]</span></div>
+  </div>
+  <p class="caption"><code>RSRP-Range ::= INTEGER(0..127)</code>이고 보고값 k는 <strong>(k − 156) dBm</strong>입니다. 양 끝은 열려 있습니다. RSRQ와 SINR도 같은 7비트를 쓰지만 <strong>눈금 크기가 다릅니다</strong>. <span class="src">TS 38.331 ASN.1 · 매핑표는 TS 38.133 §10.1.6</span></p>
+
+  <div class="note">
+    <strong>이 자료는 RSRP만 씁니다.</strong> 셋 중 RSRP가 <strong>가장 단순하고 가장 흔들리지 않기</strong> 때문입니다 —
+    간섭이 오르내려도 RSRP는 그대로입니다. 뒤의 모든 그림은 RSRP 기준입니다.
+    실제 망은 A5 같은 이벤트에서 RSRQ·SINR을 섞어 씁니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>첫 번째 방어 — 평균낸다</h2>
+  <p>한 번 잰 값으로 판단하지 않습니다. 규격은 <strong>지수 이동평균</strong> 하나를 못 박아 두었습니다.</p>
+
+  <div class="stage">
+    <svg viewBox="0 0 1100 120" role="img" aria-labelledby="tF dF">
+      <title id="tF">L3 필터의 점화식</title>
+      <desc id="dF">새로 잰 값과 직전 필터값을 a와 1 빼기 a의 비율로 섞어 새 필터값을 만든다는 식이고, a는 2의 마이너스 k 나누기 4 제곱이다.</desc>
+      <text x="550" y="52" text-anchor="middle" class="celllab" fill="var(--ink)" style="font-size:22px">
+        F<tspan baseline-shift="sub" style="font-size:14px">n</tspan> = (1 − a) · F<tspan baseline-shift="sub" style="font-size:14px">n−1</tspan> + a · M<tspan baseline-shift="sub" style="font-size:14px">n</tspan>
+      </text>
+      <text x="550" y="90" text-anchor="middle" class="celllab" fill="var(--ink-soft)" style="font-size:17px">
+        a = 1 / 2<tspan baseline-shift="super" style="font-size:12px">(k/4)</tspan>,  k = filterCoefficient
+      </text>
+    </svg>
+  </div>
+  <p class="caption">M<sub>n</sub>은 방금 잰 값, F<sub>n</sub>은 걸러진 값입니다. 첫 측정에서는 F를 그 값 그대로 놓고 시작합니다. <span class="src">TS 38.331 §5.5.3.2</span></p>
+
+  <!-- 유도: F_n = (1−a)F_{n−1} + a·M_n 의 충격응답은 (1−a)^n 로 준다
+       63.2 % (= 1 − 1/e) 에 이르는 표본 수 N = −1 / ln(1−a)
+         k=4  a=0.5      N = 1.443 표본
+         k=9  a=0.21022  N = 4.237
+         k=19 a=0.037163 N = 26.406
+       L1 측정 주기를 200 ms 로 두면 × 200 ms -->
+  <div class="table-scroll">
+  <table>
+    <caption>filterCoefficient가 뜻하는 것 · N = −1 / ln(1−a)</caption>
+    <thead><tr><th class="num">k</th><th class="num">a</th><th class="num">63 %에 이르는 표본 수</th>
+      <th class="num">측정 주기 200 ms면</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td class="num">fc0</td><td class="num">1</td><td class="num">—</td><td class="num">—</td><td>필터를 걸지 않는다</td></tr>
+      <tr><td class="num"><strong>fc4</strong> <span class="src">기본값</span></td><td class="num">0.5</td>
+          <td class="num"><strong>1.443</strong></td><td class="num"><strong>289 ms</strong></td><td>ASN.1의 <code>DEFAULT fc4</code></td></tr>
+      <tr><td class="num">fc9</td><td class="num">0.2102</td><td class="num">4.237</td><td class="num">847 ms</td><td>—</td></tr>
+      <tr><td class="num">fc19</td><td class="num">0.03716</td><td class="num">26.406</td><td class="num">5,281 ms</td><td>가장 무겁게 — 5초를 되돌아본다</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">고를 수 있는 k는 <strong>15가지</strong>입니다 — fc0~fc9, fc11, fc13, fc15, fc17, fc19. <strong>측정 주기 200 ms는 가정입니다</strong>(TS 38.133이 정하는 L1 측정 구간). 표본 수 쪽이 규격에서 바로 나오는 값이고, 밀리초는 주기를 곱한 것입니다. <span class="src">TS 38.331 ASN.1 <code>FilterCoefficient</code> · ⚠️ 200 ms는 원문 미대조</span></p>
+</section>
+
+<section class="wrap">
+  <h2>두 번째 방어 — 문턱을 벌린다</h2>
+  <p>평균을 내도 두 값이 엎치락뒤치락하면 소용없습니다. 그래서 규격은 <strong>넘어갈 때와 되돌아올 때의 문턱을 다르게</strong> 둡니다. 이것이 <strong>히스테리시스(hysteresis)</strong>입니다.</p>
+
+  <p>핸드오버를 부르는 조건은 <strong>이벤트 A3</strong>입니다.</p>
+
+  <!-- TS 38.331 §5.5.4.4
+       진입 A3-1: Mn + Ofn + Ocn − Hys > Mp + Ofp + Ocp + Off
+       이탈 A3-2: Mn + Ofn + Ocn + Hys < Mp + Ofp + Ocp + Off
+       오프셋을 모두 0으로 두면
+         진입: Mn − Mp >  Off + Hys
+         이탈: Mn − Mp <  Off − Hys
+       → 죽은 띠 너비 = 2·Hys -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 320" role="img" aria-labelledby="tDb dDb">
+      <title id="tDb">A3 이벤트의 진입 조건과 이탈 조건이 만드는 죽은 띠</title>
+      <desc id="dDb">가로축은 이웃 셀에서 서빙 셀을 뺀 값이다. 진입 문턱은 오프셋에 히스테리시스를 더한 자리, 이탈 문턱은 오프셋에서 히스테리시스를 뺀 자리에 있고, 그 사이의 띠 안에서는 아무 일도 일어나지 않는다. 띠의 너비는 히스테리시스의 두 배다.</desc>
+      <g id="dbG"></g>
+    </svg>
+  </div>
+  <p class="caption">가로축은 <strong>M<sub>n</sub> − M<sub>p</sub></strong>, 즉 이웃이 서빙보다 몇 dB 나은가입니다. 셀별 오프셋(<code>offsetMO</code>, <code>cellIndividualOffset</code>)은 0으로 두었습니다. <span class="src">TS 38.331 §5.5.4.4</span></p>
+
+  <div class="note">
+    <strong>죽은 띠의 너비는 정확히 2·Hys다.</strong> 진입은 <code>Mn − Mp &gt; Off + Hys</code>,
+    이탈은 <code>Mn − Mp &lt; Off − Hys</code>입니다. 그 사이에서는 <strong>아무 일도 일어나지 않습니다.</strong>
+    한 번 넘어간 뒤 되돌아오려면 <strong>2·Hys만큼을 도로 넘어야</strong> 하고, 그것이 핑퐁을 막습니다.
+    Off는 <strong>띠를 통째로 옮기고</strong>, Hys는 <strong>띠를 넓힙니다</strong> — 둘은 다른 일을 합니다.
+  </div>
+
+  <div class="table-scroll">
+  <table>
+    <caption>규격이 허용하는 범위 <span class="src">TS 38.331 ASN.1</span></caption>
+    <thead><tr><th>필드</th><th class="num">ASN.1 정의</th><th class="num">눈금</th><th class="num">실제 범위</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td><code>hysteresis</code></td><td class="num">INTEGER (0..30)</td><td class="num">0.5 dB</td>
+          <td class="num"><strong>0 ~ 15 dB</strong></td><td>띠를 넓힌다 — 너비는 이 값의 <strong>두 배</strong></td></tr>
+      <tr><td><code>a3-Offset</code></td><td class="num">INTEGER (−30..30)</td><td class="num">0.5 dB</td>
+          <td class="num">−15 ~ +15 dB</td><td>띠를 통째로 옮긴다 — 운용에서 흔히 "핸드오버 마진"</td></tr>
+      <tr><td><code>cellIndividualOffset</code></td><td class="num">Q-OffsetRange</td><td class="num">1~2 dB</td>
+          <td class="num">−24 ~ +24 dB</td><td>특정 셀만 편애하거나 미워한다</td></tr>
+      <tr><td><code>timeToTrigger</code></td><td class="num">16가지 열거</td><td class="num">—</td>
+          <td class="num">0 ~ 5,120 ms</td><td>다음 절</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption"><code>Q-OffsetRange</code>는 0 부근에서 1 dB, 멀어질수록 2 dB 간격으로 성겨집니다 — <strong>미세 조정은 0 근처에서만 필요하다</strong>는 판단이 눈금에 박혀 있습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>세 번째 방어 — 버틴다</h2>
+  <p>문턱을 넘어도 곧바로 보고하지 않습니다. <strong>그 상태가 timeToTrigger 동안 유지돼야</strong> 합니다. 잠깐 스쳐 지나가는 봉우리는 이 단계에서 걸러집니다.</p>
+
+  <div class="stats">
+    <div><span class="n">16</span><span class="t">고를 수 있는 값의 개수</span></div>
+    <div><span class="n">0</span><span class="t">가장 짧은 것 [ms]</span></div>
+    <div><span class="n">5,120</span><span class="t">가장 긴 것 [ms]</span></div>
+  </div>
+  <p class="caption">전체 목록: 0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120 ms. <strong>A1부터 A6까지 여섯 이벤트가 전부 <code>hysteresis</code>와 <code>timeToTrigger</code>를 가집니다</strong> — 방어 둘은 A3만의 것이 아닙니다. <span class="src">TS 38.331 ASN.1 <code>EventTriggerConfig</code></span></p>
+</section>
+
+<section class="wrap">
+  <h2>셋을 함께 걸어 본다</h2>
+  <p>이제 그림자 페이딩을 넣고 실제로 지나가 봅니다. 위쪽 곡선은 <strong>M<sub>n</sub> − M<sub>p</sub></strong>이고, 회색 띠가 앞에서 본 <strong>죽은 띠</strong>입니다. 아래 막대는 <strong>지금 어느 셀에 붙어 있는지</strong>입니다.</p>
+
+  <p><strong>먼저 그림자 페이딩을 0으로 두고 보세요</strong> — 핸드오버는 딱 한 번, 가운데에서 일어납니다. 그다음 6 dB로 올리면 무슨 일이 벌어지는지 보입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 470" role="img" aria-labelledby="tSim dSim">
+      <title id="tSim">방어 셋을 조절하며 두 셀 사이를 지나갈 때의 핸드오버</title>
+      <desc id="dSim">위쪽 그래프의 가로축은 두 기지국 사이의 위치, 세로축은 이웃 셀에서 서빙 셀을 뺀 값이다. 점은 매번 잰 값이고 선은 걸러진 값이다. 가운데 가로 띠가 진입 문턱과 이탈 문턱 사이의 죽은 띠이며, 걸러진 선이 띠를 벗어나 일정 시간 머물면 핸드오버가 일어난다. 아래 막대는 그때마다 붙어 있는 셀이 바뀌는 것을 보여준다. 그림자 페이딩을 키우면 선이 띠를 여러 번 드나들어 핸드오버가 되풀이된다.</desc>
+      <g id="simG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="sHys">히스테리시스</label>
+    <input type="range" id="sHys" min="0" max="30" step="1" value="4" aria-describedby="sOut">
+    <label for="sOff">a3-Offset</label>
+    <input type="range" id="sOff" min="-30" max="30" step="1" value="6" aria-describedby="sOut">
+    <label for="sV">속도</label>
+    <input type="range" id="sV" min="10" max="300" step="5" value="120" aria-describedby="sOut">
+  </div>
+  <div class="controls">
+    <span class="segmented" id="sFc" role="group" aria-label="필터 계수 선택"></span>
+    <span class="segmented" id="sTtt" role="group" aria-label="timeToTrigger 선택"></span>
+    <span class="segmented" id="sSig" role="group" aria-label="그림자 페이딩 세기 선택"></span>
+    <span class="readout" id="sOut"></span>
+  </div>
+
+  <div class="verdict" id="sBox">
+    <span class="tag" id="sTag"></span>
+    <span class="why" id="sWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="sN">—</span><span class="t">핸드오버 횟수</span></div>
+    <div><span class="n" id="sPos">—</span><span class="t">처음 넘어간 곳 · 중간 기준 [m]</span></div>
+    <div><span class="n" id="sGap">—</span><span class="t">그때 벌어져 있던 차 [dB]</span></div>
+    <div><span class="n" id="sBand">—</span><span class="t">죽은 띠 너비 = 2·Hys [dB]</span></div>
+  </div>
+  <p class="caption">세로축은 ±20 dB 밖을 <strong>그리지 않고 선을 끊습니다</strong>(가장자리에서는 두 셀 차이가 40 dB를 넘습니다). 세로축은 언제나 <strong>"지금 붙어 있는 셀에서 본 상대값"</strong>이라, 핸드오버가 일어나면 부호가 뒤집혀 곡선이 <strong>0을 기준으로 접힙니다</strong> — A3 조건이 늘 같은 자리에서 읽히게 하려고 그렇게 그렸습니다. 그림자 페이딩은 <strong>위치에 고정해 깔아 두었습니다</strong> — 속도를 바꿔도 채널은 그대로여야 비교가 성립합니다. 표준편차 σ와 상관거리 20 m는 <strong>모형 값이며 규격이 정하는 것이 아닙니다</strong>. 측정은 200 ms마다 한 번으로 두었습니다. <span class="src">모형 · 3GPP 규격값이 아님</span></p>
+
+  <div class="note">
+    <strong>이 그림에서 볼 것 하나.</strong> 방어를 전부 끄고(Hys 0 · Off 0 · fc0 · TTT 0) σ를 6 dB로 두면
+    핸드오버가 <strong>11번</strong> 일어납니다 — 그중 <strong>10번은 방금 떠난 셀로 되돌아가는 것</strong>입니다.
+    핑퐁은 신호가 나빠서가 아니라 <strong>판단을 너무 자주 해서</strong> 생깁니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>공짜가 아니다 — 지연은 거리다</h2>
+  <p>방어 셋은 전부 <strong>같은 대가</strong>를 치릅니다. 판단이 늦어집니다. 그리고 단말은 움직이고 있으므로, <strong>늦은 시간은 곧 잘못된 셀 위에서 달린 거리</strong>입니다.</p>
+
+  <!-- 유도: 규격이 정하는 지연은 둘 — L3 필터 시상수와 TTT
+       fc4 · 측정주기 200 ms → 1.443 × 200 = 289 ms
+       + TTT 320 ms = 609 ms
+       120 km/h = 33.33 m/s → 0.609 × 33.33 = 20.3 m
+       Off+Hys = 5 dB 인 지점은 중간에서 40.75 m (10n·log10(x/(D−x)) = 5 를 풀어서)
+       합치면 중간에서 61.0 m, 그때 두 셀의 차이 = 35·log10(311.0/189.0) = 7.58 dB -->
+  <div class="table-scroll">
+  <table>
+    <caption>Off + Hys = 5 dB · fc4 · TTT 320 ms 로 두었을 때</caption>
+    <thead><tr><th>단계</th><th class="num">120 km/h</th><th class="num">300 km/h</th><th>어디서 오는가</th></tr></thead>
+    <tbody>
+      <tr><td>문턱까지 가는 거리</td><td class="num">40.8 m</td><td class="num">40.8 m</td><td>Off + Hys = 5 dB 인 지점 · 속도와 무관</td></tr>
+      <tr><td>L3 필터가 따라오는 시간</td><td class="num">289 ms</td><td class="num">289 ms</td><td>fc4 × 측정주기 200 ms</td></tr>
+      <tr><td>TTT 동안 버티는 시간</td><td class="num">320 ms</td><td class="num">320 ms</td><td>규격이 고른 값</td></tr>
+      <tr><td>그동안 달린 거리</td><td class="num">20.3 m</td><td class="num">50.7 m</td><td>609 ms × 속도</td></tr>
+      <tr><td><strong>중간지점에서 얼마나 지나서</strong></td><td class="num"><strong>61.0 m</strong></td><td class="num"><strong>91.5 m</strong></td><td>위 둘의 합</td></tr>
+      <tr><td><strong>그때 두 셀의 차</strong></td><td class="num"><strong>7.58 dB</strong></td><td class="num"><strong>11.66 dB</strong></td><td>이만큼 나쁜 셀에 붙어 있었다</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">규격이 정하는 지연은 <strong>이 둘뿐</strong>입니다. 실제로는 측정 보고, RRC 처리, 타깃 셀 접속 시간이 더 붙지만 <strong>그것들은 구현이 정하므로 숫자를 쓰지 않았습니다.</strong> 즉 위 값은 <strong>아래쪽 한계</strong>입니다.</p>
+
+  <div class="note">
+    <strong>느린 단말이 핑퐁을 더 겪는다.</strong> 위 그림에서 같은 채널을 놓고 속도만 바꿔 보세요.
+    <strong>필터와 TTT는 시간 단위인데 채널의 요동은 거리 단위</strong>이기 때문입니다.
+    시속 30 km면 609 ms 동안 <strong>5 m</strong>밖에 못 가서 그림자 하나를 벗어나지 못하지만,
+    시속 300 km면 <strong>51 m</strong>를 가서 그림자 두어 개를 지나며 저절로 평균이 됩니다.
+    같은 설정에서 30·60 km/h는 세 번 오가고 120·300 km/h는 한 번에 넘어갑니다.
+  </div>
+
+  <div class="note">
+    <strong>그래서 정답이 없다.</strong> 방어를 줄이면 핑퐁이 늘고, 늘리면 나쁜 셀에 오래 붙어 있습니다.
+    너무 오래 붙어 있으면 <strong>핸드오버 명령을 실을 하향 링크 자체가 무너져</strong> 연결이 끊깁니다 —
+    명령은 <strong>떠나려는 셀</strong>이 보내기 때문입니다. 규격은 이 균형점을 정해 주지 않습니다.
+    <code>hysteresis</code>·<code>a3-Offset</code>·<code>timeToTrigger</code>를 <strong>넓게 열어 두고 사업자에게 넘깁니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>A3만 있는 것이 아니다</h2>
+  <p>규격은 이벤트를 여섯 개 정의합니다. <strong>문턱을 쓰는 것</strong>과 <strong>오프셋을 쓰는 것</strong>으로 갈립니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>측정 보고 이벤트 <span class="src">TS 38.331 §5.5.4 · ASN.1 <code>EventTriggerConfig</code></span></caption>
+    <thead><tr><th class="num">이벤트</th><th class="num">기준</th><th>조건</th><th>쓰는 데</th></tr></thead>
+    <tbody>
+      <tr><td class="num">A1</td><td class="num"><code>a1-Threshold</code></td><td>서빙이 문턱보다 <strong>좋아졌다</strong></td>
+          <td>측정을 그만두라는 신호 — 이제 안심해도 된다</td></tr>
+      <tr><td class="num">A2</td><td class="num"><code>a2-Threshold</code></td><td>서빙이 문턱보다 <strong>나빠졌다</strong></td>
+          <td>이웃을 찾아보라는 신호 — 측정을 켠다</td></tr>
+      <tr><td class="num"><strong>A3</strong></td><td class="num"><code>a3-Offset</code></td>
+          <td>이웃이 <strong>서빙보다</strong> 오프셋만큼 좋아졌다</td>
+          <td><strong>같은 주파수 핸드오버의 기본</strong></td></tr>
+      <tr><td class="num">A4</td><td class="num"><code>a4-Threshold</code></td><td>이웃이 문턱보다 좋아졌다</td>
+          <td>서빙과 <strong>무관하게</strong> 판단 — 부하 분산에 쓴다</td></tr>
+      <tr><td class="num">A5</td><td class="num"><code>a5-Threshold1/2</code></td>
+          <td>서빙은 문턱1보다 <strong>나쁘고</strong> 이웃은 문턱2보다 <strong>좋다</strong></td>
+          <td>다른 주파수로 넘길 때 — 조건 둘을 함께 건다</td></tr>
+      <tr><td class="num">A6</td><td class="num"><code>a6-Offset</code></td><td>이웃이 <strong>SCell보다</strong> 오프셋만큼 좋아졌다</td>
+          <td>반송파 집성에서 보조 셀을 바꿀 때</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">A3와 A6만 <strong>오프셋</strong>(상대 비교)을 쓰고 나머지는 <strong>문턱</strong>(절대 비교)을 씁니다. 상대 비교는 두 셀이 함께 나빠져도 안 걸리고, 절대 비교는 함께 좋아져도 걸립니다 — <strong>그래서 A2와 A3를 짝으로 씁니다.</strong> A2로 측정을 켜고, A3로 넘길 곳을 고릅니다.</p>
+
+  <div class="note">
+    <strong>ASN.1을 세로로 읽으면 구조가 보인다.</strong> 여섯 이벤트가 서로 다른 것은
+    <strong>비교 대상뿐</strong>입니다. <code>hysteresis</code>, <code>timeToTrigger</code>, <code>reportOnLeave</code>는
+    여섯 곳에 똑같이 붙어 있습니다. <strong>"무엇을 비교하는가"와 "얼마나 망설이는가"를 규격이 갈라 놓은 것</strong>입니다.
+    A3에서 배운 망설임은 나머지 다섯에 그대로 적용됩니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>핑퐁은 신호가 나빠서가 아니라 판단을 자주 해서 생긴다.</strong> 경계에서는 두 셀의 차이가 미터당 0.12 dB뿐인데 그림자 페이딩은 6 dB씩 출렁입니다.</li>
+    <li><strong>방어는 셋이고 전부 같은 대가를 치른다.</strong> 평균내고(L3 필터), 문턱을 벌리고(2·Hys의 죽은 띠), 버팁니다(TTT). 셋 다 판단을 늦춥니다.</li>
+    <li><strong>늦은 시간은 곧 거리다.</strong> 609 ms의 지연은 120 km/h에서 20 m이고, 그만큼 더 나쁜 셀 위에서 달립니다. 규격은 균형점을 정하지 않고 범위만 열어 둡니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../18-dmrs-channel-estimation/index.html">← 18 DMRS와 채널 추정</a>
+  <a href="../20-channel-coding/index.html">20 채널 코딩 →</a>
+</nav>
+
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y});
+    if(cls)t.setAttribute('class',cls);
+    if(fill)t.setAttribute('fill',fill);
+    if(anchor)t.setAttribute('text-anchor',anchor);
+    t.textContent=s;return t;
+  }
+  function clear(g){while(g.firstChild)g.removeChild(g.firstChild);}
+
+  /* ── 공통 모형 ─────────────────────────────────────────────
+     RSRP(d) = P0 − 10·n·log10(d).  250 m 에서 −95 dBm 이 되도록 P0 를 맞춘다.
+     경로손실 지수 3.5 는 도심 가정이며 규격값이 아니다. */
+  var D=500, PLE=3.5;
+  var P0=-95+10*PLE*Math.log10(250);
+  function rsrp(d){ return P0-10*PLE*Math.log10(Math.max(d,10)); }
+  function diffAt(x){ return rsrp(D-x)-rsrp(x); }   /* Mn − Mp */
+
+  /* ── 1. 기하 그림 (고정) ───────────────────────────────── */
+  (function drawGeo(){
+    var g=document.getElementById('geoG');
+    var GX=88, GY=42, GW=846, GH=232;
+    var LO=-110, HI=-65;
+    var px=function(x){ return GX+x/D*GW; };
+    var py=function(v){ return GY+(HI-v)/(HI-LO)*GH; };
+
+    for(var v=-110;v<=-65;v+=15){
+      var y=py(v);
+      g.appendChild(el('line',{x1:GX,y1:y,x2:GX+GW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      g.appendChild(txt(GX-12,y+4,v+' dBm','dimlab','var(--ink-soft)','end'));
+    }
+    for(var x=0;x<=D;x+=100){
+      var X=px(x);
+      g.appendChild(el('line',{x1:X,y1:GY,x2:X,y2:GY+GH,stroke:'var(--hair)','stroke-width':1}));
+      g.appendChild(txt(X,GY+GH+22,x+' m','dimlab','var(--ink-soft)','middle'));
+    }
+
+    /* 애매한 구간 — 두 셀의 차가 3 dB 안쪽인 곳 */
+    var lo=null,hi=null;
+    for(var s=1;s<D;s++){ if(Math.abs(diffAt(s))<=3){ if(lo===null)lo=s; hi=s; } }
+    g.appendChild(el('rect',{x:px(lo),y:GY,width:px(hi)-px(lo),height:GH,
+      fill:'var(--gp-bg)',opacity:0.75}));
+    g.appendChild(txt((px(lo)+px(hi))/2,GY-12,'차이가 3 dB 안쪽 — '+(hi-lo)+' m',
+      'celllab','var(--gp)','middle'));
+
+    /* 두 곡선 */
+    [[0,'none','왼쪽 셀 A'],[1,'7 5','오른쪽 셀 B']].forEach(function(c){
+      var d='';
+      for(var i=0;i<=GW;i++){
+        var xx=i/GW*D, dd=c[0]?(D-xx):xx;
+        d+=(i?'L':'M')+(GX+i).toFixed(1)+' '+py(rsrp(Math.max(dd,10))).toFixed(1)+' ';
+      }
+      g.appendChild(el('path',{d:d,fill:'none',stroke:'var(--dl)','stroke-width':2.2,
+        'stroke-dasharray':c[1]}));
+    });
+
+    /* 교차점 */
+    g.appendChild(el('circle',{cx:px(D/2),cy:py(rsrp(D/2)),r:5,fill:'var(--ink)'}));
+    g.appendChild(txt(px(D/2),py(rsrp(D/2))-16,'만나는 곳','celllab','var(--ink)','middle'));
+
+    /* 기지국 표시 — 축 아래 */
+    [[0,'A'],[D,'B']].forEach(function(b){
+      g.appendChild(el('line',{x1:px(b[0]),y1:GY+GH+34,x2:px(b[0]),y2:GY+GH+52,
+        stroke:'var(--ink)','stroke-width':2}));
+      g.appendChild(txt(px(b[0]),GY+GH+68,'기지국 '+b[1],'celllab','var(--ink)','middle'));
+    });
+
+    /* 범례 — 격자 밖 */
+    var ly=GY+GH+96;
+    g.appendChild(el('line',{x1:GX,y1:ly-4,x2:GX+32,y2:ly-4,stroke:'var(--dl)','stroke-width':2.2}));
+    g.appendChild(txt(GX+40,ly,'셀 A가 주는 세기','dimlab','var(--ink-soft)','start'));
+    g.appendChild(el('line',{x1:GX+230,y1:ly-4,x2:GX+262,y2:ly-4,stroke:'var(--dl)',
+      'stroke-width':2.2,'stroke-dasharray':'7 5'}));
+    g.appendChild(txt(GX+270,ly,'셀 B가 주는 세기','dimlab','var(--ink-soft)','start'));
+  })();
+
+  /* ── 2. 죽은 띠 그림 (고정) ────────────────────────────── */
+  (function drawBand(){
+    var g=document.getElementById('dbG');
+    /* 세로 자리를 미리 갈라 둔다 — 라벨이 축·격자·문턱선과 겹치지 않게.
+       34 띠이름 · 52 너비자 · 86·104 문턱이름 · 142 0표시 · 170 축 · 192 눈금 · 228 축이름 */
+    var AX=88, AY=170, AW=924;
+    var LO=-6, HI=10;                          /* Mn − Mp [dB] */
+    var OFF=3, HYS=2;                          /* 예시 값 */
+    var bx=function(v){ return AX+(v-LO)/(HI-LO)*AW; };
+
+    g.appendChild(el('rect',{x:bx(OFF-HYS),y:AY-52,width:bx(OFF+HYS)-bx(OFF-HYS),height:60,
+      fill:'var(--gp-bg)'}));
+    g.appendChild(el('line',{x1:AX,y1:AY,x2:AX+AW,y2:AY,stroke:'var(--ink)','stroke-width':1.4}));
+
+    for(var v=LO;v<=HI;v+=2){
+      g.appendChild(el('line',{x1:bx(v),y1:AY-5,x2:bx(v),y2:AY+5,stroke:'var(--ink-soft)','stroke-width':1}));
+      g.appendChild(txt(bx(v),AY+26,(v>0?'+':'')+v,'dimlab','var(--ink-soft)','middle'));
+    }
+    g.appendChild(txt(AX+AW/2,AY+58,'M(이웃) − M(서빙)  [dB]','dimlab','var(--ink-soft)','middle'));
+
+    /* 두 문턱 — 라벨은 둘 다 축 위에 두고 서로 바깥쪽으로 흘린다 */
+    [[OFF+HYS,'진입 — 넘어간다','Off + Hys','start',8],
+     [OFF-HYS,'이탈 — 되돌아온다','Off − Hys','end',-8]].forEach(function(t){
+      g.appendChild(el('line',{x1:bx(t[0]),y1:AY-52,x2:bx(t[0]),y2:AY+10,
+        stroke:'var(--ink)','stroke-width':2}));
+      g.appendChild(txt(bx(t[0])+t[4],86,t[1],'celllab','var(--ink)',t[3]));
+      g.appendChild(txt(bx(t[0])+t[4],104,t[2],'dimlab','var(--ink-soft)',t[3]));
+    });
+
+    /* 띠 너비 자 — 맨 위 */
+    g.appendChild(el('line',{x1:bx(OFF-HYS),y1:52,x2:bx(OFF+HYS),y2:52,
+      stroke:'var(--gp)','stroke-width':2}));
+    g.appendChild(el('line',{x1:bx(OFF-HYS),y1:46,x2:bx(OFF-HYS),y2:58,stroke:'var(--gp)','stroke-width':2}));
+    g.appendChild(el('line',{x1:bx(OFF+HYS),y1:46,x2:bx(OFF+HYS),y2:58,stroke:'var(--gp)','stroke-width':2}));
+    g.appendChild(txt((bx(OFF-HYS)+bx(OFF+HYS))/2,34,'죽은 띠 = 2 · Hys','celllab','var(--gp)','middle'));
+
+    /* 두 셀이 같은 자리 — 눈금 글자를 건드리지 않게 축 위로만 짧게 */
+    g.appendChild(el('line',{x1:bx(0),y1:150,x2:bx(0),y2:AY-4,
+      stroke:'var(--ink-soft)','stroke-width':1,'stroke-dasharray':'3 4'}));
+    g.appendChild(txt(bx(0),142,'두 셀이 같다','dimlab','var(--ink-soft)','middle'));
+
+    g.appendChild(txt(AX+AW,34,'예시: Off = 3 dB · Hys = 2 dB','dimlab','var(--ink-soft)','end'));
+  })();
+
+  /* ── 3. 주행 시뮬레이션 (인터랙션) ─────────────────────── */
+  var TTTS=[{v:0,lab:'TTT 0'},{v:160,lab:'160'},{v:320,lab:'320'},
+            {v:640,lab:'640'},{v:1280,lab:'1280 ms'}];
+  var FCS=[{v:0,lab:'fc0'},{v:4,lab:'fc4'},{v:9,lab:'fc9'},{v:19,lab:'fc19'}];
+  var SIGS=[{v:0,lab:'σ 0'},{v:3,lab:'3'},{v:6,lab:'6'},{v:9,lab:'9 dB'}];
+  var st={ttt:2,fc:1,sig:2};
+  var TMEAS=0.200, GRID=0.5, DCORR=20;
+
+  /* 자바스크립트와 파이썬이 같은 값을 내도록 uint32 산술로 쓴 PRNG */
+  function mulberry32(seed){
+    var s=seed>>>0;
+    return function(){
+      s=(s+0x6D2B79F5)>>>0;
+      var t=s;
+      t=Math.imul(t^(t>>>15),t|1)>>>0;
+      t=(t^(t+Math.imul(t^(t>>>7),t|61)))>>>0;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
+  }
+  function gauss(rnd){
+    var u=Math.max(rnd(),1e-12);
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*rnd());
+  }
+  /* 그림자 페이딩은 위치 격자에 미리 깔아 둔다 —
+     속도를 바꿔도 채널이 그대로여야 비교가 성립한다. */
+  var FIELDS={};
+  function field(sigma){
+    if(FIELDS[sigma]) return FIELDS[sigma];
+    var rnd=mulberry32(20260905), n=Math.floor(D/GRID)+1;
+    var rho=Math.exp(-GRID/DCORR), sd=sigma*Math.sqrt(Math.max(1-rho*rho,0));
+    var f=[new Float64Array(n),new Float64Array(n)];
+    for(var c=0;c<2;c++) for(var i=1;i<n;i++) f[c][i]=rho*f[c][i-1]+sd*gauss(rnd);
+    FIELDS[sigma]=f; return f;
+  }
+
+  function run(hysDb,offDb,tttMs,k,sigma,kmh){
+    var f=field(sigma), a=Math.pow(2,-k/4);
+    var step=kmh/3.6*TMEAS;
+    var fil=[null,null], serving=0, hold=0, out=[], hos=[];
+    var x=20, i=0;
+    while(x<D-20){
+      var gi=Math.min(Math.round(x/GRID),f[0].length-1);
+      var raw=[rsrp(Math.max(x,10))+f[0][gi], rsrp(Math.max(D-x,10))+f[1][gi]];
+      for(var c=0;c<2;c++) fil[c]=(fil[c]===null)?raw[c]:(1-a)*fil[c]+a*raw[c];
+      var nb=1-serving;
+      var sgn=serving?-1:1;                       /* 서빙이 바뀌면 차의 부호가 뒤집힌다 */
+      out.push({x:x,rawD:sgn*(raw[1]-raw[0]),filD:sgn*(fil[1]-fil[0]),serving:serving});
+      var enter=(fil[nb]-hysDb)>(fil[serving]+offDb);
+      hold=enter?hold+TMEAS*1000:0;
+      if(enter&&hold>=tttMs){
+        hos.push({x:x,gap:fil[nb]-fil[serving],back:hos.length>0});
+        serving=nb; hold=0;
+      }
+      x+=step; i++;
+    }
+    return {pts:out,hos:hos};
+  }
+
+  var simG=document.getElementById('simG');
+  var sHys=document.getElementById('sHys'), sOff=document.getElementById('sOff');
+  var sV=document.getElementById('sV'), sOut=document.getElementById('sOut');
+  var sBox=document.getElementById('sBox'), sTag=document.getElementById('sTag');
+  var sWhy=document.getElementById('sWhy');
+  var SX=88, SY=46, SW=846, SH=254;              /* 차이 그래프 */
+  var BY=352, BH=30;                             /* 서빙 셀 막대 */
+  var DLO=-20, DHI=20;
+
+  function sx(x){ return SX+x/D*SW; }
+  function sy(v){ return SY+(DHI-Math.max(Math.min(v,DHI),DLO))/(DHI-DLO)*SH; }
+
+  function drawSim(){
+    clear(simG);
+    var hys=(+sHys.value)*0.5, off=(+sOff.value)*0.5, kmh=+sV.value;
+    var ttt=TTTS[st.ttt].v, fc=FCS[st.fc].v, sig=SIGS[st.sig].v;
+    var r=run(hys,off,ttt,fc,sig,kmh);
+
+    /* 죽은 띠 */
+    simG.appendChild(el('rect',{x:SX,y:sy(off+hys),width:SW,height:Math.max(sy(off-hys)-sy(off+hys),1),
+      fill:'var(--gp-bg)'}));
+
+    for(var v=DLO;v<=DHI;v+=10){
+      var y=sy(v);
+      simG.appendChild(el('line',{x1:SX,y1:y,x2:SX+SW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      simG.appendChild(txt(SX-12,y+4,(v>0?'+':'')+v+' dB','dimlab','var(--ink-soft)','end'));
+    }
+    for(var x=0;x<=D;x+=100){
+      simG.appendChild(el('line',{x1:sx(x),y1:SY,x2:sx(x),y2:SY+SH,stroke:'var(--hair)','stroke-width':1}));
+      simG.appendChild(txt(sx(x),SY+SH+22,x+' m','dimlab','var(--ink-soft)','middle'));
+    }
+    /* 두 문턱 선 — Hys 가 작으면 두 선이 붙어 이름이 겹치므로 하나로 합쳐 쓴다 */
+    var yE=sy(off+hys), yL=sy(off-hys);
+    [yE,yL].forEach(function(y){
+      simG.appendChild(el('line',{x1:SX,y1:y,x2:SX+SW,y2:y,
+        stroke:'var(--gp)','stroke-width':1.6}));
+    });
+    if(yL-yE<16){
+      simG.appendChild(txt(SX+SW+8,(yE+yL)/2+4,'진입 = 이탈','celllab','var(--gp)','start'));
+    }else{
+      simG.appendChild(txt(SX+SW+8,yE+4,'진입','celllab','var(--gp)','start'));
+      simG.appendChild(txt(SX+SW+8,yL+4,'이탈','celllab','var(--gp)','start'));
+    }
+
+    /* 잰 값(점)과 걸러진 값(선).
+       축 밖은 그리지 않고 선을 끊는다 — 눌러 담으면 바닥에 붙은 직선이
+       데이터처럼 읽힌다. */
+    var inRange=function(v){ return v>=DLO&&v<=DHI; };
+    r.pts.forEach(function(p){
+      if(!inRange(p.rawD)) return;
+      simG.appendChild(el('circle',{cx:sx(p.x),cy:sy(p.rawD),r:1.7,
+        fill:'var(--ink-soft)',opacity:0.5}));
+    });
+    var d='', pen=false;
+    r.pts.forEach(function(p){
+      if(!inRange(p.filD)){ pen=false; return; }
+      d+=(pen?'L':'M')+sx(p.x).toFixed(1)+' '+sy(p.filD).toFixed(1)+' ';
+      pen=true;
+    });
+    simG.appendChild(el('path',{d:d,fill:'none',stroke:'var(--dl)','stroke-width':2.2}));
+
+    /* 핸드오버 표시 — 되돌아온 것은 alert.
+       x축 눈금 글자가 있는 구간(SY+SH ~ BY)은 건너뛰고 두 토막으로 긋는다. */
+    r.hos.forEach(function(h){
+      var col=h.back?'var(--alert)':'var(--ink)';
+      var dash=h.back?'3 3':'none';
+      [[SY,SY+SH],[BY,BY+BH]].forEach(function(seg){
+        simG.appendChild(el('line',{x1:sx(h.x),y1:seg[0],x2:sx(h.x),y2:seg[1],
+          stroke:col,'stroke-width':1.4,'stroke-dasharray':dash}));
+      });
+    });
+
+    /* 서빙 셀 막대 */
+    simG.appendChild(txt(SX-12,BY+20,'붙어 있는 셀','rowlab','var(--ink-soft)','end'));
+    var w=r.pts.length?(SW/r.pts.length):SW;
+    r.pts.forEach(function(p){
+      simG.appendChild(el('rect',{x:sx(p.x),y:BY,width:Math.max(w,1)+0.5,height:BH,
+        fill:p.serving?'var(--dl-bg)':'var(--ul-bg)'}));
+    });
+    simG.appendChild(el('rect',{x:SX,y:BY,width:SW,height:BH,fill:'none',
+      stroke:'var(--hair)','stroke-width':1}));
+    simG.appendChild(txt(SX+SW+8,BY+20,'A / B','celllab','var(--ink-soft)','start'));
+
+    /* 범례 — 격자 밖 */
+    var ly=BY+BH+44;
+    simG.appendChild(el('circle',{cx:SX+8,cy:ly-4,r:1.7,fill:'var(--ink-soft)'}));
+    simG.appendChild(txt(SX+20,ly,'잰 값','dimlab','var(--ink-soft)','start'));
+    simG.appendChild(el('line',{x1:SX+90,y1:ly-4,x2:SX+122,y2:ly-4,stroke:'var(--dl)','stroke-width':2.2}));
+    simG.appendChild(txt(SX+130,ly,'걸러진 값','dimlab','var(--ink-soft)','start'));
+    simG.appendChild(el('rect',{x:SX+230,y:ly-11,width:26,height:12,fill:'var(--gp-bg)'}));
+    simG.appendChild(txt(SX+264,ly,'죽은 띠','dimlab','var(--ink-soft)','start'));
+    simG.appendChild(el('line',{x1:SX+350,y1:ly-12,x2:SX+350,y2:ly+2,stroke:'var(--ink)','stroke-width':1.4}));
+    simG.appendChild(txt(SX+360,ly,'첫 핸드오버','dimlab','var(--ink-soft)','start'));
+    simG.appendChild(el('line',{x1:SX+470,y1:ly-12,x2:SX+470,y2:ly+2,stroke:'var(--alert)',
+      'stroke-width':1.4,'stroke-dasharray':'3 3'}));
+    simG.appendChild(txt(SX+480,ly,'되돌아간 것 — 핑퐁','dimlab','var(--ink-soft)','start'));
+
+    /* 읽을 값 */
+    var n=r.hos.length, first=r.hos[0];
+    document.getElementById('sN').textContent=n;
+    document.getElementById('sPos').textContent=first?((first.x-D/2)>=0?'+':'')+(first.x-D/2).toFixed(0):'—';
+    document.getElementById('sGap').textContent=first?first.gap.toFixed(1):'—';
+    document.getElementById('sBand').textContent=(2*hys).toFixed(1);
+    sOut.textContent='Hys '+hys.toFixed(1)+' dB · Off '+off.toFixed(1)+' dB · '+kmh+' km/h';
+
+    var back=Math.max(n-1,0);
+    var late=first?(first.x-D/2):null;
+    var ok=(n===1);
+    sBox.className='verdict '+(ok?'ok':'bad');
+    if(n===0){ sTag.textContent='넘어가지 못했다'; sWhy.textContent='문턱이 너무 높아 끝까지 셀 A에 붙어 있습니다.'; }
+    else if(back>0){ sTag.textContent='핑퐁 '+back+'회';
+      sWhy.textContent='핸드오버 '+n+'번 중 '+back+'번이 방금 떠난 셀로 되돌아간 것입니다.'; }
+    else { sTag.textContent='한 번에 넘어감';
+      sWhy.textContent='다만 중간지점에서 '+late.toFixed(0)+' m 지나서, 두 셀이 '
+        +first.gap.toFixed(1)+' dB 벌어진 뒤였습니다.'; }
+  }
+
+  function seg(host,items,get,set){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.lab;
+      b.setAttribute('aria-pressed',get()===i?'true':'false');
+      b.addEventListener('click',function(){
+        set(i);
+        Array.prototype.forEach.call(host.children,function(c,j){
+          c.setAttribute('aria-pressed',j===i?'true':'false');
+        });
+        drawSim();
+      });
+      host.appendChild(b);
+    });
+  }
+  seg(document.getElementById('sFc'),FCS,function(){return st.fc;},function(i){st.fc=i;});
+  seg(document.getElementById('sTtt'),TTTS,function(){return st.ttt;},function(i){st.ttt=i;});
+  seg(document.getElementById('sSig'),SIGS,function(){return st.sig;},function(i){st.sig=i;});
+  [sHys,sOff,sV].forEach(function(e){ e.addEventListener('input',drawSim); });
+
+  drawSim();
+})();
+</script>
+
+</body>
+</html>

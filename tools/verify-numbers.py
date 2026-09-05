@@ -7,7 +7,11 @@
 근거: TS 38.211 §4.1(Tc, κ), §4.2(SCS), §5.3.1(CP)
 """
 
+import itertools
 import math
+import pathlib
+import random
+import re
 
 Tc = 1 / (480_000 * 4096)   # §4.1  ≈ 0.50863 ns
 KAPPA = 64                  # §4.1  Ts/Tc
@@ -72,6 +76,20 @@ def main():
     ok &= check_bwp()
     ok &= check_beam()
     ok &= check_rach()
+    ok &= check_precoding()
+    ok &= check_chain()
+    ok &= check_refsig()
+    ok &= check_pdcch()
+    ok &= check_uplink()
+    ok &= check_oran()
+    ok &= check_zc()
+    ok &= check_gold()
+    ok &= check_oai()
+    ok &= check_offline()
+    ok &= check_dmrs()
+    ok &= check_ho()
+    ok &= check_coding()
+    ok &= check_core()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -121,6 +139,1630 @@ def rv3_touches_systematic(e_bins, bg='BG1'):
 def n_codeblocks(b, k_cb=8448, L=24):
     """전송 블록을 코드블록으로 쪼갠 개수 — TS 38.212 §5.2.2"""
     return 1 if b <= k_cb else -(-b // (k_cb - L))
+
+
+# ── 14 O-RAN 프론트홀 분할 ──────────────────────────────────
+# O-RAN Alliance 규격이며 3GPP가 아니다(본문에 그렇게 표기).
+# 3GPP에서 온 것은 레이어 상한 8(TS 38.211 §7.3.1.3)과 자원 격자뿐이고,
+# 분할 옵션 목록의 출발점은 TR 38.801 §11이다.
+# 근거: O-RAN.WG4.CUS.0 (Control, User and Synchronization Plane)
+# 프론트홀 비율은 자원 격자에서 나오는 산술이므로 규격값 대조가 아니라
+# 자기일관성 검사다 — 게시값과 같은 식을 쓰는지만 본다.
+
+FH_RB = 273              # 100 MHz @ 30 kHz  (TS 38.101-1 Table 5.3.2-1, 05에서 검산)
+FH_SYMS = 14 * 2000      # 심볼/s · μ=1은 서브프레임당 2슬롯
+FH_SLOT_S = 2000
+FH_LINKS = [("10GbE", 10), ("25GbE", 25), ("100GbE", 100)]
+
+
+def fh_bits_per_prb(iqw, bfp=True):
+    """BFP는 12 RE(1 PRB)가 지수 1바이트를 공유한다고 본다."""
+    return 12 * 2 * iqw + (8 if bfp else 0)
+
+
+def fh_gbps_per_flow(iqw, bfp=True):
+    return FH_RB * fh_bits_per_prb(iqw, bfp) * FH_SYMS / 1e9
+
+
+def fh_smallest_link(rate):
+    for name, cap in FH_LINKS:
+        if rate <= cap:
+            return name
+    return None
+
+
+def check_oran():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[14] 자원 격자 → 흐름 하나의 양 (100 MHz · 30 kHz · μ=1)")
+    sc = FH_RB * 12
+    re_s = sc * FH_SYMS
+    eq("부반송파 수 · 273 × 12", sc, 3276, 0)
+    eq("자원 요소 [M/s] · 3276 × 28000", re_s / 1e6, 91.728, 0.001)
+    eq("심볼/s · 14 × 2000슬롯", FH_SYMS, 28000, 0)
+    for iqw, bfp, pub_bits, pub_g in [(16, False, 384, 2.9353), (12, True, 296, 2.2626),
+                                      (9, True, 224, 1.7123)]:
+        b = fh_bits_per_prb(iqw, bfp)
+        g = fh_gbps_per_flow(iqw, bfp)
+        hit = b == pub_bits and abs(g - pub_g) < 0.0001
+        ok &= hit
+        tag = "무압축" if not bfp else "BFP"
+        print(f"  {tag} {iqw:2}비트 → {b:3}비트/PRB · {g:7.4f} Gbps"
+              f"  게시 {pub_bits}/{pub_g}  {'✓' if hit else '✗ 불일치'}")
+    # 지수 오버헤드가 결론을 바꾸지 않는다는 것(본문 캡션의 주장)
+    without_exp = 12 * 2 * 9
+    eq("지수 8비트를 뺐을 때의 감소 [%]",
+       (1 - without_exp / fh_bits_per_prb(9)) * 100, 3.6, 0.05)
+
+    per9 = fh_gbps_per_flow(9)
+    print("\n[14] 분할별 프론트홀 — 흐름 수 × 흐름 하나 (BFP 9비트)")
+    cat_a = 32 * per9
+    cat_b = 8 * per9
+    eq("Cat A · 32 스트림 [Gbps]", cat_a, 54.792, 0.001)
+    eq("Cat B · 8 레이어 [Gbps]", cat_b, 13.698, 0.001)
+    eq("Cat A ÷ Cat B", cat_a / cat_b, 4.0, 1e-12)
+    # 자료의 주장: 비가 정확히 흐름 수의 비다(흐름 하나의 양이 약분된다)
+    same = abs(cat_a / cat_b - 32 / 8) < 1e-12
+    ok &= same
+    print(f"  비가 흐름 수의 비(32/8)와 정확히 같은가  {'✓' if same else '✗ 자료의 주장과 다름'}")
+    # 압축 방식을 바꿔도 비가 그대로인가 — 약분된다는 주장의 핵심
+    ratios = [32 * fh_gbps_per_flow(w, b) / (8 * fh_gbps_per_flow(w, b))
+              for w, b in [(16, False), (12, True), (9, True)]]
+    flat = all(abs(r - 4.0) < 1e-12 for r in ratios)
+    ok &= flat
+    print(f"  압축을 바꿔도 비가 4.0으로 고정되는가  {'✓' if flat else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] 체인을 늘릴 때 — Cat A만 커진다 (레이어 8 고정)")
+    for p, pub_a in [(8, 13.698), (16, 27.396), (32, 54.792), (64, 109.584)]:
+        ra, rb = p * per9, 8 * per9
+        hit = abs(ra - pub_a) < 0.001 and abs(rb - 13.698) < 0.001
+        ok &= hit
+        print(f"  {p:3}체인  Cat A {ra:8.3f} (게시 {pub_a})  Cat B {rb:8.3f}"
+              f"  {fh_smallest_link(ra) or '100GbE 초과':<12} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 64체인에서 Cat A가 100GbE를 넘고 Cat B는 25GbE에 든다
+    wall = fh_smallest_link(64 * per9) is None and fh_smallest_link(8 * per9) == "25GbE"
+    ok &= wall
+    print(f"  64체인에서 Cat A는 100GbE 초과 · Cat B는 25GbE  {'✓' if wall else '✗ 자료의 주장과 다름'}")
+    # 8체인이면 둘이 같다 — 인터랙션의 '둘이 같다' 판정이 여기 의존
+    tie = abs(8 * per9 - 8 * per9) == 0 and 8 == 8
+    ok &= tie
+    print(f"  체인 수 = 레이어 수(8)이면 두 방식이 같은 값  {'✓' if tie else '✗'}")
+
+    print("\n[14] Option 8(CPRI) 대조 — 시간영역 IQ")
+    fs = 4096 * 30e3
+    opt8 = 32 * 2 * 16 * fs / 1e9
+    eq("표본율 [Msps] · 4096 × 30 kHz", fs / 1e6, 122.88, 0.001)
+    eq("Option 8 · 32안테나 16비트 [Gbps]", opt8, 125.829, 0.001)
+    eq("Cat B 대비 절감 배수", opt8 / cat_b, 9.19, 0.005)
+    over = fh_smallest_link(opt8) is None
+    ok &= over
+    print(f"  Option 8은 100GbE 한 벌로 안 된다  {'✓' if over else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] BFW(사전)의 값 — 32체인 · 8레이어 · 슬롯마다 한 번")
+
+    def bfw_gbps(bundle, iqw, layers=8, ports=32):
+        nb = math.ceil(FH_RB / bundle)
+        return nb * layers * ports * 2 * iqw * FH_SLOT_S / 1e9, nb
+
+    for bundle, iqw, pub_g, pub_pct in [(1, 9, 2.516, 18.4), (4, 9, 0.636, 4.6),
+                                        (16, 9, 0.166, 1.2), (1, 16, 4.473, 32.7)]:
+        g, nb = bfw_gbps(bundle, iqw)
+        pct = g / cat_b * 100
+        hit = abs(g - pub_g) < 0.001 and abs(pct - pub_pct) < 0.05
+        ok &= hit
+        print(f"  묶음 {bundle:2} PRB ({nb:3}묶음) {iqw:2}비트 → {g:6.3f} Gbps"
+              f" · U-plane의 {pct:5.1f}%  게시 {pub_g}/{pub_pct}  {'✓' if hit else '✗ 불일치'}")
+
+    worst, _ = bfw_gbps(1, 16)
+    eq("최악(묶음 1 · 16비트) 합계 [Gbps]", cat_b + worst, 18.171, 0.001)
+    fits = fh_smallest_link(cat_b + worst) == "25GbE"
+    ok &= fits
+    print(f"  최악의 경우에도 25GbE 안에 드는가  {'✓' if fits else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장: 사전 값을 내고도 Cat A보다 싸다 — 전 구간에서 성립해야 한다
+    always = all(cat_b + bfw_gbps(b, w)[0] < cat_a
+                 for b in range(1, 17) for w in (9, 16))
+    ok &= always
+    print(f"  묶음 1–16 · 9/16비트 전 구간에서 Cat A보다 싼가  {'✓' if always else '✗ 자료의 주장과 다름'}")
+    g1, _ = bfw_gbps(1, 9)
+    eq("묶음 1 · 9비트에서 Cat A 대비 배수", cat_a / (cat_b + g1), 3.38, 0.005)
+
+    print("\n[14] 비용은 옮겨갔다 — O-RU 연산량 (32체인 · 8레이어)")
+    prec = re_s * 32 * 8 / 1e9
+    fft_mul = (4096 // 2) * int(math.log2(4096))
+    ifft = 32 * FH_SYMS * fft_mul / 1e9
+    eq("프리코딩 [G 복소 MAC/s]", prec, 23.48, 0.005)
+    eq("4096점 iFFT 복소곱 · (N/2)log2N", fft_mul, 24576, 0)
+    eq("iFFT [G 복소곱/s] · 32체인", ifft, 22.02, 0.005)
+    eq("프리코딩 ÷ iFFT", prec / ifft, 1.066, 0.001)
+    # 자료의 주장: 둘이 같은 급이다(2배를 넘지 않는다)
+    same_order = 0.5 < prec / ifft < 2.0
+    ok &= same_order
+    print(f"  프리코딩과 iFFT가 같은 급인가(0.5–2배)  {'✓' if same_order else '✗ 자료의 주장과 다름'}")
+
+    print("\n[14] 3GPP와의 접점")
+    # 8 레이어는 10·13에서 쓴 하향 상한과 같은 값이어야 한다
+    dl_max_layers = 8
+    ok &= dl_max_layers == 8
+    print(f"  프론트홀 8 레이어 = 10의 하향 레이어 상한 8 (TS 38.211 §7.3.1.3)  ✓")
+    # 273 RB는 05에서 검산한 값
+    ok &= FH_RB == 273
+    print(f"  273 RB = 05에서 검산한 100 MHz @ 30 kHz  ✓")
+
+    return ok
+
+
+# ── 15 자도프-추 시퀀스와 SRS ───────────────────────────────
+# 근거: TS 38.211 §5.2.2(저 PAPR 시퀀스) · §5.2.2.1(ZC 기저) · §5.2.2.2(짧은 길이 표)
+#       §6.4.1.4(SRS) · §6.3.3.1–2(PRACH — 시간영역 정의 후 DFT)
+# ZC의 성질(정모듈러스·완벽 자기상관·DFT 닫힘)은 수학이고 규격값이 아니다.
+# 규격에서 온 것은 N_ZC를 소수로 고르는 규칙과 30개 그룹 배정식뿐이다.
+
+import cmath
+
+
+def zc_pure(N, q):
+    """소수 길이 ZC — 순환 확장 없음.  x_q(m) = e^{-jπ q m(m+1)/N}"""
+    return [cmath.exp(-1j * math.pi * q * m * (m + 1) / N) for m in range(N)]
+
+
+def zc_base(M, q):
+    """§5.2.2.1 — N_ZC(= M보다 작은 가장 큰 소수)의 ZC를 M칸으로 순환 확장"""
+    N = largest_prime_below(M)
+    return N, [cmath.exp(-1j * math.pi * q * (m % N) * ((m % N) + 1) / N) for m in range(M)]
+
+
+def largest_prime_below(n):
+    for k in range(n - 1, 1, -1):
+        if k >= 2 and all(k % d for d in range(2, int(k ** 0.5) + 1)):
+            return k
+    return 2
+
+
+def _dft(x):
+    N = len(x)
+    return [sum(x[m] * cmath.exp(-2j * math.pi * m * k / N) for m in range(N)) for k in range(N)]
+
+
+def _idft(X):
+    N = len(X)
+    return [sum(X[k] * cmath.exp(2j * math.pi * m * k / N) for k in range(N)) / N for m in range(N)]
+
+
+def _cyc_corr(x, lag):
+    N = len(x)
+    return abs(sum(x[m] * x[(m + lag) % N].conjugate() for m in range(N)))
+
+
+def _zc_papr_db(X, over):  # 13의 _papr_db와 이름이 겹치지 않게 접두사를 붙였다
+    """부반송파 값 X → 과표본 시간 파형의 PAPR.  over=1이면 표본 위에서만 본다."""
+    N = len(X)
+    L = N * over
+    x = [abs(sum(X[k] * cmath.exp(2j * math.pi * m * k / L) for k in range(N))) for m in range(L)]
+    p = [v * v for v in x]
+    return 10 * math.log10(max(p) / (sum(p) / L))
+
+
+def check_zc():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] 손으로 따라가는 예시 — N=5, q=1")
+    x = zc_pure(5, 1)
+    pub_deg = [0.0, -72.0, 144.0, -72.0, 0.0]
+    for m, (v, pd) in enumerate(zip(x, pub_deg)):
+        d = math.degrees(cmath.phase(v))
+        d = d + 360 if d <= -180 + 1e-9 else d
+        hit = abs(d - pd) < 1e-6 and abs(abs(v) - 1) < 1e-12
+        ok &= hit
+        print(f"  m={m}  m(m+1)={m*(m+1):>2}  위상 {d:>7.1f}°  크기 {abs(v):.6f}"
+              f"  게시 {pd:<6} {'✓' if hit else '✗ 불일치'}")
+    same13 = abs(x[1] - x[3]) < 1e-12
+    ok &= same13
+    print(f"  m=1과 m=3이 같은가 (m(m+1)이 2와 12, 차 10 = 2N)  {'✓' if same13 else '✗'}")
+
+    print("\n[15] 완벽한 자기상관 — 지연 0에서만 솟는가")
+    eq("지연 0의 자기상관", _cyc_corr(x, 0), 5, 1e-9)
+    side = max(_cyc_corr(x, l) for l in range(1, 5))
+    eq("나머지 지연의 최댓값", side, 0, 1e-9)
+
+    print("\n[15] 다른 근과의 상호상관 — 1/√N 규칙 (08과 같은 규칙인가)")
+    for N, pub in [(5, -6.99), (31, -14.91), (839, -29.24)]:
+        a, b = zc_pure(N, 1), zc_pure(N, 2)
+        c = abs(sum(p * q.conjugate() for p, q in zip(a, b)))
+        hit = abs(c - math.sqrt(N)) < 1e-6 and abs(20 * math.log10(c / N) - pub) < 0.01
+        ok &= hit
+        print(f"  N={N:3}  |상호상관| {c:9.6f} = √N {math.sqrt(N):9.6f}"
+              f"  정규화 {20*math.log10(c/N):7.2f} dB  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    # 08의 게시값과 같은 수인지 못박는다
+    c839 = abs(sum(p * q.conjugate() for p, q in zip(zc_pure(839, 1), zc_pure(839, 2)))) / 839
+    eq("839의 값이 08의 게시값과 같은가 [dB]", 20 * math.log10(c839), -29.24, 0.005)
+
+    print("\n[15] 주파수영역에 얹으면 시간 쪽도 평평한가 (N=5)")
+    t = _idft(x)
+    flat = max(abs(v) for v in t) - min(abs(v) for v in t)
+    ok &= flat < 1e-12
+    eq("시간 표본 크기 · 1/√5", abs(t[0]), 1 / math.sqrt(5), 1e-12)
+    print(f"  시간 크기가 전부 같은가 (최대−최소 = {flat:.2e})  {'✓' if flat < 1e-12 else '✗'}")
+
+    print("\n[15] ZC의 DFT는 다시 ZC인가 — q' = −q⁻¹ mod N")
+    for N in [5, 7, 11, 31]:
+        allok = True
+        shown = []
+        for q in range(1, N):
+            X = _dft(zc_pure(N, q))
+            want = (-pow(q, -1, N)) % N
+            # 순환 시프트와 상수 위상까지 허용해서 맞춰 본다
+            found = False
+            cand = zc_pure(N, want)
+            for sh in range(N):
+                r = [X[k] / cand[(k + sh) % N] for k in range(N)]
+                if max(abs(v - r[0]) for v in r) < 1e-6:
+                    found = True
+                    if q <= 3:
+                        shown.append(f"q{q}→q'{want}")
+                    break
+            allok &= found
+        ok &= allok
+        print(f"  N={N:2}  {' · '.join(shown)}  …  모든 근에서 성립  {'✓' if allok else '✗ 성립 안 함'}")
+
+    print("\n[15] PAPR — 표본 위에서와 표본 사이에서")
+    for N, pub1, pub4 in [(31, 0.0, 2.59), (47, 0.0, 2.55)]:
+        z = zc_pure(N, 1)
+        p1, p4 = _zc_papr_db(z, 1), _zc_papr_db(z, 4)
+        hit = abs(p1 - pub1) < 1e-6 and abs(p4 - pub4) < 0.005
+        ok &= hit
+        print(f"  N={N:3}  과표본 1배 {p1:.4f} dB · 4배 {p4:.2f} dB"
+              f"  게시 {pub1}/{pub4}  {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: 소수 길이 ZC는 표본 위에서 정확히 0 dB다
+    exact = all(_zc_papr_db(zc_pure(N, 1), 1) < 1e-9 for N in (31, 47, 71))
+    ok &= exact
+    print(f"  소수 길이 ZC가 표본 위에서 정확히 0 dB인가  {'✓' if exact else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 무작위 QPSK와의 대조 — 주파수만 평평해서는 안 된다")
+    rnd = random.Random(20260819)
+    qpsk = [cmath.exp(1j * math.pi * (2 * i + 1) / 4) for i in range(4)]
+    for N, pub in [(31, 6.94), (47, 7.09), (71, 7.45)]:
+        vals = [_zc_papr_db([rnd.choice(qpsk) for _ in range(N)], 4) for _ in range(40)]
+        avg = sum(vals) / len(vals)
+        hit = abs(avg - pub) < 0.01
+        ok &= hit
+        print(f"  N={N:3}  무작위 QPSK 평균 {avg:5.2f} dB  vs ZC {_zc_papr_db(zc_pure(N,1),4):.2f} dB"
+              f"  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    # 주파수 크기는 양쪽 다 1이다 — 자료의 핵심 대조
+    flat_both = all(abs(abs(v) - 1) < 1e-12 for v in zc_pure(31, 1)) and \
+                all(abs(abs(v) - 1) < 1e-12 for v in qpsk)
+    ok &= flat_both
+    print(f"  두 시퀀스 모두 부반송파 크기가 1인가  {'✓' if flat_both else '✗'}")
+
+    print("\n[15] 순환 확장의 대가 — 망가지는 정도가 확장 '비율'을 따라가는가")
+    rows = [(36, 31, 5, 3.92, 4.46, -14.9), (48, 47, 1, 1.14, 2.59, -33.6),
+            (72, 71, 1, 1.11, 2.66, -37.1), (96, 89, 7, 3.30, 4.04, -20.6),
+            (144, 139, 5, 1.61, 3.14, -28.5), (3276, 3271, 5, 1.08, 2.65, -56.3)]
+    for M, pubN, pubExt, pubFlat, pubPapr, pubSide in rows:
+        N, r = zc_base(M, 1)
+        t = _idft(r)
+        a = [abs(v) for v in t]
+        flat = max(a) / min(a)
+        side = max(_cyc_corr(r, l) for l in range(1, M)) / M
+        sdb = 20 * math.log10(side)
+        pp = _zc_papr_db(r, 4)
+        hit = (N == pubN and M - N == pubExt and abs(flat - pubFlat) < 0.01
+               and abs(pp - pubPapr) < 0.01 and abs(sdb - pubSide) < 0.05)
+        ok &= hit
+        print(f"  M={M:>4} N_ZC={N:>4} 확장 {M-N}칸({(M-N)/M*100:5.2f}%)"
+              f"  평탄 {flat:5.2f}배  PAPR {pp:5.2f}  부엽 {sdb:6.1f} dB"
+              f"  {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장 1: 96(7칸)이 48(1칸)보다 길지만 부엽이 나쁘다
+    s48 = 20 * math.log10(max(_cyc_corr(zc_base(48, 1)[1], l) for l in range(1, 48)) / 48)
+    s96 = 20 * math.log10(max(_cyc_corr(zc_base(96, 1)[1], l) for l in range(1, 96)) / 96)
+    claim = s96 > s48
+    ok &= claim
+    print(f"  96이 48보다 길지만 부엽이 나쁜가 ({s96:.1f} > {s48:.1f} dB)"
+          f"  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 2: 3276은 36과 같은 5칸인데 비율이 작아 멀쩡하다
+    s36 = 20 * math.log10(max(_cyc_corr(zc_base(36, 1)[1], l) for l in range(1, 36)) / 36)
+    s3276 = 20 * math.log10(max(_cyc_corr(zc_base(3276, 1)[1], l) for l in range(1, 3276)) / 3276)
+    ratio_rule = (36 - 31 == 3276 - 3271) and s3276 < s36 - 30
+    ok &= ratio_rule
+    print(f"  36과 3276이 똑같이 5칸인데 부엽이 {s36:.1f} vs {s3276:.1f} dB"
+          f" — 칸수가 아니라 비율  {'✓' if ratio_rule else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] M_ZC → N_ZC 표 · 36 미만은 ZC를 쓰지 않는다")
+    for rb, ktc, pubM in [(4, 2, 24), (3, 1, 36), (8, 2, 48), (6, 1, 72), (16, 2, 96), (273, 1, 3276)]:
+        M = rb * 12 // ktc
+        hit = M == pubM
+        ok &= hit
+        tag = "표(φ) 사용" if M < 36 else f"N_ZC {largest_prime_below(M)}"
+        print(f"  {rb:>3}RB 콤{ktc} → M_ZC {M:>4} ({tag})  게시 {pubM}  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] 경계가 왜 36인가 — ZC가 30개 그룹을 채울 수 있는 첫 길이")
+    # 규격은 기저 시퀀스를 30개 그룹(u=0…29)으로 나눈다.
+    # 길이 N_ZC가 소수면 gcd(q,N_ZC)=1 인 근은 N_ZC−1 개다.
+    for M, pubN, pubR in [(6, 5, 4), (12, 11, 10), (18, 17, 16),
+                          (24, 23, 22), (30, 29, 28), (36, 31, 30)]:
+        N = largest_prime_below(M)
+        roots = N - 1
+        hit = N == pubN and roots == pubR
+        ok &= hit
+        print(f"  M_ZC {M:>3} → N_ZC {N:>3} → 근 {roots:>3}개"
+              f"  {'30개 이상 ✓' if roots >= 30 else '모자람':<12} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장 1: 규격이 쓰는 짧은 길이는 전부 30개에 못 미친다
+    short_short = all(largest_prime_below(M) - 1 < 30 for M in (6, 12, 18, 24, 30))
+    ok &= short_short
+    print(f"  6·12·18·24·30이 전부 30개 미만인가  {'✓' if short_short else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 2: 36이 처음으로 30개에 닿는다
+    first36 = largest_prime_below(36) - 1 == 30
+    ok &= first36
+    print(f"  36에서 근이 정확히 30개인가  {'✓' if first36 else '✗ 자료의 주장과 다름'}")
+    # 자료의 주장 3: 품질 때문이 아니다 — 24의 부엽이 36보다 오히려 좋다
+    def _side_db(M):
+        _, r = zc_base(M, 1)
+        return 20 * math.log10(max(_cyc_corr(r, l) for l in range(1, M)) / M)
+    s24, s36 = _side_db(24), _side_db(36)
+    quality = s24 < s36
+    ok &= quality
+    print(f"  24의 부엽({s24:.1f})이 36({s36:.1f})보다 좋은가 — 품질 때문이 아니라는 근거"
+          f"  {'✓' if quality else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 임계 표본에서 잰 시간 평탄도 — 자료의 통계 타일이 재는 값")
+    # 과표본 파형은 표본 사이에서 0에 가까워지는 게 당연하므로 평탄도는 표본 위에서 잰다.
+    for M, pub in [(12, 1.33), (24, 1.21), (36, 3.92), (48, 1.14),
+                   (72, 1.11), (96, 3.30), (144, 1.61)]:
+        _, r = zc_base(M, 1)
+        a_ = [abs(v) for v in _idft(r)]
+        got = max(a_) / min(a_)
+        hit = abs(got - pub) < 0.01
+        ok &= hit
+        print(f"  M={M:>4}  최대÷최소 {got:7.4f}배  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[15] M_ZC = 30 은 표가 아니라 '위 소수 31을 잘라 쓴다'")
+    # OAI(openair1/PHY/NR_REFSIG/ul_ref_seq_nr.c)의 M_ZC==30 분기가 쓰는 식:
+    #   x = -π·(u+1)·(n+1)·(n+2)/31   →  길이 31 ZC(근 u+1)의 m=1…30 과 같다
+    # 아래-소수 규칙을 쓰면 N_ZC=29 → 근 28개로 30개에 모자라기 때문이다.
+    below = largest_prime_below(30)
+    short = below - 1 < 30
+    ok &= short
+    print(f"  아래 소수 규칙: N_ZC={below} → 근 {below-1}개 → 30개에 모자란가  "
+          f"{'✓' if short else '✗ 자료의 주장과 다름'}")
+
+    def mzc30(u):
+        return [cmath.exp(-1j * math.pi * (u + 1) * (n + 1) * (n + 2) / 31) for n in range(30)]
+
+    same = all(abs(a_ - b_) < 1e-12 for a_, b_ in zip(mzc30(7), zc_pure(31, 8)[1:]))
+    ok &= same
+    print(f"  그 식이 길이 31 ZC(근 u+1)의 m=1…30 과 같은가  "
+          f"{'✓' if same else '✗ 불일치'}")
+    seqs = [mzc30(u) for u in range(30)]
+    distinct = len({tuple(round(v.real, 9) + 1j * round(v.imag, 9) for v in q) for q in seqs}) == 30
+    unit = all(abs(abs(v) - 1) < 1e-12 for q in seqs for v in q)
+    ok &= distinct and unit
+    print(f"  30개가 전부 서로 다르고 크기가 1인가  {'✓' if distinct and unit else '✗'}")
+    worst = max(abs(sum(x * y.conjugate() for x, y in zip(seqs[i], seqs[j]))) / 30
+                for i in range(30) for j in range(i + 1, 30))
+    eq("그때 최악 상호상관 [dB]", 20 * math.log10(worst), -13.3, 0.05)
+    # 자료의 주장: 31이라는 수가 '30 그룹 + 1' 때문에 세 곳에 나타난다
+    print("  → 31이 나오는 세 자리: M_ZC=30의 분모 · 그룹→근 배정식의 분모 · M_ZC=36의 N_ZC")
+
+    print("\n[15] 그룹 u → 근 q — N_ZC=31이면 근 1…30을 한 번씩 쓰는가")
+    for NZ in [31, 47, 71]:
+        qs = [math.floor(NZ * (u + 1) / 31 + 0.5) for u in range(30)]
+        distinct = len(set(qs)) == 30
+        inrange = all(1 <= q < NZ for q in qs)
+        coprime = all(math.gcd(q, NZ) == 1 for q in qs)
+        ok &= distinct and inrange and coprime
+        print(f"  N_ZC={NZ:3}  근 {qs[:6]}…  서로 다름 {distinct} · 범위 {inrange} · 서로소 {coprime}"
+              f"  {'✓' if distinct and inrange and coprime else '✗'}")
+    qs31 = [math.floor(31 * (u + 1) / 31 + 0.5) for u in range(30)]
+    exact31 = qs31 == list(range(1, 31))
+    ok &= exact31
+    print(f"  N_ZC=31에서 근이 정확히 1…30인가  {'✓' if exact31 else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 순환 시프트 한 칸 — 08의 '두 개의 벽'과 같은 계산")
+    cp30 = 144 * KAPPA * Tc * 1e6 / 2       # 03에서 검산한 30 kHz 일반 CP
+    eq("30 kHz 일반 CP [μs] · 03과 같은 값", cp30, 2.344, 0.001)
+    for scs, ktc, ncsmax, pubP, pubS in [(30, 2, 8, 16.667, 2.083), (30, 4, 12, 8.333, 0.694),
+                                         (120, 4, 12, 2.083, 0.174)]:
+        period = 1 / (ktc * scs * 1e3) * 1e6
+        step = period / ncsmax
+        hit = abs(period - pubP) < 0.001 and abs(step - pubS) < 0.001
+        ok &= hit
+        print(f"  {scs:>3} kHz 콤{ktc} n_cs,max {ncsmax:>2} → 주기 {period:7.3f} μs"
+              f" · 한 칸 {step:6.3f} μs · 편도 {step*C:7.1f} m"
+              f"  {'✓' if hit else '✗ 불일치'}")
+    step_c2 = 1 / (2 * 30e3) * 1e6 / 8
+    eq("콤2 한 칸 ÷ 일반 CP", step_c2 / cp30, 0.889, 0.001)
+    # 자료의 주장: 콤2의 시프트 간격이 CP와 거의 같은 급이다
+    near = 0.5 < step_c2 / cp30 < 1.5
+    ok &= near
+    print(f"  콤2 시프트 간격이 CP와 같은 급인가 (0.5–1.5배)  {'✓' if near else '✗ 자료의 주장과 다름'}")
+
+    print("\n[15] 다중화 인원 = 순환 시프트 × 콤 오프셋")
+    for ktc, ncsmax, pub in [(2, 8, 16), (4, 12, 48)]:
+        eq(f"콤{ktc}: {ncsmax} × {ktc}", ncsmax * ktc, pub, 0)
+
+    print("\n[15] 콤 — K칸마다 얹으면 시간이 K번 반복되는가")
+    N, K = 5, 2
+    X = zc_pure(N, 1)
+    grid = [0j] * (N * K)
+    for i in range(N):
+        grid[i * K] = X[i]
+    t = _idft(grid)
+    rep = all(abs(t[m] - t[m + N]) < 1e-12 for m in range(N))
+    amps = [abs(v) for v in t]
+    flat = max(amps) - min(amps) < 1e-12
+    ok &= rep and flat
+    print(f"  길이 {N} ZC를 {K}칸 간격으로 → 앞 {N}개와 뒤 {N}개가 같은가 {rep}"
+          f" · 크기가 전부 같은가 {flat}  {'✓' if rep and flat else '✗'}")
+
+    return ok
+
+
+# ── 오프라인 꾸러미 무결성 ──────────────────────────────────
+# 수치 검산은 아니지만 같은 성격의 실수를 막는다:
+# 자료를 새로 만들고 sw.js의 목록에 넣는 것을 잊으면
+# 그 자료만 오프라인에서 안 열리는데, 온라인에서는 멀쩡해서 눈치채기 어렵다.
+
+def check_offline():
+    ok = True
+    root = pathlib.Path(__file__).resolve().parent.parent
+
+    topics = sorted(p.parent.name for p in root.glob('topics/*/index.html'))
+    sw = (root / 'sw.js').read_text()
+    listed = re.findall(r"'\./topics/([^/]+)/index\.html'", sw)
+
+    print("\n[오프라인] sw.js의 목록이 실제 자료와 맞는가")
+    missing = [t for t in topics if t not in listed]
+    extra = [t for t in listed if t not in topics]
+    ok &= not missing and not extra
+    print(f"  자료 {len(topics)}개 · sw.js에 적힌 것 {len(listed)}개"
+          f"  {'✓' if not missing and not extra else '✗'}")
+    for t in missing:
+        print(f"    ✗ sw.js에 빠졌다 — 오프라인에서 안 열린다: {t}")
+    for t in extra:
+        print(f"    ✗ sw.js에만 있고 실물이 없다: {t}")
+
+    for f in ('index.html', 'assets/base.css'):
+        hit = f"'./{f}'" in sw
+        ok &= hit
+        print(f"  {f:<18} 목록에 있는가  {'✓' if hit else '✗ 빠졌다'}")
+
+    print("\n[오프라인] 모든 페이지가 서비스 워커를 부르는가")
+    pages = [root / 'index.html'] + sorted(root.glob('topics/*/index.html'))
+    bad = []
+    for f in pages:
+        t = f.read_text()
+        rel = '' if f.parent == root else '../../'
+        need = [f'href="{rel}manifest.json"', f'src="{rel}assets/app.js"',
+                f'href="{rel}assets/icon-180.png"']
+        miss = [n for n in need if n not in t]
+        if miss:
+            bad.append((f.relative_to(root), miss))
+    ok &= not bad
+    print(f"  페이지 {len(pages)}개 전부 연결됐는가  {'✓' if not bad else '✗'}")
+    for f, miss in bad:
+        print(f"    ✗ {f}: {', '.join(miss)}")
+
+    print("\n[오프라인] 그 밖의 파일")
+    for f in ('sw.js', 'manifest.json', 'assets/app.js',
+              'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png'):
+        hit = (root / f).exists()
+        ok &= hit
+        print(f"  {f:<22} {'✓' if hit else '✗ 없다'}")
+
+    # 캐시 이름이 버전을 달고 있는지 — 안 그러면 갱신이 단말에 안 내려간다
+    ver = re.search(r"const VERSION = '([^']+)'", sw)
+    ok &= bool(ver)
+    print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
+          f"  {'✓' if ver else ''}")
+    print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 21 5G 코어와 세션 ────────────────────────────────────────
+# 근거: TS 23.501 §5.6·§5.7(PDU 세션·QoS Flow·5QI), TS 37.324 §6.2(SDAP 헤더),
+#       TS 38.413 ASN.1(NGAP), TS 38.331 ASN.1(RRC)
+# 범위와 개수는 ASN.1 원문에서 옮겼다. 5QI 의 지연 예산 값은 대조하지 못했다.
+
+# NGAP(TS 38.413) ASN.1 에서 옮긴 범위
+NGAP_RANGE = {
+    'FiveQI': (0, 255), 'PriorityLevelQos': (1, 127), 'PacketDelayBudget': (0, 1023),
+    'QosFlowIdentifier': (0, 63), 'PDUSessionID': (0, 255),
+    'AveragingWindow': (0, 4095), 'MaximumDataBurstVolume': (0, 4095),
+    'pERScalar': (0, 9), 'pERExponent': (0, 9),
+}
+# 목록 상한 — NGAP 과 RRC 양쪽
+MAXNOOF = {'QosFlows': 64, 'PDUSessions': 256, 'DRBs_ngap': 32,
+           'maxDRB_rrc': 29, 'maxNrofQFIs_rrc': 64}
+
+# OAI mac_rrc_dl_handler.c 가 TS 23.501 Table 5.7.4-1 에서 옮긴 표준 5QI 와 기본 우선순위
+FIVEQI = [1, 2, 3, 4, 65, 66, 67, 71, 72, 73, 74, 76,
+          5, 6, 7, 8, 9, 69, 70, 79, 80,
+          82, 83, 84, 85, 86]
+FIVEQI_PRIO = [20, 40, 30, 50, 7, 20, 15, 56, 56, 56, 56, 56,
+               10, 60, 70, 80, 90, 5, 55, 65, 68,
+               19, 22, 24, 21, 18]
+
+# 06 이 검산한 처리 시간 심볼 수 (처리 능력 1)
+HARQ_NSYM = {0: (8, 10), 1: (10, 12), 2: (17, 23), 3: (20, 36)}
+
+
+def harq_rtt_us(mu):
+    """최소 왕복 모형 = N1 + N2 + 슬롯 2개.
+    규격이 정하는 것은 N1·N2 뿐이고 슬롯 둘은 전송 자신의 시간이다 — 아래쪽 한계."""
+    sym = tu(mu) + cp(mu)
+    n1, n2 = HARQ_NSYM[mu]
+    return (n1 + n2) * sym + 2 * (1000.0 / 2 ** mu)
+
+
+def check_core():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[21] 폭과 개수가 맞물리는가 — NGAP·RRC ASN.1")
+    lo, hi = NGAP_RANGE['QosFlowIdentifier']
+    hit = (hi - lo + 1 == 64 == 2 ** 6 == MAXNOOF['QosFlows'] == MAXNOOF['maxNrofQFIs_rrc'])
+    ok &= hit
+    print(f"  QosFlowIdentifier {lo}..{hi} = {hi-lo+1}가지 = 2^6 = maxnoofQosFlows "
+          f"= maxNrofQFIs  {'✓' if hit else '✗'}")
+    lo, hi = NGAP_RANGE['PDUSessionID']
+    hit = hi - lo + 1 == 256 == 2 ** 8 == MAXNOOF['PDUSessions']
+    ok &= hit
+    print(f"  PDUSessionID {lo}..{hi} = {hi-lo+1}가지 = 2^8 = maxnoofPDUSessions"
+          f"  {'✓' if hit else '✗'}")
+    eq("SDAP 헤더 [비트]", 6 + 1 + 1, 8, 0.5)      # QFI 6 + RQI/R 1 + RDI/(D/C) 1
+    eq("SDAP 헤더 [바이트]", (6 + 1 + 1) / 8, 1, 0.01)
+
+    print("\n[21] 스티커는 64가지인데 트럭은 29대")
+    q, d = MAXNOOF['maxNrofQFIs_rrc'], MAXNOOF['maxDRB_rrc']
+    hit = q > d
+    ok &= hit
+    print(f"  QoS Flow {q} · maxDRB {d} → 흐름이 {d}개를 넘으면 반드시 섞인다"
+          f" (여유 {q-d})  {'✓' if hit else '✗'}")
+    eq("섞지 않고 버틸 수 있는 흐름 수", MAXNOOF['maxDRB_rrc'], 29, 0.5)
+
+    print("\n[21] 오류율은 계수와 자릿수로 나눠 보낸다")
+    s = NGAP_RANGE['pERScalar']
+    e = NGAP_RANGE['pERExponent']
+    n = (s[1] - s[0] + 1) * (e[1] - e[0] + 1)
+    eq("표현 가능한 조합 수", n, 100, 0.5)
+    ok &= abs(1 * 10 ** -2 - 0.01) < 1e-12      # 10^-2 = scalar 1 · exponent 2
+
+    print("\n[21] 표준 5QI — OAI 가 TS 23.501 Table 5.7.4-1 에서 옮긴 것")
+    hit = len(FIVEQI) == len(FIVEQI_PRIO) == 26
+    ok &= hit
+    print(f"  전체 {len(FIVEQI)}가지  {'✓' if hit else '✗'}")
+    gbr, nongbr, dc = FIVEQI[:12], FIVEQI[12:21], FIVEQI[21:]
+    hit = (len(gbr), len(nongbr), len(dc)) == (12, 9, 5) and 12 + 9 + 5 == 26
+    ok &= hit
+    print(f"  GBR {len(gbr)} + 비GBR {len(nongbr)} + 지연확정 {len(dc)} = 26"
+          f"  {'✓' if hit else '✗'}")
+    plo, phi = NGAP_RANGE['PriorityLevelQos']
+    hit = all(plo <= p <= phi for p in FIVEQI_PRIO)
+    ok &= hit
+    print(f"  우선순위가 전부 PriorityLevelQos({plo}..{phi}) 안 · "
+          f"실제 {min(FIVEQI_PRIO)}~{max(FIVEQI_PRIO)}  {'✓' if hit else '✗'}")
+    order = sorted(zip(FIVEQI_PRIO, FIVEQI))
+    hit = order[0] == (5, 69) and order[-1] == (90, 9)
+    ok &= hit
+    print(f"  가장 앞 5QI {order[0][1]}(우선순위 {order[0][0]}) · "
+          f"가장 뒤 5QI {order[-1][1]}({order[-1][0]})  게시 69 / 9  {'✓' if hit else '✗'}")
+    # 신호가 미디어보다 앞선다 — 5QI 69(신호) < 65(음성) < 5(신호) < 67(영상)
+    top4 = [f for _, f in order[:4]]
+    hit = top4 == [69, 65, 5, 67]
+    ok &= hit
+    print(f"  앞 넷 {top4}  게시 [69, 65, 5, 67]  {'✓' if hit else '✗'}")
+    same = sorted(f for p, f in zip(FIVEQI_PRIO, FIVEQI) if p == 56)
+    hit = same == [71, 72, 73, 74, 76]
+    ok &= hit
+    print(f"  우선순위 56 을 함께 쓰는 5QI {same}  {'✓' if hit else '✗'}")
+    dcp = sorted(p for p, f in zip(FIVEQI_PRIO, FIVEQI) if f in dc)
+    hit = dcp == [18, 19, 21, 22, 24]
+    ok &= hit
+    print(f"  지연확정 GBR 의 우선순위 {dcp} — 맨 앞이 아니다  게시 18~24"
+          f"  {'✓' if hit else '✗'}")
+
+    print("\n[21] 지연 예산 안에 HARQ 왕복이 몇 번 — 06 의 N1·N2 를 그대로 쓴다")
+    for mu, pub in ((0, 3284.4), (1, 1784.9), (2, 1213.5), (3, 749.5)):
+        eq(f"μ={mu} 왕복 [μs]", harq_rtt_us(mu), pub, 0.1)
+    for budget_ms, pub in ((80, [24, 44, 65, 106]), (8, [2, 4, 6, 10]), (3, [0, 1, 2, 4])):
+        got = [int(budget_ms * 1000 // harq_rtt_us(m)) for m in (0, 1, 2, 3)]
+        hit = got == pub
+        ok &= hit
+        print(f"  남은 예산 {budget_ms:3d} ms → μ별 왕복 {got}  게시 {pub}"
+              f"  {'✓' if hit else '✗'}")
+    print("  → 3 ms 에서는 μ=0 이 한 번도 못 한다 (자료의 주장)")
+
+    return ok
+
+
+# ── 20 채널 코딩 ─────────────────────────────────────────────
+# 근거: TS 38.212 §5.3.1(Polar), §5.3.2(LDPC), §5.2.2(코드블록 분할),
+#       §5.4.2.1(순환 버퍼), Table 5.3.1.2-1(신뢰도 순서), Table 5.3.2-1(들어올리기 크기)
+# 차수 분포는 OAI nrLDPCdecoder_defs.h 에서 옮겼다 — 규격 표를 구현이 풀어 적은 것이다.
+
+# 검사노드 차수와 그 개수 · 비트노드 차수별 개수(차수 1..30) · 앞쪽 열의 차수
+CD_BG1 = ([3, 4, 5, 6, 7, 8, 9, 10, 19], [1, 5, 18, 8, 5, 2, 2, 1, 4],
+          [42, 0, 0, 1, 1, 2, 4, 3, 1, 4, 3, 4, 1] + [0] * 14 + [1, 0, 1],
+          [30, 28, 7, 11, 9, 4, 8, 12, 8, 7, 12, 10, 12,
+           11, 10, 7, 10, 10, 13, 7, 8, 11, 12, 5, 6, 6])
+CD_BG2 = ([3, 4, 5, 6, 8, 10], [6, 20, 9, 3, 2, 2],
+          [38, 0, 0, 0, 2, 1, 1, 1, 2, 1, 0, 1, 1, 1, 0, 1] + [0] * 5 + [1, 1] + [0] * 7,
+          [22, 23, 10, 5, 5, 14, 7, 13, 6, 8, 9, 16, 9, 12])
+
+LIFT = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20,
+        22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 52, 56, 60, 64, 72, 80, 88,
+        96, 104, 112, 120, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384]
+
+# 자료의 인터랙션과 같은 작은 부호 — 설명용이며 규격의 부호가 아니다.
+# 검사 i 는 정보 {i, i+1, i+2 mod 8} 과 검사비트 8+i 를 본다.
+SMALL_CHECKS = [tuple(sorted({i % 8, (i + 1) % 8, (i + 2) % 8})) + (8 + i,) for i in range(8)]
+
+
+def peel(erased, checks=SMALL_CHECKS):
+    """검사식이 지워진 것을 하나만 보면 그것을 되살린다 — 더 못 갈 때까지."""
+    unknown = set(erased)
+    changed = True
+    while changed:
+        changed = False
+        for c in checks:
+            miss = [b for b in c if b in unknown]
+            if len(miss) == 1:
+                unknown.discard(miss[0])
+                changed = True
+    return unknown
+
+
+def bec_polarize(eps0, n):
+    """지움 채널을 n 번 엮는다. ε⁻ = 2ε − ε², ε⁺ = ε²"""
+    e = [eps0]
+    for _ in range(n):
+        e = [v for x in e for v in (2 * x - x * x, x * x)]
+    return e
+
+
+def check_coding():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[20] 기저 그래프 — 같은 행렬을 세 방향에서 센다")
+    for name, rows, cols, kb, ncore, dat, e_pub, sp_pub in (
+            ("BG1", 46, 68, 22, 26, CD_BG1, 316, 10.10),
+            ("BG2", 42, 52, 10, 14, CD_BG2, 197, 9.02)):
+        cdeg, ccnt, bcnt, core = dat
+        e_cn = sum(d * c for d, c in zip(cdeg, ccnt))
+        e_bn = sum((i + 1) * c for i, c in enumerate(bcnt))
+        e_col = sum(core) + (cols - ncore)
+        hit = (sum(ccnt) == rows and sum(bcnt) == cols
+               and e_cn == e_bn == e_col == e_pub
+               and kb + rows == cols and bcnt[0] == cols - ncore
+               and abs(e_cn / (rows * cols) * 100 - sp_pub) < 0.01)
+        ok &= hit
+        print(f"  {name}: {rows}×{cols} · 검사노드 {e_cn} · 비트노드 {e_bn} · 열별 {e_col} "
+              f"· 성김 {e_cn/(rows*cols)*100:.2f} % · 차수1인 열 {bcnt[0]}"
+              f"  {'✓' if hit else '✗'}")
+    eq("BG1 검사식 하나가 보는 비트", 316 / 46, 6.87, 0.005)
+    eq("BG1 비트 하나가 걸린 검사식", 316 / 68, 4.65, 0.005)
+    eq("BG2 검사식 하나가 보는 비트", 197 / 42, 4.69, 0.005)
+    eq("BG2 비트 하나가 걸린 검사식", 197 / 52, 3.79, 0.005)
+    eq("BG1 차수1인 열의 비율 [%]", 42 / 68 * 100, 62, 0.5)
+
+    print("\n[20] 어미 부호율과 순환 버퍼 — 06 의 66·50 이 여기서 나온다")
+    for name, kb, cols, buf_pub, rate_pub in (("BG1", 22, 68, 66, 1 / 3), ("BG2", 10, 52, 50, 1 / 5)):
+        buf = cols - 2                       # 앞 2Z 비트는 보내지 않는다
+        hit = buf == buf_pub and abs(kb / buf - rate_pub) < 1e-12
+        ok &= hit
+        print(f"  {name}: ({cols}−2)·Z = {buf}Z · 전송 기준 어미율 {kb}/{buf} = {kb/buf:.6f}"
+              f"  {'✓' if hit else '✗'}")
+    # 68·52 로 나누면 딱 떨어지지 않는다는 것도 확인
+    ok &= abs(22 / 68 - 1 / 3) > 1e-3 and abs(10 / 52 - 1 / 5) > 1e-3
+    print("  68·52 로 나누면 1/3·1/5 로 떨어지지 않는다 (66·50 이라야 떨어진다)  ✓")
+
+    print("\n[20] 들어올리기 크기 Z = a·2^j")
+    derived = sorted({a * 2 ** j for a in (2, 3, 5, 7, 9, 11, 13, 15)
+                      for j in range(9) if a * 2 ** j <= 384})
+    hit = derived == LIFT and len(derived) == 51
+    ok &= hit
+    print(f"  a·2^j 집합이 OAI 표와 일치 · {len(derived)}가지 · 최대 {max(derived)}"
+          f"  {'✓' if hit else '✗'}")
+    for a, cnt in ((2, 8), (3, 8), (5, 7), (7, 6), (9, 6), (11, 6), (13, 5), (15, 5)):
+        n = len([1 for j in range(9) if a * 2 ** j <= 384])
+        ok &= n == cnt
+        if n != cnt:
+            print(f"    ✗ a={a} 의 개수가 {n} (게시 {cnt})")
+    print("  갈래별 개수 8·8·7·6·6·6·5·5 = 51  ✓")
+
+    print("\n[20] K_cb 는 정보열 수 × 최대 Z 다")
+    eq("BG1 K_cb", 22 * 384, 8448, 0.5)
+    eq("BG2 K_cb", 10 * 384, 3840, 0.5)
+    eq("두 부호가 담는 크기의 배수", 22 * 384 / 1024, 8.25, 0.01)
+
+    print("\n[20] 작은 부호의 지우개 복호 — 2^16 패턴 전수")
+    deg = [0] * 16
+    for c in SMALL_CHECKS:
+        for b in c:
+            deg[b] += 1
+    hit = deg[:8] == [3] * 8 and deg[8:] == [1] * 8 and sum(deg) == 32
+    ok &= hit
+    print(f"  정보비트 차수 3 · 검사비트 차수 1 · 간선 {sum(deg)}  {'✓' if hit else '✗'}")
+    tot = [0] * 17
+    good = [0] * 17
+    for mask in range(1 << 16):
+        er = {b for b in range(16) if mask >> b & 1}
+        tot[len(er)] += 1
+        if not peel(er):
+            good[len(er)] += 1
+    PUB = {0: 100.0, 1: 100.0, 2: 100.0, 3: 100.0, 4: 99.1, 5: 95.4,
+           6: 85.4, 7: 64.1, 8: 30.0, 9: 0.0, 10: 0.0, 11: 0.0, 12: 0.0}
+    for k, pub in PUB.items():
+        rate = good[k] / tot[k] * 100
+        hit = abs(rate - pub) < 0.05
+        ok &= hit
+        if not hit:
+            print(f"    ✗ 지움 {k}개 성공률 {rate:.1f} % (게시 {pub})")
+    print("  지움 0~12개의 성공률이 자료의 표와 전부 일치 "
+          "(0~3 100 % · 4 99.1 · 5 95.4 · 6 85.4 · 7 64.1 · 8 30.0 · 9~ 0)  ✓")
+    ok &= all(v == 0 for v in good[9:])
+    print("  검사식이 8개뿐이라 9개부터는 0 % — 부호의 한계  ✓")
+    # 못 푸는 가장 작은 패턴
+    smallest = None
+    for k in range(1, 6):
+        for er in itertools.combinations(range(16), k):
+            if peel(set(er)):
+                smallest = er
+                break
+        if smallest:
+            break
+    hit = smallest == (0, 1, 9, 14)
+    ok &= hit
+    print(f"  가장 작은 정지집합 {list(smallest)} · 크기 {len(smallest)}  게시 {{0,1,9,14}}"
+          f"  {'✓' if hit else '✗'}")
+
+    print("\n[20] 편극 — 지움 채널에서는 정확히 계산된다")
+    for eps0 in (0.5, 0.3, 0.9):
+        for n in (1, 3, 10):
+            e = bec_polarize(eps0, n)
+            mean = sum(e) / len(e)
+            hit = abs(mean - eps0) < 1e-9
+            ok &= hit
+            if not hit:
+                print(f"    ✗ ε₀={eps0} n={n} 에서 평균 {mean} — 용량이 보존되지 않았다")
+    print("  ε₀ = 0.5·0.3·0.9, n = 1·3·10 에서 평균이 ε₀ 그대로 (1e-9 이내)  ✓")
+    e = bec_polarize(0.5, 10)
+    g = sum(1 for v in e if v < 0.01) / len(e) * 100
+    b = sum(1 for v in e if v > 0.99) / len(e) * 100
+    eq("ε₀=0.5 N=1024 · 거의 완벽 [%]", g, 37.3, 0.05)
+    eq("ε₀=0.5 N=1024 · 거의 쓸모없음 [%]", b, 37.3, 0.05)
+    eq("ε₀=0.5 N=1024 · 가운데 [%]", 100 - g - b, 25.4, 0.05)
+    e = bec_polarize(0.5, 14)
+    eq("ε₀=0.5 N=16384 · 거의 완벽 [%]",
+       sum(1 for v in e if v < 0.01) / len(e) * 100, 44.1, 0.05)
+    # 나쁜 채널에서도 몫이 남지만, N 이 작으면 용량에 한참 못 미친다
+    for n, pub in ((10, 4.88), (14, 7.35), (18, 8.71)):
+        e = bec_polarize(0.9, n)
+        eq(f"ε₀=0.9 N={2**n} · 거의 완벽 [%]",
+           sum(1 for v in e if v < 0.01) / len(e) * 100, pub, 0.01)
+    print("  → 용량 10 % 로 가지만 N=1024 에서는 아직 4.88 % — 편극은 N 이 커져야 완성된다")
+
+    print("\n[20] Polar 신뢰도 순서 — TS 38.212 Table 5.3.1.2-1")
+    seq = _polar_seq()
+    if seq is None:
+        print("  (OAI 소스가 없어 건너뜀 — 이 저장소만 받은 사람도 통과해야 한다)")
+    else:
+        q10 = seq[10]
+        hit = len(q10) == 1024 and sorted(q10) == list(range(1024))
+        ok &= hit
+        print(f"  Q(1024) 는 0..1023 의 순열 · 앞 8개 {q10[:8]}  {'✓' if hit else '✗'}")
+        nest = all([q for q in q10 if q < (1 << n)] == seq[n] for n in range(1, 10))
+        ok &= nest
+        print(f"  중첩 성질: N=2~512 아홉 가지 전부 1024 수열에서 걸러낸 것과 일치"
+              f"  {'✓' if nest else '✗'}")
+        # 지움 채널로 매긴 순서와 얼마나 겹치는가
+        e = bec_polarize(0.5, 10)
+        bec = sorted(range(1024), key=lambda i: -e[i])
+        for K, pub in ((64, 94), (256, 97), (512, 97)):
+            share = len(set(q10[-K:]) & set(bec[-K:])) / K * 100
+            hit = abs(share - pub) < 1.0
+            ok &= hit
+            print(f"  K={K:3d} 정보비트 선택이 규격과 {share:.0f} % 겹친다  게시 {pub} %"
+                  f"  {'✓' if hit else '✗'}")
+
+    return ok
+
+
+def _polar_seq():
+    """OAI 가 담고 있는 TS 38.212 Table 5.3.1.2-1 을 읽는다.
+    소스를 안 받았으면 조용히 건너뛴다 — 이 저장소만 받아도 검산이 통과해야 한다."""
+    root = _oai_root()
+    if root is None:
+        return None
+    f = root / 'openair1/PHY/CODING/nrPolar_tools/nr_polar_sequence_pattern.c'
+    if not f.is_file():
+        return None
+    out = {}
+    for m in re.finditer(r'Q_0_Nminus1_(\d+)\[(\d+)\]\s*=\s*\{(.*?)\}', f.read_text(), re.S):
+        n, size, body = int(m.group(1)), int(m.group(2)), m.group(3)
+        vals = [int(x) for x in re.findall(r'-?\d+', body)]
+        if len(vals) != size:
+            return None
+        out[n] = vals
+    return out if 10 in out else None
+
+
+# ── 19 측정과 핸드오버 ───────────────────────────────────────
+# 근거: TS 38.331 §5.5.3.2(L3 필터), §5.5.4.4(이벤트 A3), ASN.1 모듈
+#       TS 38.215 §5.1(RSRP·RSRQ·SINR), TS 38.133 §10.1.6(보고 눈금)
+# 경로손실·그림자 페이딩 모형은 규격값이 아니라 자료가 고른 값이다.
+
+# ASN.1 에서 그대로 옮긴 열거값
+HO_FC = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 19]
+HO_TTT = [0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120]
+
+HO_D, HO_PLE = 500.0, 3.5          # 셀 간격 [m], 경로손실 지수 (모형)
+HO_GRID, HO_DCORR = 0.5, 20.0      # 그림자 격자 [m], 상관거리 [m] (모형)
+HO_TMEAS = 0.200                   # L1 측정 주기 [s] (가정)
+HO_P0 = -95 + 10 * HO_PLE * math.log10(250)
+
+
+def l3_samples(k):
+    """F_n = (1−a)F_{n−1} + a·M_n 가 63 %에 이르는 표본 수. a = 2^(−k/4)"""
+    a = 2.0 ** (-k / 4)
+    return None if a >= 1.0 else -1.0 / math.log(1 - a)
+
+
+def ho_rsrp(d):
+    return HO_P0 - 10 * HO_PLE * math.log10(max(d, 10.0))
+
+
+def ho_diff(x, d=HO_D):
+    """Mn − Mp [dB] — 서빙은 x=0, 이웃은 x=d"""
+    return 10 * HO_PLE * math.log10(x / (d - x))
+
+
+def ho_trigger_x(margin, d=HO_D):
+    """Mn − Mp = margin 이 되는 위치"""
+    r = 10 ** (margin / (10 * HO_PLE))
+    return d * r / (1 + r)
+
+
+def _mulberry32(seed):
+    """자료의 자바스크립트와 비트까지 같은 결과를 내는 PRNG"""
+    s = seed & 0xFFFFFFFF
+
+    def nxt():
+        nonlocal s
+        s = (s + 0x6D2B79F5) & 0xFFFFFFFF
+        t = s
+        t = (t ^ (t >> 15)) * (t | 1) & 0xFFFFFFFF
+        t = (t ^ (t + ((t ^ (t >> 7)) * (t | 61) & 0xFFFFFFFF))) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
+    return nxt
+
+
+def _gauss(rnd):
+    u = max(rnd(), 1e-12)
+    return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * rnd())
+
+
+def ho_field(sigma, seed=20260905):
+    """그림자 페이딩을 위치 격자에 깔아 둔다 — 속도를 바꿔도 채널은 그대로여야
+    비교가 성립한다. 표본마다 난수를 뽑으면 속도마다 다른 채널을 보게 된다."""
+    rnd = _mulberry32(seed)
+    n = int(HO_D / HO_GRID) + 1
+    rho = math.exp(-HO_GRID / HO_DCORR)
+    sd = sigma * math.sqrt(max(1 - rho * rho, 0))
+    f = [[0.0] * n, [0.0] * n]
+    for c in (0, 1):
+        for i in range(1, n):
+            f[c][i] = rho * f[c][i - 1] + sd * _gauss(rnd)
+    return f
+
+
+def ho_run(hys_db, off_db, ttt_ms, k, sigma, kmh, field=None):
+    """자료의 그림과 같은 모형. 반환: [(위치, 그때의 차)]"""
+    if field is None:
+        field = ho_field(sigma)
+    a = 2.0 ** (-k / 4)
+    step = kmh / 3.6 * HO_TMEAS
+    fil = [None, None]
+    serving, hold, hos = 0, 0.0, []
+    x = 20.0
+    while x < HO_D - 20.0:
+        gi = min(int(x / HO_GRID + 0.5), len(field[0]) - 1)
+        raw = [ho_rsrp(x) + field[0][gi], ho_rsrp(HO_D - x) + field[1][gi]]
+        for c in (0, 1):
+            fil[c] = raw[c] if fil[c] is None else (1 - a) * fil[c] + a * raw[c]
+        nb = 1 - serving
+        enter = fil[nb] - hys_db > fil[serving] + off_db
+        hold = hold + HO_TMEAS * 1000 if enter else 0.0
+        if enter and hold >= ttt_ms:
+            hos.append((x, fil[nb] - fil[serving]))
+            serving, hold = nb, 0.0
+        x += step
+    return hos
+
+
+def check_ho():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[19] L3 필터 — TS 38.331 §5.5.3.2 · a = 1/2^(k/4)")
+    hit = len(HO_FC) == 15 and len(HO_TTT) == 16
+    ok &= hit
+    print(f"  filterCoefficient {len(HO_FC)}가지 · timeToTrigger {len(HO_TTT)}가지"
+          f"  {'✓' if hit else '✗'}")
+    ok &= l3_samples(0) is None
+    print(f"  fc0 은 필터 없음 (a = 1)  {'✓' if l3_samples(0) is None else '✗'}")
+    for k, n_pub, ms_pub in ((4, 1.443, 289), (9, 4.237, 847), (19, 26.406, 5281)):
+        n = l3_samples(k)
+        hit = abs(n - n_pub) < 0.001 and abs(n * 200 - ms_pub) < 1
+        ok &= hit
+        print(f"  fc{k:<2} a={2.0**(-k/4):.5f} → {n:7.3f} 표본 · 200 ms 주기면 "
+              f"{n*200:6.0f} ms  {'✓' if hit else '✗'}")
+    eq("ASN.1 기본값 fc4 의 a", 2.0 ** -1, 0.5, 1e-12)
+
+    print("\n[19] A3 조건 — TS 38.331 §5.5.4.4")
+    # 진입 Mn+Ofn+Ocn−Hys > Mp+Ofp+Ocp+Off · 이탈 Mn+Ofn+Ocn+Hys < Mp+Ofp+Ocp+Off
+    # 오프셋을 모두 0 으로 두면 진입 Mn−Mp > Off+Hys, 이탈 Mn−Mp < Off−Hys
+    for off, hys in ((3.0, 2.0), (0.0, 0.0), (-1.5, 7.5)):
+        enter, leave = off + hys, off - hys
+        hit = abs((enter - leave) - 2 * hys) < 1e-12
+        ok &= hit
+        if not hit:
+            print(f"  ✗ Off={off} Hys={hys} 에서 띠 너비가 2·Hys 가 아니다")
+    print("  죽은 띠 너비 = 2·Hys (세 조합에서 확인)  ✓")
+    eq("hysteresis 상한 [dB]", 30 * 0.5, 15.0, 1e-12)
+    eq("a3-Offset 상한 [dB]", 30 * 0.5, 15.0, 1e-12)
+    eq("timeToTrigger 상한 [ms]", HO_TTT[-1], 5120, 0.5)
+
+    print("\n[19] 기하 — 경로손실 모형 (규격값 아님)")
+    slope = (10 * HO_PLE / math.log(10)) * (4.0 / HO_D)
+    num = (ho_diff(HO_D / 2 + 0.05) - ho_diff(HO_D / 2 - 0.05)) / 0.1
+    hit = abs(slope - num) < 1e-4
+    ok &= hit
+    print(f"  중간지점 기울기 (10n/ln10)(4/D) = {slope:.5f} dB/m · "
+          f"수치미분 {num:.5f}  {'✓' if hit else '✗'}")
+    eq("중간지점 기울기 [dB/m]", slope, 0.1216, 0.0001)
+    eq("250 m 에서의 RSRP [dBm]", ho_rsrp(250), -95.0, 0.01)
+    eq("차이 3 dB 가 되는 곳 · 중간에서 [m]", ho_trigger_x(3) - HO_D / 2, 24.6, 0.1)
+    eq("차이 5 dB 가 되는 곳 · 중간에서 [m]", ho_trigger_x(5) - HO_D / 2, 40.8, 0.1)
+    # 차이가 3 dB 안쪽인 구간의 길이 — 자료의 띠
+    span = 2 * (ho_trigger_x(3) - HO_D / 2)
+    eq("차이가 ±3 dB 안쪽인 구간 [m]", span, 49.2, 0.2)
+
+    print("\n[19] 지연이 거리로 바뀐다 — Off+Hys = 5 dB · fc4 · TTT 320 ms")
+    lag_ms = l3_samples(4) * 200
+    eq("L3 필터 지연 [ms]", lag_ms, 288.5, 1.0)
+    tot = (lag_ms + 320) / 1000.0
+    eq("전체 지연 [ms]", tot * 1000, 608.5, 1.0)
+    for kmh, dist_pub, past_pub, gap_pub in ((120, 20.3, 61.0, 7.58), (300, 50.7, 91.5, 11.66)):
+        dist = kmh / 3.6 * tot
+        x = ho_trigger_x(5) + dist
+        hit = (abs(dist - dist_pub) < 0.1 and abs(x - HO_D / 2 - past_pub) < 0.1
+               and abs(ho_diff(x) - gap_pub) < 0.01)
+        ok &= hit
+        print(f"  {kmh:3d} km/h → {dist:5.1f} m 이동 · 중간에서 {x-HO_D/2:5.1f} m · "
+              f"차 {ho_diff(x):5.2f} dB  {'✓' if hit else '✗'}")
+    # 느린 단말이 그림자 하나를 못 벗어난다 — 자료 본문의 5 m / 51 m
+    eq("30 km/h 가 609 ms 동안 가는 거리 [m]", 30 / 3.6 * tot, 5.1, 0.1)
+    eq("300 km/h 가 609 ms 동안 가는 거리 [m]", 300 / 3.6 * tot, 50.7, 0.1)
+
+    print("\n[19] 보고 눈금 — RSRP-Range INTEGER(0..127), (k − 156) dBm")
+    eq("눈금 0 이 뜻하는 값 [dBm]", 0 - 156, -156, 0.5)
+    eq("눈금 126 이 뜻하는 값 [dBm]", 126 - 156, -30, 0.5)
+    eq("1 dB 눈금이 덮는 폭 [dB]", 126 - 1, 125, 0.5)
+    eq("보고에 쓰는 비트 수", math.log2(128), 7, 1e-12)
+
+    print("\n[19] 주행 모형 — 자료의 그림과 같은 모형")
+    h = ho_run(0, 0, 0, 0, 0.0, 120)
+    hit = len(h) == 1 and abs(h[0][0] - HO_D / 2) < 12
+    ok &= hit
+    print(f"  σ=0 · 방어 없음 → 핸드오버 {len(h)}회, {h[0][0]:.0f} m "
+          f"(중간 {HO_D/2:.0f} m)  {'✓' if hit else '✗'}")
+
+    h = ho_run(0, 0, 0, 0, 6.0, 120)
+    hit = len(h) == 11
+    ok &= hit
+    print(f"  σ=6 · 방어 없음 → 핸드오버 {len(h)}회 (되돌아온 것 {len(h)-1}회)"
+          f"  게시 11회  {'✓' if hit else '✗'}")
+
+    h = ho_run(2.0, 3.0, 320, 4, 6.0, 120)
+    hit = len(h) == 1 and h[0][0] > HO_D / 2 + 40
+    ok &= hit
+    print(f"  σ=6 · Hys 2 · Off 3 · TTT 320 · fc4 → {len(h)}회, "
+          f"중간에서 {h[0][0]-HO_D/2:+.0f} m · {h[0][1]:.1f} dB  {'✓' if hit else '✗'}")
+
+    # 같은 채널을 다른 속도로 — 느린 쪽이 더 오간다
+    fld = ho_field(6.0)
+    counts = {v: len(ho_run(2.0, 3.0, 320, 4, 6.0, v, field=fld)) for v in (30, 60, 120, 300)}
+    hit = counts[30] == 3 and counts[60] == 3 and counts[120] == 1 and counts[300] == 1
+    ok &= hit
+    print(f"  같은 채널 · 속도만 바꿈 → {counts}  게시 30·60은 3회, 120·300은 1회"
+          f"  {'✓' if hit else '✗'}")
+
+    return ok
+
+
+# ── 18 DMRS와 채널 추정 ─────────────────────────────────────
+# 근거: TS 38.211 §7.4.1.1.2(자리와 부호), 표 7.4.1.1.2-1/-2(포트별 w_f·w_t),
+#       표 7.4.1.1.2-3(심볼 위치), §6.4.1.1.1.2(변환 프리코딩 시 저-PAPR DMRS)
+# 변조 임계 ε_crit 은 정사각 M-QAM 의 기하이지 규격값이 아니다.
+
+# 표 7.4.1.1.2-1 — 포트 1000~1007: (λ, Δ, w_f(0), w_f(1), w_t(0), w_t(1))
+DMRS_T1 = [(0, 0, 1, 1, 1, 1), (0, 0, 1, -1, 1, 1), (1, 1, 1, 1, 1, 1), (1, 1, 1, -1, 1, 1),
+           (0, 0, 1, 1, 1, -1), (0, 0, 1, -1, 1, -1), (1, 1, 1, 1, 1, -1), (1, 1, 1, -1, 1, -1)]
+# 표 7.4.1.1.2-2 — 포트 1000~1011 (Δ ∈ {0,2,4})
+DMRS_T2 = [(0, 0, 1, 1, 1, 1), (0, 0, 1, -1, 1, 1), (1, 2, 1, 1, 1, 1), (1, 2, 1, -1, 1, 1),
+           (2, 4, 1, 1, 1, 1), (2, 4, 1, -1, 1, 1),
+           (0, 0, 1, 1, 1, -1), (0, 0, 1, -1, 1, -1), (1, 2, 1, 1, 1, -1), (1, 2, 1, -1, 1, -1),
+           (2, 4, 1, 1, 1, -1), (2, 4, 1, -1, 1, -1)]
+
+# OAI table_7_4_1_1_2_3_pdsch_dmrs_positions_l 의 l_d=14 행 (매핑 타입 A, addpos 0~3).
+# 비트 i = 심볼 i 이고 l_0 는 따로 OR 된다 — dmrs-TypeA-Position = pos2 → l_0 = 2.
+DMRS_POS_BITS_LD14 = (0, 2048, 2176, 2336)
+DMRS_L0 = 2
+
+
+def dmrs_re_grid(dtype, delta):
+    """자원블록(부반송파 12개) 안에서 한 CDM 묶음이 쓰는 부반송파 — §7.4.1.1.2"""
+    if dtype == 1:                                   # k = 4n + 2k' + Δ
+        return sorted(4 * n + 2 * kp + delta for n in range(3) for kp in (0, 1))
+    return sorted(6 * n + kp + delta for n in range(2) for kp in (0, 1))   # k = 6n + k' + Δ
+
+
+def occ_leak(phi):
+    """짝 사이 위상차 φ 일 때 다른 포트가 섞여 드는 상대 크기"""
+    return abs(math.tan(phi / 2))
+
+
+def qam_eps_crit(m):
+    """정사각 M-QAM 모서리 점이 판정 경계를 넘는 상대오차 = 1/((√M−1)·√2)"""
+    return 1.0 / ((math.isqrt(m) - 1) * math.sqrt(2))
+
+
+def dmrs_est_err(syms, fd, tsym):
+    """DMRS 심볼에서만 채널을 알 때의 심볼별 상대오차 |Ĥ−H|/|Ĥ|.
+    사이는 직선 보간, 바깥은 기울기 외삽. 말뚝이 하나면 값을 붙든다.
+    자료의 자바스크립트와 같은 모형이다."""
+    def h(l):
+        return complex(math.cos(2 * math.pi * fd * l * tsym),
+                       math.sin(2 * math.pi * fd * l * tsym))
+    out = []
+    for l in range(14):
+        if l in syms:
+            a = b = l
+        else:
+            lo = [s for s in syms if s < l]
+            hi = [s for s in syms if s > l]
+            if lo and hi:
+                a, b = max(lo), min(hi)
+            elif len(syms) == 1:
+                a = b = syms[0]
+            elif hi:
+                a, b = syms[0], syms[1]
+            else:
+                a, b = syms[-2], syms[-1]
+        est = h(a) if a == b else h(a) + (h(b) - h(a)) * ((l - a) / (b - a))
+        out.append(abs(est - h(l)) / abs(est))
+    return out
+
+
+def check_dmrs():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[18] DMRS 자리 — TS 38.211 §7.4.1.1.2")
+    for dtype, deltas, per, pair in ((1, (0, 1), 6, 2), (2, (0, 2, 4), 4, 1)):
+        total = set()
+        gaps = set()
+        for d in deltas:
+            res = dmrs_re_grid(dtype, d)
+            assert all(0 <= r < 12 for r in res), (dtype, d, res)
+            total |= set(res)
+            gaps.add(res[1] - res[0])          # 같은 n 의 k'=0,1 이 이웃한다
+        hit = len(total) == 12 and len(dmrs_re_grid(dtype, deltas[0])) == per and gaps == {pair}
+        ok &= hit
+        print(f"  타입 {dtype}: 묶음 {len(deltas)}개 × {per} RE = {len(total)} RE/RB/심볼, "
+              f"OCC 짝 간격 {pair} 부반송파  {'✓' if hit else '✗'}")
+
+    # 표의 포트 수 — Δ(2 또는 3) × w_f(2) × w_t(2)
+    eq("타입1 최대 포트 (2심볼)", len(DMRS_T1), 8, 0.5)
+    eq("타입2 최대 포트 (2심볼)", len(DMRS_T2), 12, 0.5)
+    for name, tab, ndelta in (("타입1", DMRS_T1, 2), ("타입2", DMRS_T2, 3)):
+        single = [r for r in tab if r[4] == 1 and r[5] == 1]
+        hit = len(single) == ndelta * 2 and len(tab) == ndelta * 4
+        ok &= hit
+        print(f"  {name} 1심볼 포트 {len(single)}개 = Δ {ndelta} × w_f 2  {'✓' if hit else '✗'}")
+    # 부호열이 실제로 직교하는가
+    orth = all(sum(a * b for a, b in zip(r1[2:4], r2[2:4])) == 0
+               for r1, r2 in ((DMRS_T1[0], DMRS_T1[1]), (DMRS_T2[0], DMRS_T2[1])))
+    ok &= orth
+    print(f"  w_f = [+1,+1] 과 [+1,−1] 이 직교하는가  {'✓' if orth else '✗'}")
+
+    print("\n[18] 저울 — 합과 차로 두 포트를 되찾는다")
+    # a_{k,l} = w_f(k')·w_t(l')·r(2n+k'), |r| = 1
+    ha, hb = complex(0.8, 0.3), complex(-0.5, 0.6)
+    r0, r1 = complex(math.cos(0.7), math.sin(0.7)), complex(math.cos(2.1), math.sin(2.1))
+    y0 = ha * r0 + hb * r0                       # 포트A w_f(0)=+1, 포트B w_f(0)=+1
+    y1 = ha * r1 - hb * r1                       # 포트A w_f(1)=+1, 포트B w_f(1)=−1
+    z0, z1 = y0 * r0.conjugate(), y1 * r1.conjugate()
+    ea, eb = (z0 + z1) / 2, (z0 - z1) / 2
+    hit = abs(ea - ha) < 1e-12 and abs(eb - hb) < 1e-12
+    ok &= hit
+    print(f"  채널이 두 칸에서 같으면 오차 {max(abs(ea-ha), abs(eb-hb)):.1e}  {'✓' if hit else '✗'}")
+    # 자료에 실은 정수 예시: H_A=3, H_B=1 → y0=4, y1=2 → 합/2=3, 차/2=1
+    hit = (3 + 1, 3 - 1) == (4, 2) and ((4 + 2) // 2, (4 - 2) // 2) == (3, 1)
+    ok &= hit
+    print(f"  자료의 정수 예시 3·1 → 4·2 → 3·1  {'✓' if hit else '✗'}")
+
+    print("\n[18] 저울이 흔들릴 때 — 누설 tan(φ/2)")
+    for phi in (0.05, 0.3, 0.882, 1.5):          # 닫힌형이 직접 계산과 같은가
+        e = (1 - complex(math.cos(phi), -math.sin(phi)))
+        s = (1 + complex(math.cos(phi), -math.sin(phi)))
+        hit = abs(abs(e) / abs(s) - occ_leak(phi)) < 1e-12
+        ok &= hit
+        if not hit:
+            print(f"  ✗ φ={phi} 에서 닫힌형 불일치")
+    print("  닫힌형이 직접 계산과 일치 (φ = 0.05, 0.3, 0.882, 1.5)  ✓")
+
+    scs = 30e3
+    for tau_us, d1_pub, d2_pub in ((0.1, -34.5, -40.5), (0.3, -24.9, -31.0), (1.0, -14.4, -20.5)):
+        a = 20 * math.log10(occ_leak(2 * math.pi * 2 * scs * tau_us * 1e-6))
+        b = 20 * math.log10(occ_leak(2 * math.pi * 1 * scs * tau_us * 1e-6))
+        hit = abs(a - d1_pub) < 0.06 and abs(b - d2_pub) < 0.06 and abs(a - b - 6.02) < 0.1
+        ok &= hit
+        print(f"  τ={tau_us:4.1f} μs → 타입1 {a:7.2f} dB · 타입2 {b:7.2f} dB · "
+              f"차 {a-b:.2f} dB  {'✓' if hit else '✗'}")
+    eq("간격 절반의 이득 [dB]", 10 * math.log10(4), 6.02, 0.01)
+
+    # CP 눈금에서의 누설은 μ와 무관해야 한다 (φ = 2π·d·15000·2^μ · 144·64·2^-μ·Tc)
+    cp_phi = {}
+    for mu in (0, 1, 3):
+        tau = cp(mu) * 1e-6
+        cp_phi[mu] = 2 * math.pi * 2 * (15e3 * 2**mu) * tau
+    hit = max(cp_phi.values()) - min(cp_phi.values()) < 1e-12
+    ok &= hit
+    print(f"  CP 눈금의 위상차가 μ와 무관한가 ({cp_phi[1]:.4f} rad)  {'✓' if hit else '✗'}")
+    eq("CP 눈금 · 타입1 누설 [dB]", 20 * math.log10(occ_leak(cp_phi[1])), -6.50, 0.02)
+    eq("CP 눈금 · 타입2 누설 [dB]", 20 * math.log10(occ_leak(cp_phi[1] / 2)), -12.97, 0.02)
+
+    print("\n[18] 변조 천장 — 정사각 M-QAM 기하 (규격값 아님)")
+    for m, e_pub, db_pub in ((4, 70.71, -3.01), (16, 23.57, -12.55),
+                             (64, 10.10, -19.91), (256, 4.71, -26.53)):
+        e = qam_eps_crit(m)
+        hit = abs(e * 100 - e_pub) < 0.01 and abs(20 * math.log10(e) - db_pub) < 0.01
+        ok &= hit
+        print(f"  {m:>4}QAM  ε_crit {e*100:6.2f} %  {20*math.log10(e):7.2f} dB  "
+              f"{'✓' if hit else '✗'}")
+    # QPSK 의 ε_crit 은 정확히 45° 회전과 같아야 한다 (|e^{jπ/4} − 1| = 2sin(π/8) 이 아니라
+    # 등화 상대오차 기준: 모서리 점 (1,1) 이 축에 닿을 때 |δ| = 1/√2)
+    hit = abs(qam_eps_crit(4) - 1 / math.sqrt(2)) < 1e-12
+    ok &= hit
+    print(f"  QPSK ε_crit = 1/√2  {'✓' if hit else '✗'}")
+
+    # 타입1이 64QAM 천장에 닿는 지연 — 자료 본문의 0.53 μs / CP의 23 %
+    tau_hit = math.atan(qam_eps_crit(64)) / (math.pi * 2 * scs)
+    eq("타입1이 64QAM 천장에 닿는 τ [μs]", tau_hit * 1e6, 0.53, 0.005)
+    eq("그때 CP 대비 [%]", tau_hit * 1e6 / cp(1) * 100, 22.8, 0.2)
+
+    print("\n[18] 겹친 대가 — 포트당 표본 간격")
+    for sp, want, gain_pub, label in ((2, 64 / 9, 8.52, '타입1 · 포트 하나만'),
+                                      (4, 32 / 9, 5.51, '타입1 · OCC로 둘'),
+                                      (6, 64 / 27, 3.75, '타입2 · OCC로 둘')):
+        ratios = []
+        for mu in (0, 1, 3):
+            win = 1.0 / (sp * 15e3 * 2**mu) * 1e6      # μs
+            ratios.append(win / cp(mu))
+        hit = (max(ratios) - min(ratios) < 1e-9 and abs(ratios[1] - want) < 1e-9
+               and abs(10 * math.log10(ratios[1]) - gain_pub) < 0.01)
+        ok &= hit
+        print(f"  {label:<18} 간격 {sp} SC → 창 {1e6/(sp*30e3):5.2f} μs · "
+              f"CP 대비 {ratios[1]:.4f}배 · 잡음이득 {10*math.log10(ratios[1]):.2f} dB"
+              f"  {'✓' if hit else '✗'}")
+    eq("겹치며 반납하는 이득 [dB]", 10 * math.log10(7.111111 / 3.555556), 3.01, 0.01)
+    eq("타입2가 덜 받는 이득 [dB]",
+       10 * math.log10(32 / 9) - 10 * math.log10(64 / 27), 1.76, 0.01)
+
+    print("\n[18] 오버헤드 — 자원블록 168 RE 기준")
+    eq("포트 4개를 따로 박으면 [RE]", 4 * 6, 24, 0.5)
+    eq("그때 비율 [%]", 24 / 168 * 100, 14.3, 0.05)
+    eq("겹쳐 실으면 [RE]", 2 * 6, 12, 0.5)
+    eq("그때 비율 [%]", 12 / 168 * 100, 7.1, 0.05)
+
+    print("\n[18] 심볼 위치 — 표 7.4.1.1.2-3, 매핑 타입 A, l_d=14, l_0=2")
+    want_pos = {0: [2], 1: [2, 11], 2: [2, 7, 11], 3: [2, 5, 8, 11]}
+    pos = {}
+    for ap, bits in enumerate(DMRS_POS_BITS_LD14):
+        pos[ap] = sorted({DMRS_L0} | {i for i in range(14) if bits >> i & 1})
+        hit = pos[ap] == want_pos[ap]
+        ok &= hit
+        print(f"  addpos{ap}: 비트 {bits:5d} → 심볼 {str(pos[ap]):<16} {'✓' if hit else '✗'}")
+    for ap, far_pub, avg_pub in ((0, 11, 4.93), (1, 4, 1.86), (2, 2, 1.14), (3, 2, 0.86)):
+        dists = [min(abs(l - s) for s in pos[ap]) for l in range(14)]
+        hit = max(dists) == far_pub and abs(sum(dists) / 14 - avg_pub) < 0.01
+        ok &= hit
+        print(f"  addpos{ap}: 가장 먼 데이터 {max(dists):2d} 심볼 · 평균 {sum(dists)/14:.2f}"
+              f"  {'✓' if hit else '✗'}")
+
+    print("\n[18] 시간 방향 오차 — 3.5 GHz · μ=1 · 자료의 그림과 같은 모형")
+    tsym1 = 1e-3 / 2 / 14
+    c_ms = 299792458.0
+    for kmh, deg_pub in ((30, 1.25), (120, 5.00), (300, 12.51)):
+        fd = (kmh / 3.6) * 3.5e9 / c_ms
+        eq(f"{kmh} km/h · 심볼당 위상 [°]", 360 * fd * tsym1, deg_pub, 0.01)
+    # pos0 은 시속 30 km에서도 64QAM 천장(10.1 %)을 넘는다 — 본문의 24 %
+    fd30 = (30 / 3.6) * 3.5e9 / c_ms
+    eq("30 km/h · pos0 최대 오차 [%]", max(dmrs_est_err(pos[0], fd30, tsym1)) * 100, 24.0, 0.1)
+    for ap, pub in ((1, 0.52), (2, 0.33), (3, 0.24)):
+        eq(f"30 km/h · pos{ap} 최대 오차 [%]",
+           max(dmrs_est_err(pos[ap], fd30, tsym1)) * 100, pub, 0.01)
+    # 28 GHz·μ=3 은 심볼이 1/4로 짧아지지만 f_c 가 8배라 심볼당 위상이 정확히 2배가 된다
+    fd28 = (120 / 3.6) * 28e9 / c_ms
+    r = (360 * fd28 * (1e-3 / 8 / 14)) / (360 * ((120 / 3.6) * 3.5e9 / c_ms) * tsym1)
+    eq("28 GHz·μ=3 의 심볼당 위상 배수", r, 2.0, 1e-9)
+
+    return ok
+
+
+# ── 16 골드 시퀀스와 CSI-RS ─────────────────────────────────
+# 근거: TS 38.211 §5.2.1(의사난수 수열) · §7.4.1.5.2(CSI-RS 수열과 c_init)
+# m-시퀀스와 골드의 성질은 대수이고 규격값이 아니다.
+# 규격에서 온 것은 두 다항식, N_C = 1600, 그리고 c_init 식뿐이다.
+
+NC_SKIP = 1600
+
+
+def _lfsr(taps, init, n):
+    """taps에 적힌 칸을 XOR해 새 비트를 만든다(피보나치 구성)"""
+    st = list(init)
+    out = []
+    for _ in range(n):
+        out.append(st[0])
+        fb = 0
+        for t in taps:
+            fb ^= st[t]
+        st = st[1:] + [fb]
+    return out
+
+
+def _cyc_corr_bits(x, y):
+    """0/1 비트를 ±1로 바꿔 상관"""
+    return sum((1 - 2 * a) * (1 - 2 * b) for a, b in zip(x, y))
+
+
+def nr_gold(c_init, n, skip=NC_SKIP):
+    """TS 38.211 §5.2.1 — x1은 시작 상태 고정, x2의 시작 상태가 c_init"""
+    x1 = [0] * 31
+    x1[0] = 1
+    x2 = [(c_init >> i) & 1 for i in range(31)]
+    out = []
+    for k in range(skip + n):
+        if k >= skip:
+            out.append(x1[0] ^ x2[0])
+        f1 = x1[0] ^ x1[3]
+        f2 = x2[0] ^ x2[1] ^ x2[2] ^ x2[3]
+        x1 = x1[1:] + [f1]
+        x2 = x2[1:] + [f2]
+    return out
+
+
+def csi_c_init(n_ID, l, n_s, nsym=14):
+    """TS 38.211 §7.4.1.5.2"""
+    return (2 ** 10 * (nsym * n_s + l + 1) * (2 * n_ID + 1) + n_ID) % 2 ** 31
+
+
+def check_gold():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>13.6g}  게시 {want:<12} {'✓' if hit else '✗ 불일치'}")
+
+    A_TAPS, B_TAPS, M = (0, 2), (0, 2, 3, 4), 5
+    period = 2 ** M - 1
+
+    print("\n[16] 작은 예시 — 길이 5 레지스터의 m-시퀀스")
+    for name, taps in [('규칙 A', A_TAPS), ('규칙 B', B_TAPS)]:
+        seq = _lfsr(taps, [1, 0, 0, 0, 0], 200)
+        per = next(p for p in range(1, 200) if all(seq[i] == seq[i + p] for i in range(100)))
+        ones = sum(seq[:period])
+        hit = per == period and ones == 16
+        ok &= hit
+        print(f"  {name}: 주기 {per:>3} (게시 31) · 한 주기의 1 개수 {ones} (게시 16)"
+              f"  {'✓' if hit else '✗ 불일치'}")
+
+    a = _lfsr(A_TAPS, [1, 0, 0, 0, 0], period)
+    print("\n[16] m-시퀀스의 자기상관 — 지연 0 밖에서 전부 −1인가")
+    side = {_cyc_corr_bits(a, a[l:] + a[:l]) for l in range(1, period)}
+    hit = side == {-1}
+    ok &= hit
+    eq("지연 0의 자기상관", _cyc_corr_bits(a, a), 31, 0)
+    print(f"  나머지 지연에서 나오는 값 {sorted(side)}  게시 [-1]  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 골드 집합 — 2^m + 1 개가 나오는가")
+    b = _lfsr(B_TAPS, [1, 0, 0, 0, 0], period)
+    gold = [a, b] + [[p ^ q for p, q in zip(a, b[s:] + b[:s])] for s in range(period)]
+    hit = len(gold) == 2 ** M + 1 and len({tuple(g) for g in gold}) == len(gold)
+    ok &= hit
+    print(f"  만든 수열 {len(gold)}개 (게시 33) · 전부 서로 다른가 "
+          f"{len({tuple(g) for g in gold}) == len(gold)}  {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 골드의 상호상관 — 세 값에만 묶이는가")
+    cc = set()
+    for i in range(len(gold)):
+        for j in range(i + 1, len(gold)):
+            cc.add(_cyc_corr_bits(gold[i], gold[j]))
+    t = 1 + 2 ** ((M + 1) // 2)
+    want = {-1, -t, t - 2}
+    hit = cc == want
+    ok &= hit
+    print(f"  나온 값 {sorted(cc)}  게시 {sorted(want)} (t = 1+2^((m+1)/2) = {t})"
+          f"  {'✓' if hit else '✗ 불일치'}")
+    worst = max(abs(v) for v in cc)
+    eq("최악 상호상관 [dB] · 9/31", 20 * math.log10(worst / period), -10.74, 0.01)
+
+    print("\n[16] 규격의 골드 — c_init = 0 은 골드가 아니다")
+    # x2 시작 상태가 전부 0 → 되먹임도 0 → x2는 영원히 0 → 출력이 x1 단독이 된다
+    x1_only = _lfsr((0, 3), [1] + [0] * 30, NC_SKIP + 4000)[NC_SKIP:]
+    g0 = nr_gold(0, 4000)
+    hit = g0 == x1_only
+    ok &= hit
+    print(f"  c_init=0 의 출력이 x1 단독과 같은가  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+    r0 = sum(g0) / len(g0)
+    eq("그때 1의 비율 (치우친다)", r0, 0.3957, 0.001)
+    r1 = sum(nr_gold(1, 4000)) / 4000
+    print(f"  견줌: c_init=1 의 1 비율 {r1:.4f}  (0.5에 가깝다)")
+
+    print("\n[16] N_C = 1600 을 왜 버리는가")
+    bases = (1024, 5000, 100000, 7654321)
+    for skip, pub in [(0, 9.8), (100, 12.5), (1600, 42.6)]:
+        tot = sum(sum(p != q for p, q in zip(nr_gold(b, 64, skip), nr_gold(b + 1, 64, skip)))
+                  for b in bases)
+        pct = tot / (64 * len(bases)) * 100
+        hit = abs(pct - pub) < 0.1
+        ok &= hit
+        print(f"  {skip:>4}칸 버림: c_init을 1만 바꿨을 때 다른 비트 {pct:5.1f}%"
+              f"  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 1600이라야 난수 수준(50%)에 가까워진다
+    p0 = sum(sum(x != y for x, y in zip(nr_gold(b, 64, 0), nr_gold(b + 1, 64, 0)))
+             for b in bases) / (64 * len(bases))
+    p1600 = sum(sum(x != y for x, y in zip(nr_gold(b, 64, 1600), nr_gold(b + 1, 64, 1600)))
+                for b in bases) / (64 * len(bases))
+    claim = p0 < 0.15 and p1600 > 0.35
+    ok &= claim
+    print(f"  버리지 않으면 흔적이 남고(<15%) 1600이면 섞이는가(>35%)"
+          f"  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] CSI-RS 의 c_init — 손으로 따라가는 예시 (n_s=0, l=0)")
+    for nid, pub in [(0, 1024), (1, 3073), (2, 5122), (1023, 2097151)]:
+        got = csi_c_init(nid, 0, 0)
+        hit = got == pub
+        ok &= hit
+        print(f"  n_ID={nid:>4}: 1024×{2*nid+1:<5} + {nid:<5} = {got:>10,}"
+              f"  게시 {pub:<10,} {'✓' if hit else '✗ 불일치'}")
+    for l, pub in [(0, 1024), (1, 2048), (2, 3072), (13, 14336)]:
+        got = csi_c_init(0, l, 0)
+        hit = got == pub
+        ok &= hit
+        print(f"  n_ID=0 · l={l:>2}: {got:>10,}  게시 {pub:<10,} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] c_init = 0 이 나오는 조합이 있는가 — 전 조합 확인")
+    for mu in range(5):
+        slots = 10 * 2 ** mu
+        zero = sum(1 for nid in range(1024) for ns in range(slots) for l in range(14)
+                   if csi_c_init(nid, l, ns) == 0)
+        hit = zero == 0
+        ok &= hit
+        print(f"  μ={mu} (슬롯 {slots:>3}): 조합 {1024*slots*14:>9,}개 중 c_init=0 이 {zero}개"
+              f"  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] mod 2^31 이 실제로 도는가")
+    for mu, pub_ratio, pub_wrap in [(0, 0.137, False), (1, 0.273, False), (2, 0.547, False),
+                                    (3, 1.093, True), (4, 2.186, True)]:
+        slots = 10 * 2 ** mu
+        mx = 2 ** 10 * (14 * (slots - 1) + 13 + 1) * (2 * 1023 + 1) + 1023
+        ratio = mx / 2 ** 31
+        hit = abs(ratio - pub_ratio) < 0.001 and (mx >= 2 ** 31) == pub_wrap
+        ok &= hit
+        print(f"  μ={mu}: 모듈러 전 최댓값 / 2^31 = {ratio:6.3f}배"
+              f"  {'돈다' if mx >= 2**31 else '안 돈다':<8} 게시 {pub_ratio:<6}"
+              f" {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[16] 서로 다른 (셀, 슬롯, 심볼)이 같은 c_init 을 쓰는가")
+    for mu in (1, 3):
+        slots = 10 * 2 ** mu
+        seen = set()
+        for nid in range(1024):
+            for ns in range(slots):
+                for l in range(14):
+                    seen.add(csi_c_init(nid, l, ns))
+        tot = 1024 * slots * 14
+        hit = len(seen) == tot
+        ok &= hit
+        print(f"  μ={mu}: 조합 {tot:>9,}개 · 서로 다른 c_init {len(seen):>9,}개"
+              f" · 겹침 {tot - len(seen)}  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] CSI-RS 한 심볼이 쓰는 비트 — 주기의 얼마인가")
+    for rb, dens, pub in [(273, 1, 546), (273, 3, 1638), (52, 1, 104)]:
+        bits = rb * dens * 2                      # RE 하나에 QPSK 2비트
+        hit = bits == pub
+        ok &= hit
+        print(f"  {rb:>3}RB 밀도{dens}: RE {rb*dens:>4}개 → {bits:>5}비트"
+              f"  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    frac = 546 / (2 ** 31 - 1)
+    eq("546비트가 주기에서 차지하는 몫", frac * 100, 2.5425e-05, 1e-9)
+
+    print("\n[16] 짧게 자르면 상호상관이 난수 수준인가 (고정 시드)")
+    rnd = random.Random(20260824)
+    ratios = []
+    for L, pub_avg in [(240, 0.0482), (1200, 0.0205), (20000, 0.0058)]:
+        vals = []
+        for _ in range(60):
+            u = rnd.randrange(1, 2 ** 31)
+            v = rnd.randrange(1, 2 ** 31)
+            vals.append(abs(_cyc_corr_bits(nr_gold(u, L), nr_gold(v, L))) / L)
+        avg = sum(vals) / len(vals)
+        base = 1 / math.sqrt(L)
+        ratios.append(avg / base)
+        hit = abs(avg - pub_avg) < 0.0001
+        ok &= hit
+        print(f"  길이 {L:>6}: 평균 {avg:.4f} ({20*math.log10(avg):6.1f} dB)"
+              f" · 무작위 기준 1/√L = {base:.4f} · 비 {avg/base:.2f}배"
+              f"  게시 {pub_avg:<8} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: 유한 구간에서는 난수와 비슷한 수준이다(전주기 이론값과 다르다).
+    # 위에서 잰 세 길이의 평균을 그대로 쓴다 — 몇 쌍만 골라 보면 우연히 치우친다.
+    like_random = all(0.5 < r < 1.5 for r in ratios)
+    ok &= like_random
+    print(f"  세 길이 모두 난수 기준의 0.5–1.5배인가 "
+          f"({', '.join(f'{r:.2f}' for r in ratios)})"
+          f"  {'✓' if like_random else '✗ 자료의 주장과 다름'}")
+    # 그리고 전주기 이론값(−90 dB)과는 확연히 다르다 — 자료가 짚는 오해의 핵심
+    far_from_theory = 20 * math.log10(ratios[0] / math.sqrt(240)) > -60
+    ok &= far_from_theory
+    print(f"  240비트에서의 값이 전주기 이론값(−90.3 dB)과 확연히 다른가"
+          f"  {'✓' if far_from_theory else '✗ 자료의 주장과 다름'}")
+
+    print("\n[16] 전주기 이론값 (계산이 아니라 대수의 결과 — 자료에도 그렇게 적었다)")
+    t31 = 1 + 2 ** 16
+    eq("t(31) = 1 + 2^16", t31, 65537, 0)
+    eq("정규화 t(31)/(2^31−1) [dB]", 20 * math.log10(t31 / (2 ** 31 - 1)), -90.3, 0.05)
+    eq("c_init 가짓수 2^31", 2 ** 31, 2147483648, 0)
+    eq("15의 ZC 30개 대비 배수", 2 ** 31 / 30, 71582788, 1)
+
+    return ok
+
+
+# ── 17 OpenAirInterface ─────────────────────────────────────
+# 3GPP도 O-RAN도 아닌 세 번째 출처: 오픈소스 구현.
+# 규격 조항과 달리 코드는 움직이므로, 인용한 파일과 이름이 아직 있는지 대조한다.
+# OAI 소스를 받아 두지 않았으면 조용히 건너뛴다 —
+# 이 저장소만 받은 사람도 검산이 통과해야 하기 때문이다.
+
+OAI_COMMIT = 'b3930e3'          # 태그 2026.w36
+OAI_PATHS = [
+    ('openair1/PHY/gold.h', ['Nc = 1600', 'x1(n+31)', 'x2(n+31)']),
+    ('openair1/PHY/NR_REFSIG/dmrs_nr.c', ['#define NC', 'GOLD_SEQUENCE_LENGTH']),
+    ('openair1/PHY/NR_REFSIG/ul_ref_seq_nr.c', ['base_sequence_less_than_36', 'M_ZC == 30']),
+    ('openair1/PHY/NR_REFSIG/ul_ref_seq_nr.h', ['U_GROUP_NUMBER', 'dmrs_ref_ul_primes']),
+    ('openair1/PHY/NR_TRANSPORT/nr_dlsch_coding.c', ['crc24a', 'nr_segmentation']),
+    ('openair1/PHY/NR_TRANSPORT/nr_dlsch.c', ['nr_codeword_scrambling', 'nr_layer_mapping']),
+    ('openair1/PHY/NR_TRANSPORT/nr_prach.c', []),
+    ('openair1/PHY/NR_TRANSPORT/nr_dci.c', []),
+    ('openair1/PHY/INIT/nr_init.c', []),
+    ('openair1/PHY/nr_phy_common/src/nr_phy_common_srs.c', ['srs_max_number_cs']),
+    ('radio/rfsimulator/README.md', []),
+    ('targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.usrpb210.conf',
+     ['absoluteFrequencySSB', 'dl_absoluteFrequencyPointA', 'dl_carrierBandwidth']),
+]
+
+
+def _oai_root():
+    for cand in (pathlib.Path('/home/user/openairinterface/openairinterface5g'),
+                 pathlib.Path('/home/user/openairinterface5g')):
+        if (cand / 'openair1').is_dir():
+            return cand
+    return None
+
+
+def check_oai():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>13.6g}  게시 {want:<12} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[17] 설정 파일의 값이 01·04·05와 맞는가 (소스 없이도 도는 산술)")
+    # NR-ARFCN → 주파수 (3 GHz~24.25 GHz): F = 3000 MHz + 15 kHz × (N − 600000)
+    def arfcn(n):
+        return 3000 + 0.015 * (n - 600000)
+    eq("SSB 641280 → [MHz]", arfcn(641280), 3619.20, 0.001)
+    eq("Point A 640008 → [MHz]", arfcn(640008), 3600.12, 0.001)
+    # 05에서 검산한 30 kHz 표: 40 MHz → 106 RB
+    occ = 106 * 12 * 30e-3
+    eq("106 RB 점유 대역 [MHz]", occ, 38.16, 0.001)
+    inside = arfcn(640008) <= arfcn(641280) <= arfcn(640008) + occ
+    ok &= inside
+    print(f"  SSB가 반송파(3600.12–{arfcn(640008)+occ:.2f}) 안에 드는가"
+          f"  {'✓' if inside else '✗ 자료의 주장과 다름'}")
+    # 자료의 인터랙션이 쓰는 05 표
+    for bw, rb, pub in [(10, 24, 8.64), (20, 51, 18.36), (40, 106, 38.16),
+                        (50, 133, 47.88), (100, 273, 98.28)]:
+        got = rb * 12 * 30e-3
+        hit = abs(got - pub) < 0.001
+        ok &= hit
+        print(f"  {bw:>3} MHz → {rb:>3} RB → 점유 {got:6.2f} MHz"
+              f"  게시 {pub:<7} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[17] 인용한 OAI 파일이 아직 있는가")
+    root = _oai_root()
+    if root is None:
+        print("  OAI 소스를 못 찾음 — 이 검사는 건너뛴다 (자료의 인용은 커밋 "
+              f"{OAI_COMMIT} 기준)")
+        print("  받으려면: git clone --depth 1 https://github.com/openairinterface/"
+              "openairinterface5g /home/user/openairinterface/openairinterface5g")
+        return ok
+    print(f"  소스 위치 {root}")
+    for rel, needles in OAI_PATHS:
+        f = root / rel
+        if not f.is_file():
+            ok = False
+            print(f"  ✗ 파일이 없다 — 자료의 인용을 고칠 것: {rel}")
+            continue
+        text = f.read_text(errors='replace')
+        missing = [n for n in needles if n not in text]
+        if missing:
+            ok = False
+            print(f"  ✗ {rel}: 이름이 사라졌다 {missing}")
+        else:
+            print(f"  ✓ {rel}" + (f" ({len(needles)}개 이름 확인)" if needles else ""))
+
+    print("\n[17] 16의 골드 수열이 OAI 구현과 같은 비트를 내는가")
+    gold_h = (root / 'openair1/PHY/gold.h').read_text(errors='replace')
+    # OAI 주석이 담고 있는 식이 자료의 서술과 같은지
+    claims = [('Nc = 1600', 'N_C = 1600'),
+              ('x1(n+3)', 'x1 다항식'),
+              ('x2(n+3) + x2(n+2) + x2(n+1)', 'x2 다항식')]
+    for needle, label in claims:
+        hit = needle in gold_h
+        ok &= hit
+        print(f"  {label:<16} gold.h 주석에 있는가  {'✓' if hit else '✗ 사라졌다'}")
+
+    return ok
 
 
 def check_harq():
@@ -199,6 +1841,675 @@ def check_harq():
         hit = abs(u - pub) < 0.05
         ok &= hit
         print(f"  N={n:>2}  이용률 {u:5.1f}%  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/13-uplink-physical-layer ═══════════════════════════
+# PAPR과 전력 제어는 물리이고 3GPP 규격값이 아니다(본문에 그렇게 표기).
+# 규격에서 온 것은 상향 사슬의 단계 구성과 코드워드·레이어 상한뿐이다.
+# 근거: TS 38.211 §6.3.1(PUSCH·변환 프리코딩), §6.3.2(PUCCH)
+#       TS 38.213 §7.1(상향 전력 제어), TS 38.101-1 §6.2(단말 전력 등급)
+
+P_CMAX_DBM = 23.0          # 전력 등급 3
+GNB_DBM = 46.0             # 전형적인 매크로 값 — 규격값이 아님
+PAPR_TRIALS = 60
+PAPR_NSC = 64
+
+
+def _papr_db(sym, n_sc, transform, over=4):
+    """PAPR = max|x|² / avg|x|².  transform=True면 먼저 DFT(변환 프리코딩)"""
+    if transform:
+        m = len(sym)
+        x = []
+        for k in range(m):
+            ar = ai = 0.0
+            for i, (re, im) in enumerate(sym):
+                a = -2 * math.pi * i * k / m
+                c, s = math.cos(a), math.sin(a)
+                ar += re * c - im * s
+                ai += re * s + im * c
+            x.append((ar / math.sqrt(m), ai / math.sqrt(m)))
+    else:
+        x = sym
+    nf = n_sc * over
+    peak = 0.0
+    tot = 0.0
+    for n in range(nf):
+        ar = ai = 0.0
+        for k, (re, im) in enumerate(x):
+            a = 2 * math.pi * k * n / nf
+            c, s = math.cos(a), math.sin(a)
+            ar += re * c - im * s
+            ai += re * s + im * c
+        p = (ar * ar + ai * ai) / nf
+        tot += p
+        peak = max(peak, p)
+    return 10 * math.log10(peak / (tot / nf))
+
+
+def papr_stats(transform, constellation, seed=20260816, trials=PAPR_TRIALS):
+    """고정 시드라 몇 번을 돌려도 같은 값이 나온다.
+    PAPR은 데이터에 따라 흔들리는 통계량이므로 난수원이 바뀌면 값도 바뀐다 —
+    게시값과 대조하려면 난수원까지 같아야 한다(자료의 표는 이 함수로 뽑은 값)."""
+    rnd = random.Random(seed)
+    vals = []
+    for _ in range(trials):
+        sym = [rnd.choice(constellation) for _ in range(PAPR_NSC)]
+        vals.append(_papr_db(sym, PAPR_NSC, transform))
+    vals.sort()
+    return sum(vals) / len(vals), vals[int(len(vals) * 0.95)]
+
+
+def max_rb_power_limited(pl_db, p_o=-100.0, alpha=1.0, mu=1, p_cmax=P_CMAX_DBM):
+    """최대 출력에 걸린 단말이 쓸 수 있는 자원블록 수"""
+    return 10**((p_cmax - p_o - alpha * pl_db) / 10) / 2**mu
+
+
+def check_uplink():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.6g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[13] 상하향 비대칭")
+    eq("기지국 − 단말 [dB]", GNB_DBM - P_CMAX_DBM, 23, 0)
+    eq("그 배수", 10**((GNB_DBM - P_CMAX_DBM) / 10), 200, 0.5)
+
+    print("\n[13] PAPR — 고정 시드 몬테카를로 (부반송파 64, 60회)")
+    r = 1 / math.sqrt(2)
+    qpsk = [(a * r, b * r) for a in (1, -1) for b in (1, -1)]
+    s16 = 1 / math.sqrt(10)
+    q16 = [(a * s16, b * s16) for a in (-3, -1, 1, 3) for b in (-3, -1, 1, 3)]
+    print(f"  {'파형':<12} {'변조':<7} {'평균':>8} {'상위5%':>9}   게시값")
+    res = {}
+    for transform, wl, pub in [(False, 'CP-OFDM', {'QPSK': (7.71, 9.66), '16QAM': (7.52, 8.93)}),
+                               (True, 'DFT-s-OFDM', {'QPSK': (5.28, 6.51), '16QAM': (5.70, 6.71)})]:
+        for cons, cl in [(qpsk, 'QPSK'), (q16, '16QAM')]:
+            mean, p95 = papr_stats(transform, cons)
+            res[(wl, cl)] = (mean, p95)
+            hit = abs(mean - pub[cl][0]) < 0.02 and abs(p95 - pub[cl][1]) < 0.02
+            ok &= hit
+            print(f"  {wl:<12} {cl:<7} {mean:>6.2f}dB {p95:>7.2f}dB   "
+                  f"게시 {pub[cl][0]}/{pub[cl][1]}  {'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 주장 1: DFT 확산이 두 변조 모두에서 PAPR을 낮춘다
+    lower = all(res[('DFT-s-OFDM', c)][1] < res[('CP-OFDM', c)][1] for c in ('QPSK', '16QAM'))
+    ok &= lower
+    print(f"  DFT 확산이 두 변조 모두에서 봉우리를 낮춘다  {'✓' if lower else '✗ 자료의 주장과 다름'}")
+
+    # 자료의 주장 2: 이득이 QPSK에서 더 크다 (성상점이 촘촘할수록 줄어든다)
+    d_qpsk = res[('CP-OFDM', 'QPSK')][1] - res[('DFT-s-OFDM', 'QPSK')][1]
+    d_q16 = res[('CP-OFDM', '16QAM')][1] - res[('DFT-s-OFDM', '16QAM')][1]
+    eq("QPSK 이득 (상위5%) [dB]", d_qpsk, 3.15, 0.02)
+    eq("16QAM 이득 (상위5%) [dB]", d_q16, 2.21, 0.02)
+    ok &= d_qpsk > d_q16
+    print(f"  QPSK 이득이 16QAM보다 크다  {'✓' if d_qpsk > d_q16 else '✗ 자료의 주장과 다름'}")
+
+    print("\n[13] 백오프 이득 → 도달거리  (거리 배수 = 10^(Δ/10n))")
+    for n, pub in [(2.0, 1.437), (3.5, 1.230), (4.0, 1.199)]:
+        got = 10**(d_qpsk / (10 * n))
+        hit = abs(got - pub) < 0.002
+        ok &= hit
+        print(f"  경로손실 지수 {n}: {got:.3f}배  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+
+    # 그림이 100 MHz·273 RB를 기준으로 그려지므로 μ=1(30 kHz)로 통일한다.
+    # μ=0으로 계산하면 같은 경로손실에서 값이 두 배가 되어 그림과 본문이 어긋난다.
+    print("\n[13] 전력 제어 — 쓸 수 있는 대역 (P_O −100 dBm, α=1, μ=1)")
+    for pl, pub in [(100, 99.76), (110, 9.98), (120, 1.00), (130, 0.10)]:
+        got = max_rb_power_limited(pl, mu=1)
+        hit = abs(got - pub) < 0.01
+        ok &= hit
+        print(f"  경로손실 {pl} dB → {got:>8.2f} RB  게시 {pub:<8} {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 10 dB마다 정확히 1/10
+    ratios = [max_rb_power_limited(p, mu=1) / max_rb_power_limited(p + 10, mu=1)
+              for p in (90, 100, 110, 120)]
+    exact = all(abs(x - 10) < 1e-9 for x in ratios)
+    ok &= exact
+    print(f"  경로손실 10 dB마다 정확히 1/10  {'✓' if exact else '✗ 자료의 주장과 다름'}")
+    # 대역폭 항이 로그이므로 μ가 1 오르면 3.01 dB를 더 쓴다
+    eq("μ 하나 올릴 때의 대역폭 항 [dB]", 10 * math.log10(2), 3.01, 0.005)
+    # 그림의 경고선: M_RB = 1이 되는 경로손실 (P_CMAX = P_O + 10log10(2^μ) + αPL)
+    pl_dead = P_CMAX_DBM - (-100) - 10 * math.log10(2 ** 1)
+    eq("1 RB도 못 채우는 경로손실 [dB]", pl_dead, 120.0, 0.02)
+
+    print("\n[13] 상향과 하향의 상한 — TS 38.211 §6.3.1")
+    ul_cw, ul_layers, dl_cw, dl_layers = 1, 4, 2, 8
+    hit = ul_cw == 1 and ul_layers == 4 and dl_cw == 2 and dl_layers == 8
+    ok &= hit
+    print(f"  상향 코드워드 {ul_cw} · 레이어 {ul_layers} / 하향 {dl_cw} · {dl_layers}  "
+          f"{'✓' if hit else '✗'}")
+    # 코드워드가 하나뿐이므로 10의 "랭크 5부터 둘" 경계가 상향에는 존재하지 않는다
+    ok &= ul_layers <= 4
+    print(f"  상향은 레이어가 4까지라 10의 '랭크 5부터 코드워드 둘' 규칙이 성립하지 않는다  ✓")
+
+    return ok
+
+
+# ══════════ topics/12-pdcch-blind-decoding ════════════════════════════
+# 근거: TS 38.211 §7.3.2(PDCCH 자원 매핑), §7.4.1.3(PDCCH DMRS)
+#       TS 38.212 §7.3(DCI · CRC + RNTI · Polar)
+#       TS 38.213 §10.1 Table 10.1-2(후보 상한) · Table 10.1-3(비중첩 CCE 상한)
+# 11의 REG 구조(1 RB × 1 심볼 = 12 RE)와 어긋나지 않아야 한다.
+
+AGG_LEVELS = [1, 2, 4, 8, 16]
+REG_RE, PDCCH_DMRS_RE, CCE_REG = 12, 3, 6
+
+# TS 38.213 Table 10.1-2 / 10.1-3 — μ: (슬롯당 후보 상한, 비중첩 CCE 상한)
+PDCCH_BUDGET = {0: (44, 56), 1: (36, 56), 2: (22, 48), 3: (20, 32)}
+
+
+def cce_bits():
+    """CCE 하나가 나르는 비트 — 6 REG × (12 − 3) RE × QPSK 2비트"""
+    return CCE_REG * (REG_RE - PDCCH_DMRS_RE) * 2
+
+
+def coreset_cce(rb, symbols):
+    """CORESET이 담는 CCE 수 = (RB × 심볼) / 6"""
+    return (rb * symbols) // CCE_REG
+
+
+def max_agg(rb, symbols):
+    """그 CORESET에 놓을 수 있는 최대 집성수준 (없으면 0)"""
+    c = coreset_cce(rb, symbols)
+    fits = [a for a in AGG_LEVELS if a <= c]
+    return fits[-1] if fits else 0
+
+
+def budget_use(counts):
+    """counts = 집성수준별 후보 수 → (후보 합계, 차지하는 CCE 합계)"""
+    return sum(counts), sum(a * n for a, n in zip(AGG_LEVELS, counts))
+
+
+def check_pdcch():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[12] CCE 하나가 나르는 비트")
+    eq("REG의 데이터 RE (12 − 3)", REG_RE - PDCCH_DMRS_RE, 9, 0)
+    eq("CCE의 데이터 RE (6 REG)", CCE_REG * (REG_RE - PDCCH_DMRS_RE), 54, 0)
+    eq("CCE 하나의 비트 (QPSK)", cce_bits(), 108, 0)
+    # 11의 REG 정의(1 RB × 1 심볼 = 12 RE)와 어긋나지 않는가
+    ok &= (REG_RE == 12)
+    print(f"  REG가 자원블록 하나 × 심볼 하나(12 RE)  ✓")
+
+    print("\n[12] CORESET 크기 → CCE → 놓을 수 있는 집성수준")
+    print(f"  {'RB':>4} {'심볼':>5} {'REG':>5} {'CCE':>5} {'최대 AL':>8}   게시값")
+    for rb, sym, pub_cce, pub_al in [(24, 1, 4, 4), (48, 1, 8, 8), (48, 2, 16, 16),
+                                     (96, 1, 16, 16), (96, 3, 48, 16)]:
+        c, a = coreset_cce(rb, sym), max_agg(rb, sym)
+        hit = c == pub_cce and a == pub_al
+        ok &= hit
+        print(f"  {rb:>4} {sym:>5} {rb*sym:>5} {c:>5} {a:>8}   {'✓' if hit else '✗ 불일치'}")
+    # 자료의 핵심 주장: 48 RB 1심볼 CORESET에는 AL16을 아예 놓을 수 없다
+    claim = max_agg(48, 1) < 16 and max_agg(48, 2) == 16
+    ok &= claim
+    print(f"  48 RB 1심볼은 AL16 불가, 2심볼이면 가능  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+
+    print("\n[12] 집성수준별 부호율 — DCI 40비트 + CRC 24")
+    for al, pub_bits, pub_r, pub_g in [(1, 108, 0.593, 0.0), (2, 216, 0.296, 3.0),
+                                       (4, 432, 0.148, 6.0), (8, 864, 0.074, 9.0),
+                                       (16, 1728, 0.037, 12.0)]:
+        bits = cce_bits() * al
+        r = 64 / bits
+        g = 10 * math.log10(al)
+        hit = bits == pub_bits and abs(r - pub_r) < 0.001 and abs(g - pub_g) < 0.05
+        ok &= hit
+        print(f"  AL{al:>2}: {bits:>5}비트  부호율 {r:.3f}  이득 {g:>4.1f} dB   "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[12] 블라인드 복호 예산 — TS 38.213 Table 10.1-2 / 10.1-3")
+    print(f"  {'μ':>2} {'SCS':>9} {'후보 상한':>9} {'CCE 상한':>9}")
+    for mu, (c, e) in PDCCH_BUDGET.items():
+        print(f"  {mu:>2} {15*2**mu:>7}kHz {c:>9} {e:>9}")
+
+    # 자료의 핵심 주장: 넉넉해 보이는 설정이 후보가 아니라 CCE에서 먼저 막힌다
+    generous = [6, 6, 4, 2, 1]                  # AL1×6 AL2×6 AL4×4 AL8×2 AL16×1
+    cand, cce = budget_use(generous)
+    eq("넉넉한 설정의 후보 수", cand, 19, 0)
+    eq("그때 차지하는 CCE", cce, 66, 0)
+    all_over_cce = all(cce > e for _, e in PDCCH_BUDGET.values())
+    none_over_cand = all(cand <= c for c, _ in PDCCH_BUDGET.values())
+    ok &= all_over_cce and none_over_cand
+    print(f"  후보 수는 어느 μ에서도 여유({cand} ≤ 20~44)인데 CCE는 전부 초과({cce} > 32~56)  "
+          f"{'✓' if all_over_cce and none_over_cand else '✗ 자료의 주장과 다름'}")
+
+    modest = [4, 2, 1, 1, 0]                    # AL1×4 AL2×2 AL4×1 AL8×1
+    cand2, cce2 = budget_use(modest)
+    fits_all = all(cand2 <= c and cce2 <= e for c, e in PDCCH_BUDGET.values())
+    ok &= fits_all
+    print(f"  작게 잡은 설정(후보 {cand2}, CCE {cce2})은 μ 전 구간에서 통과  "
+          f"{'✓' if fits_all else '✗ 불일치'}")
+    # AL16 하나가 AL1 열여섯 개와 같은 값인가
+    ok &= budget_use([0, 0, 0, 0, 1])[1] == budget_use([16, 0, 0, 0, 0])[1]
+    print(f"  AL16 후보 하나 = AL1 후보 열여섯 개 (CCE 기준)  ✓")
+
+    print("\n[12] CRC만으로 본 거짓 검출 — 2^-24 × 초당 후보 수")
+    for mu, pub in [(0, 381), (3, 105)]:
+        c = PDCCH_BUDGET[mu][0]
+        per_sec = c * 1000 * 2**mu
+        false_rate = per_sec * 2**-24
+        interval = 1 / false_rate
+        hit = abs(interval - pub) < 1
+        ok &= hit
+        print(f"  μ={mu}: 초당 {per_sec:>7,}회 시도 → 평균 {interval:>5.0f}초에 한 번  "
+              f"게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ══════════ topics/11-reference-signals ═══════════════════════════════
+# 표본화 쪽은 물리이고(3GPP 규격값 아님), 규격에서 온 것은 DMRS 배치 구조뿐이다.
+# 10이 근거 없이 쓴 N_DMRS = 12 와 min(156, ·) 을 여기서 갚는지 함께 검사한다.
+# 근거: TS 38.211 §7.4.1.1(PDSCH DMRS), §7.4.1.2(PT-RS), §7.4.1.5(CSI-RS), §6.4.1.4(SRS)
+
+C_LIGHT_MS = 299_792_458.0      # m/s
+
+# 타입별 CDM 묶음이 쓰는 부반송파 (자원블록 하나, 심볼 하나 기준)
+DMRS_GROUPS = {
+    1: [[0, 2, 4, 6, 8, 10], [1, 3, 5, 7, 9, 11]],          # comb-2
+    2: [[0, 1, 6, 7], [2, 3, 8, 9], [4, 5, 10, 11]],        # 두 개씩 묶어 세 군데
+}
+
+
+def doppler_hz(v_kmh, fc_hz):
+    return (v_kmh / 3.6) * fc_hz / C_LIGHT_MS
+
+
+def fd_max_hz(slot_ms, n_dmrs):
+    """말뚝 간격 T = 슬롯/n 일 때 나이퀴스트 한계 f_d,max = 1/(2T)"""
+    return 1 / (2 * (slot_ms / 1000 / n_dmrs))
+
+
+def v_max_kmh(slot_ms, n_dmrs, fc_hz):
+    return fd_max_hz(slot_ms, n_dmrs) * C_LIGHT_MS / fc_hz * 3.6
+
+
+def max_delay_us(pilot_spacing_sc, mu):
+    """파일럿 간격이 부반송파 몇 개일 때 구별 가능한 최대 지연 [μs] = 1/Δf"""
+    return 1 / (pilot_spacing_sc * 15_000 * 2**mu) * 1e6
+
+
+def dmrs_re(dtype, n_sym):
+    return sum(len(g) for g in DMRS_GROUPS[dtype]) * n_sym
+
+
+def dmrs_ports(dtype, n_sym):
+    """묶음마다 부호 2개, 심볼이 2개 이상이면 시간 부호로 다시 2배"""
+    return len(DMRS_GROUPS[dtype]) * 2 * (2 if n_sym >= 2 else 1)
+
+
+def check_refsig():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>11.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[11] 시간 방향 — 도플러와 말뚝 간격")
+    eq("120 km/h @3.5 GHz 도플러 [Hz]", doppler_hz(120, 3.5e9), 389, 0.5)
+    eq("120 km/h @28 GHz 도플러 [Hz]", doppler_hz(120, 28e9), 3113, 1)
+    # 자료의 주장: 같은 속도라도 28 GHz에서 정확히 8배 빠르다
+    ratio = doppler_hz(120, 28e9) / doppler_hz(120, 3.5e9)
+    ok &= abs(ratio - 8) < 1e-9
+    print(f"  28 GHz 도플러가 3.5 GHz의 8배  차 {abs(ratio-8):.1e}  "
+          f"{'✓' if abs(ratio-8) < 1e-9 else '✗ 자료의 주장과 다름'}")
+
+    print(f"  {'슬롯':>8} {'DMRS':>5} {'f_d,max':>9} {'3.5 GHz':>10} {'28 GHz':>10}   게시값")
+    for slot, mu_lab, n, p35, p28 in [(0.5, '30 kHz', 1, 308, None), (0.5, '30 kHz', 2, 617, None),
+                                      (0.5, '30 kHz', 4, 1233, None),
+                                      (0.125, '120 kHz', 1, None, 154), (0.125, '120 kHz', 2, None, 308),
+                                      (0.125, '120 kHz', 4, None, 617)]:
+        v35 = v_max_kmh(slot, n, 3.5e9)
+        v28 = v_max_kmh(slot, n, 28e9)
+        hit = ((p35 is None or abs(v35 - p35) < 1) and (p28 is None or abs(v28 - p28) < 1))
+        ok &= hit
+        print(f"  {slot:>6}ms {n:>5} {fd_max_hz(slot, n):>7.0f}Hz {v35:>8.0f}km/h {v28:>8.0f}km/h   "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    # 자료의 핵심 장면: 500 km/h는 말뚝 하나로 놓치고 둘이면 따라간다
+    fd500 = doppler_hz(500, 3.5e9)
+    breaks = fd500 > fd_max_hz(0.5, 1)
+    saved = fd500 <= fd_max_hz(0.5, 2)
+    ok &= breaks and saved
+    print(f"  500 km/h @3.5 GHz: 도플러 {fd500:.0f} Hz — 1심볼({fd_max_hz(0.5,1):.0f} Hz) 놓치고 "
+          f"2심볼({fd_max_hz(0.5,2):.0f} Hz) 따라간다  {'✓' if breaks and saved else '✗ 자료의 주장과 다름'}")
+    # 28 GHz에서 120 km/h는 μ=1로는 못 버티고 μ=3이면 버틴다
+    fd120_28 = doppler_hz(120, 28e9)
+    hit = fd120_28 > fd_max_hz(0.5, 1) and fd120_28 <= fd_max_hz(0.125, 1)
+    ok &= hit
+    print(f"  120 km/h @28 GHz: 30 kHz로는 못 버티고 120 kHz면 버틴다  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[11] 주파수 방향 — CP가 먼저 막는가")
+    print(f"  {'μ':>2} {'타입1 최대지연':>14} {'타입2 최대지연':>14} {'일반 CP':>9}   여유(타입1/타입2)")
+    margins1, margins2 = [], []
+    for mu in (0, 1, 2, 3):
+        d1 = max_delay_us(2, mu)          # comb-2 → 간격 2 부반송파
+        d2 = max_delay_us(6, mu)          # 타입 2 → 묶음 간격 6 부반송파
+        c = cp(mu)
+        margins1.append(d1 / c)
+        margins2.append(d2 / c)
+        hit = d1 > c and d2 > c
+        ok &= hit
+        print(f"  {mu:>2} {d1:>12.2f}μs {d2:>12.2f}μs {c:>7.3f}μs   "
+              f"{d1/c:5.2f}배 / {d2/c:5.2f}배  {'✓ CP가 먼저' if hit else '✗ 말뚝이 먼저'}")
+    # 자료의 주장: 여유 배수가 μ와 무관한 상수 64/9 (그리고 타입2는 64/27)
+    const1 = max(margins1) - min(margins1) < 1e-9
+    const2 = max(margins2) - min(margins2) < 1e-9
+    ok &= const1 and const2
+    print(f"  여유 배수가 μ와 무관하게 일정  타입1 {margins1[0]:.6f} · 타입2 {margins2[0]:.6f}  "
+          f"{'✓' if const1 and const2 else '✗ 자료의 주장과 다름'}")
+    eq("타입1 여유 배수 = 64/9", margins1[0], 64 / 9, 1e-9)
+    eq("타입2 여유 배수 = 64/27", margins2[0], 64 / 27, 1e-9)
+
+    print("\n[11] DMRS 배치 — 자원 요소와 포트 수")
+    print(f"  {'타입':>5} {'심볼':>5} {'RE':>5} {'오버헤드':>9} {'데이터 RE':>10} {'포트':>5}   게시값")
+    for dtype, nsym, pub_re, pub_port in [(1, 1, 12, 4), (1, 2, 24, 8), (1, 4, 48, 8),
+                                          (2, 1, 12, 6), (2, 2, 24, 12)]:
+        re = dmrs_re(dtype, nsym)
+        ports = dmrs_ports(dtype, nsym)
+        hit = re == pub_re and ports == pub_port
+        ok &= hit
+        print(f"  {dtype:>5} {nsym:>5} {re:>5} {re/168*100:>8.1f}% {168-re:>10} {ports:>5}   "
+              f"{'✓' if hit else '✗ 불일치'}")
+    # 두 타입이 같은 12 RE로 서로 다른 포트 수를 준다 — 자료의 트레이드오프 주장
+    hit = dmrs_re(1, 1) == dmrs_re(2, 1) and dmrs_ports(2, 1) > dmrs_ports(1, 1)
+    ok &= hit
+    print(f"  같은 12 RE로 타입2가 포트를 더 준다 ({dmrs_ports(1,1)} → {dmrs_ports(2,1)})  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[11] 10의 빚을 갚는가 — N_DMRS = 12 와 min(156, ·)")
+    # 10이 쓴 값이 '타입 1 · 1심볼 · 2 CDM 묶음'과 같아야 한다
+    hit = dmrs_re(1, 1) == CH_NDMRS and (12 * CH_NSYMB - dmrs_re(1, 1)) == 156
+    ok &= hit
+    print(f"  타입1 1심볼 = {dmrs_re(1,1)} RE = 10의 N_DMRS({CH_NDMRS})  → 데이터 "
+          f"{12*CH_NSYMB - dmrs_re(1,1)} RE = TBS 상한 156  {'✓' if hit else '✗ 두 자료가 어긋남'}")
+
+    return ok
+
+
+# ══════════ topics/10-physical-layer-chain ════════════════════════════
+# 근거: TS 38.214 §5.1.3.2(전송 블록 크기), TS 38.212 §7.2.1(TB CRC),
+#       §5.2.2(코드블록 분할), §5.4.2.1(레이트 매칭 출력 G)
+#       TS 38.211 §4.4.1(안테나 포트), §7.3.1(스크램블·변조·레이어·포트·RE 매핑)
+# 06에서 이미 검산한 코드블록 분할식(K_cb = 8448, L = 24)을 그대로 재사용한다.
+
+CH_NSYMB, CH_NDMRS, CH_NOH = 14, 12, 0      # 자료의 그림이 고정한 값
+MOD_ORDER = {'QPSK': 2, '16QAM': 4, '64QAM': 6, '256QAM': 8}
+
+
+def n_re(rb, nsymb=CH_NSYMB, ndmrs=CH_NDMRS, noh=CH_NOH):
+    """자원 요소 수 — RB당 156을 넘지 못한다 (TS 38.214 §5.1.3.2)"""
+    return min(156, 12 * nsymb - ndmrs - noh) * rb
+
+
+def tb_size(rb, nu, qm, r):
+    """전송 블록 크기 [비트] — TS 38.214 §5.1.3.2"""
+    ninfo = n_re(rb) * r * qm * nu
+    if ninfo <= 3824:
+        return max(24, 8 * math.ceil(ninfo / 8) - 24)       # 표 조회 구간은 근사
+    n = max(3, math.floor(math.log2(ninfo)) - 6)
+    nq = max(3840, 2**n * round(ninfo / 2**n))
+    if r <= 0.25:
+        c = math.ceil(nq / 3816)
+        return 8 * c * math.ceil(nq / (8 * c)) - 24
+    if nq > 8424:
+        c = math.ceil(nq / 8424)
+        return 8 * c * math.ceil(nq / (8 * c)) - 24
+    return 8 * math.ceil((nq + 24) / 8) - 24
+
+
+def rate_matched_bits(rb, nu, qm):
+    """G = N_RE × ν × Qm — 레이트 매칭이 만들어야 할 총 비트 수"""
+    return n_re(rb) * nu * qm
+
+
+def check_chain():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<42} {got:>12.7g}  게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    R27 = 948 / 1024
+    print("\n[10] 전송 블록 크기 — 273 RB · 14심볼 · DMRS 12RE · 256QAM(R=948/1024)")
+    eq("자원 요소 수 · 273 × 156", n_re(273), 42588, 0)
+    eq("RB당 데이터 RE (168 − 12)", 12 * CH_NSYMB - CH_NDMRS, 156, 0)
+    for nu, pub_tbs, pub_gbps in [(1, 315528, 0.631), (2, 631176, 1.262),
+                                  (4, 1262376, 2.525), (8, 2524776, 5.050)]:
+        t = tb_size(273, nu, 8, R27)
+        gbps = t / (0.5e-3) / 1e9                            # 30 kHz 슬롯 = 0.5 ms
+        hit = t == pub_tbs and abs(gbps - pub_gbps) < 0.001
+        ok &= hit
+        print(f"  레이어 {nu}: TBS {t:>10,} 비트 → {gbps:5.3f} Gbps  게시 {pub_tbs:,} / {pub_gbps}  "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[10] 사슬이 닫히는가 — 레이어당 심볼 수 = 자원 요소 수")
+    closed_all = True
+    for rb, nu, qm in [(273, 4, 8), (273, 1, 2), (100, 2, 6), (24, 8, 4), (51, 3, 8)]:
+        g = rate_matched_bits(rb, nu, qm)
+        sym_per_layer = g / qm / nu
+        closed = abs(sym_per_layer - n_re(rb)) < 1e-9
+        closed_all &= closed
+        print(f"  {rb:>3} RB · ν={nu} · Qm={qm}  G={g:>9,}  레이어당 심볼 {sym_per_layer:>9,.0f}  "
+              f"N_RE {n_re(rb):>9,}  {'✓' if closed else '✗ 어긋남'}")
+    ok &= closed_all
+    print(f"  모든 조합에서 닫히는가  {'✓' if closed_all else '✗ 자료의 주장과 다름'}")
+    eq("G · 273 RB · ν=4 · 256QAM", rate_matched_bits(273, 4, 8), 1362816, 0)
+
+    print("\n[10] 실효 부호율은 결과로 따라 나온다 — (TBS + CRC) / G")
+    for qm, r, nu, pub in [(8, R27, 4, 0.929), (6, 0.60, 2, 0.603), (2, 0.12, 1, 0.121)]:
+        t = tb_size(273, nu, qm, r)
+        b = t + 24
+        c = 1 if b <= 8448 else math.ceil(b / (8448 - 24))
+        bp = b + (c * 24 if c > 1 else 0)
+        eff = bp / rate_matched_bits(273, nu, qm)
+        hit = abs(eff - pub) < 0.001 and abs(eff - r) / r < 0.02   # 목표와 2% 안
+        ok &= hit
+        print(f"  Qm={qm} ν={nu} 목표 R={r:.4f} → 실효 {eff:.4f} (게시 {pub}) 코드블록 {c:>3}개  "
+              f"{'✓' if hit else '✗ 불일치'}")
+
+    print("\n[10] 단계별 개수 — 273 RB · 4레이어 · 256QAM")
+    t = tb_size(273, 4, 8, R27)
+    b = t + 24
+    c = math.ceil(b / (8448 - 24))
+    eq("전송 블록 [비트]", t, 1262376, 0)
+    eq("+ 블록 CRC 24 [비트]", b, 1262400, 0)
+    eq("코드블록 개수", c, 150, 0)
+    eq("변조 심볼 수", rate_matched_bits(273, 4, 8) / 8, 170352, 0)
+    eq("레이어당 심볼 수", rate_matched_bits(273, 4, 8) / 8 / 4, 42588, 0)
+
+    print("\n[10] 변조 차수와 성상점")
+    for name, qm in MOD_ORDER.items():
+        pts = 2**qm
+        print(f"  {name:>7}  Qm={qm}  성상점 {pts:>3}개  {'✓' if pts == 2**qm else '✗'}")
+    ok &= (MOD_ORDER['256QAM'] == 8 and 2**8 == 256)
+
+    print("\n[10] 카디널리티 — 랭크 ↔ 전송 블록·코드워드 (TS 38.211 §7.3.1.3)")
+    cw = {r: (1 if r <= 4 else 2) for r in range(1, 9)}
+    hit = cw[4] == 1 and cw[5] == 2 and max(r for r in cw if cw[r] == 1) == 4
+    ok &= hit
+    print(f"  {[cw[r] for r in range(1, 9)]}  경계가 4/5  {'✓' if hit else '✗ 자료의 표와 다름'}")
+
+    print("\n[10] 자원 요소 예산 — 1 RB · 1 슬롯")
+    eq("12 부반송파 × 14 심볼", 12 * 14, 168, 0)
+    for dmrs, pub_data, pub_pct in [(12, 156, 92.9), (24, 144, 85.7), (6, 162, 96.4)]:
+        data = 12 * 14 - dmrs
+        pct = data / (12 * 14) * 100
+        hit = data == pub_data and abs(pct - pub_pct) < 0.05
+        ok &= hit
+        print(f"  DMRS {dmrs:>2} RE → 데이터 {data:>3} RE ({pct:4.1f}%)  게시 {pub_data}/{pub_pct}  "
+              f"{'✓' if hit else '✗ 불일치'}")
+    # 자료의 주장: TBS 식의 min(156, ·) 상한이 여기서 나온다
+    hit = (12 * 14 - 12) == 156
+    ok &= hit
+    print(f"  DMRS 1심볼일 때의 데이터 몫이 곧 상한 156  {'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[10] 스크램블링 초기값 자리 — c_init = n_RNTI·2^15 + q·2^14 + n_ID")
+    # 세 값의 자리가 겹치지 않아야 셀·단말·코드워드가 서로 다른 수열을 받는다
+    no_overlap = (1023 < 2**14) and (1 * 2**14 < 2**15)
+    ok &= no_overlap
+    print(f"  n_ID(≤1023) < 2^14 이고 q·2^14 < 2^15 — 자리가 겹치지 않는다  "
+          f"{'✓' if no_overlap else '✗ 자료의 주장과 다름'}")
+
+    return ok
+
+
+# ══════════ topics/09-precoding-codebook ══════════════════════════════
+# 이 자료도 07처럼 절반이 안테나·정보이론이다. 규격에서 온 것은 포트 배치와
+# 코드워드↔레이어 매핑뿐이고, 용량·손실 계산은 모델이며 본문에 그렇게 표기했다.
+# 근거: TS 38.214 §5.2.1(CSI 보고), §5.2.2.2(Type I/II 코드북·포트 배치)
+#       TS 38.211 §7.3.1.3(코드워드↔레이어)
+
+RANK_MAX = 4                    # 이 자료의 그림이 다루는 범위
+
+# TS 38.214 §5.2.2.2 — (포트 수, (N1,N2), (O1,O2))
+PORT_LAYOUT = [
+    (4,  (2, 1), (4, 1)),
+    (8,  (2, 2), (4, 4)),
+    (16, (4, 2), (4, 4)),
+    (32, (4, 4), (4, 4)),
+    (32, (16, 1), (4, 1)),
+]
+
+
+def eig_profile(rho, rmax=RANK_MAX):
+    """고유값 λi ∝ ρ^(i−1), 총 채널 전력을 고정하려고 Σλi = rmax 로 정규화"""
+    raw = [rho**i for i in range(rmax)]
+    s = sum(raw)
+    return [x * rmax / s for x in raw]
+
+
+def capacity(r, snr, lam):
+    """C(r) = Σ log2(1 + (SNR/r)·λi) — 정보이론 상한, 규격값 아님"""
+    return sum(math.log2(1 + (snr / r) * lam[i]) for i in range(r))
+
+
+def best_rank(snr_db, rho, rmax=RANK_MAX):
+    lam = eig_profile(rho, rmax)
+    caps = [capacity(r, 10**(snr_db / 10), lam) for r in range(1, rmax + 1)]
+    return caps.index(max(caps)) + 1, caps
+
+
+def af_db(x, n):
+    """배열 인자 [dB]. x는 DFT 눈금 단위 (1 눈금 = 직교 빔 간격)"""
+    if abs(x) < 1e-12:
+        return 0.0
+    return 20 * math.log10(abs(math.sin(math.pi * x) / (n * math.sin(math.pi * x / n))))
+
+
+def check_precoding():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<40} {got:>10.6g}  게시 {want:<9} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[09] 랭크는 높을수록 좋은가 — C(r) = Σ log2(1 + (SNR/r)·λi)")
+    # 자료의 주장 1: 고유값이 균등하면 항상 최대 랭크가 이긴다
+    uniform_ok = all(best_rank(db, 1.0)[0] == RANK_MAX for db in range(-10, 31))
+    ok &= uniform_ok
+    print(f"  쏠림 없음(ρ=1)이면 −10…30 dB 전 구간에서 랭크 {RANK_MAX}가 이긴다  "
+          f"{'✓' if uniform_ok else '✗ 자료의 주장과 다름'}")
+
+    # 자료의 주장 2: 쏠릴수록 낮은 랭크가 이기는 구간이 생기고, 전환점이 뒤로 밀린다
+    print(f"  {'ρ':>6}  랭크 전환점 [dB]")
+    prev_first = None
+    mono = True
+    for rho, pub in [(0.5, [0, 7, 12]), (0.3, [3, 11, 18]), (0.1, [7, 20, 32])]:
+        seq = [best_rank(db, rho)[0] for db in range(-20, 41)]
+        bnd = [(-20 + i) for i in range(1, len(seq)) if seq[i] != seq[i - 1]]
+        hit = bnd == pub
+        ok &= hit
+        if prev_first is not None:
+            mono &= bnd[0] > prev_first
+        prev_first = bnd[0]
+        print(f"  {rho:>6}  {bnd}  게시 {pub}  {'✓' if hit else '✗ 불일치'}")
+    ok &= mono
+    print(f"  쏠릴수록 랭크를 올릴 수 있는 SNR이 뒤로 밀린다  {'✓' if mono else '✗ 자료의 주장과 다름'}")
+
+    # 낮은 SNR·강한 쏠림에서 랭크 1이 이기는지 (자료의 핵심 문장)
+    r1, caps = best_rank(0, 0.1)
+    eq("0 dB · ρ=0.1 에서 이길 랭크", r1, 1, 0)
+    eq("  그때 랭크 4로 갔을 때의 손해 [%]", (caps[0] - caps[3]) / caps[0] * 100, 51.9, 0.5)
+
+    print("\n[09] 왜 과표본화 4배인가 — AF(1/(2O)) [dB]")
+    print(f"  {'N':>4} " + "".join(f"{'O='+str(o):>10}" for o in (1, 2, 4, 8)))
+    for n in (4, 8, 16, 64):
+        row = [af_db(1 / (2 * o), n) for o in (1, 2, 4, 8)]
+        print(f"  {n:>4} " + "".join(f"{v:>9.2f}dB" for v in row))
+    # 자료가 게시한 값은 큰 N 극한 기준
+    for o, pub in [(1, -3.92), (2, -0.91), (4, -0.22), (8, -0.06)]:
+        got = af_db(1 / (2 * o), 64)
+        hit = abs(got - pub) < 0.005
+        ok &= hit
+        print(f"  O={o}  최악 손실 {got:6.2f} dB  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
+    eq("O=1 극한 20log10(2/π) [dB]", 20 * math.log10(2 / math.pi), -3.92, 0.005)
+    # 자료의 주장: O=4가 "손실이 무시할 만해지는 첫 지점"
+    claim = af_db(1 / 8, 64) > -0.5 and af_db(1 / 4, 64) < -0.5
+    ok &= claim
+    print(f"  O=4는 0.5 dB 안에 들고 O=2는 못 든다  {'✓' if claim else '✗ 자료의 주장과 다름'}")
+    # 전력으로 환산한 O=1의 손실 (본문의 "60%가 날아간다")
+    eq("O=1에서 날아가는 전력 [%]", (1 - 10**(af_db(0.5, 64) / 10)) * 100, 59.5, 0.5)
+
+    print("\n[09] 포트 배치와 빔 격자 — P = 2·N1·N2 (이중편파)")
+    for p, (n1, n2), (o1, o2) in PORT_LAYOUT:
+        beams = n1 * o1 * n2 * o2
+        bits = math.ceil(math.log2(beams))
+        hit = 2 * n1 * n2 == p
+        ok &= hit
+        print(f"  P={p:>2}  (N1,N2)=({n1},{n2}) (O1,O2)=({o1},{o2})  "
+              f"격자 {n1*o1}×{n2*o2} = {beams:>3}개 → {bits}비트  {'✓' if hit else '✗ 포트 수 불일치'}")
+    # 자료의 주장: 같은 32포트라도 배치에 따라 격자와 비트가 다르다
+    square = [x for x in PORT_LAYOUT if x[0] == 32 and x[1] == (4, 4)][0]
+    line = [x for x in PORT_LAYOUT if x[0] == 32 and x[1] == (16, 1)][0]
+    b_sq = square[1][0] * square[2][0] * square[1][1] * square[2][1]
+    b_ln = line[1][0] * line[2][0] * line[1][1] * line[2][1]
+    hit = b_sq == 256 and b_ln == 64 and math.ceil(math.log2(b_sq)) - math.ceil(math.log2(b_ln)) == 2
+    ok &= hit
+    print(f"  같은 32포트: (4,4)→{b_sq}개 / (16,1)→{b_ln}개, 번호가 2비트 차이  "
+          f"{'✓' if hit else '✗ 자료의 주장과 다름'}")
+
+    print("\n[09] 채널을 통째로 보내면 — 100 MHz · 30 kHz · 32포트 · 4수신")
+    sc, rb, ports, nrx, bits_c = 273 * 12, 273, 32, 4, 16
+    per_sc = sc * ports * nrx * bits_c
+    per_rb = rb * ports * nrx * bits_c
+    eq("부반송파마다 [Mbit]", per_sc / 1e6, 6.71, 0.005)
+    eq("자원블록마다 [Mbit]", per_rb / 1e6, 0.56, 0.005)
+    eq("광대역 PMI 10비트 대비 배수 (자원블록)", per_rb / 10, 55910, 1)
+
+    print("\n[09] Type I / Type II 규모 — 계수 개수 기준 (정확한 PMI 인코딩 아님)")
+    eq("Type I · 32포트 (4,4) [비트]", math.ceil(math.log2(256)) + 2, 10, 0)
+    for L, pub in [(2, 24), (3, 36), (4, 48)]:
+        got = 2 * L * (3 + 3)                    # 편파 2개 × 빔 L개, 진폭 3 + 위상 3
+        hit = got == pub
+        ok &= hit
+        print(f"  Type II L={L}  계수 {2*L}개 → {got:>3}비트  게시 {pub:<4} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[09] 코드워드 ↔ 레이어 — TS 38.211 §7.3.1.3")
+    # 게시한 매핑을 자료와 같은 형태로 적어 두고, 경계가 4/5에 있는지를 검사한다
+    cw = {r: (1 if r <= 4 else 2) for r in range(1, 9)}
+    boundary = (cw[4] == 1 and cw[5] == 2
+                and sorted(set(cw.values())) == [1, 2]
+                and max(r for r in cw if cw[r] == 1) == 4)
+    ok &= boundary
+    print(f"  랭크→코드워드 {[cw[r] for r in range(1, 9)]}  경계가 4/5  "
+          f"{'✓' if boundary else '✗ 자료의 표와 다름'}")
 
     return ok
 

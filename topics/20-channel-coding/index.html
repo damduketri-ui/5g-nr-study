@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>20 채널 코딩 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>20 / 채널 코딩</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">20 · channel coding · ldpc · polar</p>
+  <h1>여분을 어디에<br><em>둘 것인가</em></h1>
+  <p class="lead">비트가 몇 개 지워져도 원문이 나오게 하려면 여분을 실어야 합니다. 그런데 <strong>같은 말을 세 번 하는 것</strong>은 너무 비쌉니다. 5G NR은 여분을 두 가지 방식으로 둡니다 — <strong>낱말풀이처럼 서로 얽어 두거나(LDPC)</strong>, <strong>쉬운 칸과 어려운 칸을 갈라 두거나(Polar)</strong>. 데이터에는 앞의 것을, 제어에는 뒤의 것을 씁니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>같은 말을 세 번 하지 않는 법</h2>
+  <p>가장 단순한 여분은 <strong>반복</strong>입니다. 세 번 보내고 다수결로 정하면 하나가 지워져도 삽니다. 그런데 비트 하나를 지키려고 <strong>셋을 쓰는</strong> 셈이라, 쓸 수 있는 몫이 1/3로 줄어듭니다.</p>
+
+  <p>낱말풀이는 다릅니다. 가로 낱말의 글자 하나가 안 보여도, <strong>그 자리를 지나는 세로 낱말</strong>이 답을 알려줍니다. 여분이 <strong>따로</strong> 있는 것이 아니라 <strong>서로를 검산하도록 얽혀</strong> 있습니다.</p>
+
+  <div class="note">
+    <strong>이 자료의 비유는 낱말풀이 하나로 끝까지 갑니다.</strong>
+    LDPC는 <strong>성기게 얽힌 낱말풀이</strong>입니다 — 칸마다 지나는 낱말이 두어 개뿐이라 풀기 쉽습니다.
+    Polar는 <strong>칸마다 난이도가 다른 낱말풀이</strong>입니다 — 어려운 칸은 아예 답을 미리 적어 두고
+    쉬운 칸에만 진짜 정보를 넣습니다.
+  </div>
+
+  <p>먼저 지워진 자리를 되찾는 일이 <strong>실제로 어떻게 굴러가는지</strong>부터 봅니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>성긴 낱말풀이 — 지우개를 되돌리는 법</h2>
+  <p>아래는 <strong>비트 16개와 검사식 8개</strong>로 만든 아주 작은 부호입니다. 검사식 하나는 비트 넷을 보고 <strong>그 넷을 XOR하면 0</strong>이라고 말합니다. 그러니 <strong>넷 중 셋을 알면 나머지 하나가 정해집니다.</strong></p>
+
+  <p>지운 개수를 올려 보세요. 검사식이 하나씩 풀리면서 <strong>연쇄적으로</strong> 되살아납니다. 그러다 어느 순간 <strong>멈춥니다.</strong></p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 430" role="img" aria-labelledby="tPeel dPeel">
+      <title id="tPeel">검사식을 하나씩 풀어 지워진 비트를 되살리는 과정</title>
+      <desc id="dPeel">위쪽 줄은 정보 비트 여덟 개, 아래쪽 줄은 검사 비트 여덟 개이고, 가운데 줄에 검사식 여덟 개가 놓여 각각 네 개의 비트와 선으로 이어져 있다. 지워진 비트는 붉게 칠해지고, 검사식이 보는 넷 중 지워진 것이 하나뿐이면 그 비트가 되살아나 초록으로 바뀌며 되살린 순서가 숫자로 붙는다. 지운 개수가 많아지면 어느 검사식도 지워진 것을 하나만 보지 못해 더 이상 진행되지 않는다.</desc>
+      <g id="pkG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="pkN">지운 개수</label>
+    <input type="range" id="pkN" min="0" max="12" step="1" value="5" aria-describedby="pkOut">
+    <label for="pkSeed">패턴</label>
+    <input type="range" id="pkSeed" min="0" max="19" step="1" value="3" aria-describedby="pkOut">
+    <span class="segmented" id="pkMode" role="group" aria-label="지움 패턴 종류 선택"></span>
+    <span class="readout" id="pkOut"></span>
+  </div>
+
+  <div class="verdict" id="pkBox">
+    <span class="tag" id="pkTag"></span>
+    <span class="why" id="pkWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="pkEr">—</span><span class="t">지운 비트</span></div>
+    <div><span class="n" id="pkRec">—</span><span class="t">되살린 비트</span></div>
+    <div><span class="n" id="pkLeft">—</span><span class="t">끝내 못 푼 비트</span></div>
+    <div><span class="n" id="pkRate">—</span><span class="t">이 개수에서의 성공률 [%]</span></div>
+  </div>
+  <p class="caption">성공률은 <strong>2<sup>16</sup> = 65,536가지 지움 패턴을 전부 돌려</strong> 얻은 값입니다 — 표본이 아니라 전수입니다. 이 부호는 <strong>설명용으로 지어낸 작은 것</strong>이고 규격의 부호가 아닙니다. 규격의 것은 다음 절에 있습니다.</p>
+
+  <!-- 전수 검사 결과 (2^16 패턴) — tools/verify-numbers.py 의 check_coding() 이 같은 값을 낸다
+       지움 0~3: 100 % · 4: 99.1 % · 5: 95.4 % · 6: 85.4 % · 7: 64.1 % · 8: 30.0 % · 9 이상: 0 %
+       못 푸는 가장 작은 패턴(정지집합) = {0, 1, 9, 14}, 크기 4 -->
+  <div class="note">
+    <strong>두 가지가 동시에 보인다.</strong> 첫째, <strong>9개부터는 성공률이 0 %</strong>입니다.
+    검사식이 8개뿐이라 미지수가 식보다 많아지면 <strong>어떤 방법으로도</strong> 못 풉니다 — 부호의 한계입니다.
+    둘째, 9개보다 훨씬 적은 <strong>4개</strong>에서도 못 푸는 패턴이 있습니다.
+    <span class="src">가장 작은 것이 비트 {0, 1, 9, 14}</span>
+    검사식마다 지워진 것이 <strong>둘 이상씩</strong> 걸리게 배치되면 아무 데서도 시작을 못 합니다.
+    이런 자리를 <strong>정지집합(stopping set)</strong>이라 부르고, <strong>좋은 부호를 설계한다는 것은 이것을 줄이는 일</strong>입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>규격의 낱말풀이는 얼마나 성긴가</h2>
+  <p>5G NR의 데이터 채널은 <strong>기저 그래프(base graph)</strong> 두 개를 씁니다. 위에서 본 것과 구조는 같고 크기만 다릅니다.</p>
+
+  <!-- OAI nrLDPCdecoder_defs.h 의 차수 분포에서 센 것 —
+       검사노드 쪽 Σ(차수×개수), 비트노드 쪽 Σ(차수×개수), 열별 차수 합, 셋이 모두 일치
+       BG1: 검사차수 {3,4,5,6,7,8,9,10,19} 개수 {1,5,18,8,5,2,2,1,4} = 46행
+            → 간선 1·3+5·4+18·5+8·6+5·7+2·8+2·9+1·10+4·19 = 316
+       BG2: 검사차수 {3,4,5,6,8,10} 개수 {6,20,9,3,2,2} = 42행
+            → 간선 6·3+20·4+9·5+3·6+2·8+2·10 = 197
+       성김 316/(46·68) = 10.10 % · 197/(42·52) = 9.02 % -->
+  <div class="table-scroll">
+  <table>
+    <caption>기저 그래프 둘 <span class="src">TS 38.212 §5.3.2 · 차수 분포는 OAI 대조</span></caption>
+    <thead><tr><th>—</th><th class="num">BG1</th><th class="num">BG2</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td>크기</td><td class="num">46행 × 68열</td><td class="num">42행 × 52열</td><td>행 = 검사식, 열 = 비트</td></tr>
+      <tr><td>정보열</td><td class="num">22</td><td class="num">10</td><td>나머지는 전부 검사 비트</td></tr>
+      <tr><td><strong>1인 칸</strong></td><td class="num"><strong>316</strong></td><td class="num"><strong>197</strong></td>
+          <td>세 방향으로 세어 일치시킨 값</td></tr>
+      <tr><td><strong>성김</strong></td><td class="num"><strong>10.10 %</strong></td><td class="num"><strong>9.02 %</strong></td>
+          <td>3,128칸 중 316 · 2,184칸 중 197</td></tr>
+      <tr><td>검사식 하나가 보는 비트</td><td class="num">평균 6.87</td><td class="num">평균 4.69</td>
+          <td><strong>이것이 "low-density"의 뜻</strong></td></tr>
+      <tr><td>비트 하나가 걸린 검사식</td><td class="num">평균 4.65</td><td class="num">평균 3.79</td><td>—</td></tr>
+      <tr><td>어미 부호율</td><td class="num">22/68 = 0.324</td><td class="num">10/52 = 0.192</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">"1인 칸"은 <strong>같은 행렬을 세 방향에서 세어</strong> 확인했습니다 — 검사식별 차수의 합, 비트별 차수의 합, 열별 차수의 합. 셋이 모두 316(BG1)과 197(BG2)로 떨어집니다. <span class="src">OAI <code>nrLDPCdecoder_defs.h</code> · 커밋 b3930e3</span></p>
+
+  <p>그런데 <strong>열의 대부분이 검사식 하나에만 걸려 있습니다.</strong> 이것이 NR LDPC의 핵심 구조입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="tBg dBg">
+      <title id="tBg">BG1의 열 구조 — 정보열, 핵심 검사열, 그리고 차수 1인 확장 검사열</title>
+      <desc id="dBg">가로로 늘어선 예순여덟 개의 열이 세 덩어리로 나뉜다. 왼쪽 스물두 개는 정보열, 다음 네 개는 여러 검사식에 걸린 핵심 검사열, 오른쪽 마흔두 개는 각각 검사식 하나에만 걸린 확장 검사열이다. 오른쪽 덩어리는 뒤에서부터 하나씩 떼어내도 나머지가 그대로 쓰이므로 부호율을 자유롭게 올릴 수 있다.</desc>
+      <g id="bgG"></g>
+    </svg>
+  </div>
+  <p class="caption">BG1 기준입니다. 실제 1의 <strong>위치</strong>는 규격 표(TS 38.212 Table 5.3.2-2)에 있고 여기서는 <strong>덩어리 구조만</strong> 그렸습니다 — 개수는 위 표의 검산값입니다. BG2도 같은 모양으로 10 + 4 + 38입니다.</p>
+
+  <div class="note">
+    <strong>차수 1인 열 42개가 부호율을 자유롭게 만든다.</strong> BG1의 68열 중 <strong>42열(62 %)</strong>이
+    검사식 <strong>하나에만</strong> 걸려 있습니다. 그런 비트를 하나 안 보내면 <strong>그 검사식 하나만</strong> 죽고
+    나머지는 멀쩡합니다. 그래서 뒤에서부터 원하는 만큼 떼어내며 <strong>부호율을 연속적으로 올릴 수</strong> 있습니다.
+    <a href="../06-harq-timing/index.html">06에서 본 순환 버퍼</a>가 바로 이 열들을 순서대로 꺼내 쓰는 것입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>들어올리기 — 작은 그림을 Z배로 늘린다</h2>
+  <p>기저 그래프는 46 × 68짜리 <strong>설계도</strong>일 뿐입니다. 실제 부호는 칸 하나하나를 <strong>Z × Z 크기의 순환 이동 행렬</strong>로 바꿔 만듭니다. 이것을 <strong>들어올리기(lifting)</strong>라 하고, Z를 <strong>들어올리기 크기</strong>라 합니다.</p>
+
+  <!-- 유도: Z = a · 2^j,  a ∈ {2,3,5,7,9,11,13,15},  Z ≤ 384
+       a=2  8개 · a=3 8 · a=5 7 · a=7 6 · a=9 6 · a=11 6 · a=13 5 · a=15 5  = 51가지
+       OAI ldpctest.c 의 lift_size[51] 과 완전히 일치 -->
+  <div class="table-scroll">
+  <table>
+    <caption>들어올리기 크기 Z = a · 2<sup>j</sup> · 51가지 <span class="src">TS 38.212 §5.3.2 Table 5.3.2-1</span></caption>
+    <thead><tr><th class="num">a</th><th class="num">Z</th><th class="num">개수</th></tr></thead>
+    <tbody>
+      <tr><td class="num">2</td><td class="num">2 · 4 · 8 · 16 · 32 · 64 · 128 · 256</td><td class="num">8</td></tr>
+      <tr><td class="num">3</td><td class="num">3 · 6 · 12 · 24 · 48 · 96 · 192 · <strong>384</strong></td><td class="num">8</td></tr>
+      <tr><td class="num">5</td><td class="num">5 · 10 · 20 · 40 · 80 · 160 · 320</td><td class="num">7</td></tr>
+      <tr><td class="num">7</td><td class="num">7 · 14 · 28 · 56 · 112 · 224</td><td class="num">6</td></tr>
+      <tr><td class="num">9</td><td class="num">9 · 18 · 36 · 72 · 144 · 288</td><td class="num">6</td></tr>
+      <tr><td class="num">11</td><td class="num">11 · 22 · 44 · 88 · 176 · 352</td><td class="num">6</td></tr>
+      <tr><td class="num">13</td><td class="num">13 · 26 · 52 · 104 · 208</td><td class="num">5</td></tr>
+      <tr><td class="num">15</td><td class="num">15 · 30 · 60 · 120 · 240</td><td class="num">5</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">여덟 갈래를 2배씩 올려 384를 넘지 않는 것만 모으면 <strong>정확히 51가지</strong>가 나오고, OAI가 쓰는 표와 값 하나까지 일치합니다. <strong>2의 거듭제곱만 쓰지 않은 이유</strong>는 정보 크기에 맞춰 채움 비트를 줄이려는 것입니다 — 눈금이 성기면 버리는 자리가 늘어납니다.</p>
+
+  <div class="note">
+    <strong>8448이라는 숫자는 어디서 왔는가.</strong> 코드블록 하나가 담을 수 있는 최대 비트 수 K<sub>cb</sub>는
+    BG1에서 <strong>8448</strong>, BG2에서 <strong>3840</strong>입니다. 임의로 고른 값처럼 보이지만
+    <strong>정보열 수 × 최대 Z</strong>입니다.
+    <span class="src">22 × 384 = 8,448 · 10 × 384 = 3,840</span>
+    전송 블록이 이보다 크면 <a href="../10-physical-layer-chain/index.html">10에서 본</a> 코드블록 분할이 일어나고,
+    그때 블록마다 <strong>24비트 CRC</strong>가 따로 붙습니다.
+  </div>
+
+  <!-- 유도: 앞 2Z 비트(정보열 2개분)는 전송하지 않는다 (TS 38.212 §5.4.2.1)
+       → 순환버퍼 길이 N = (68−2)·Z = 66Z (BG1),  (52−2)·Z = 50Z (BG2)
+       → 전송 기준 어미 부호율 22/66 = 1/3,  10/50 = 1/5 — 정확히 떨어진다 -->
+  <div class="note">
+    <strong>06이 쓴 66과 50이 여기서 나온다.</strong> <a href="../06-harq-timing/index.html">06</a>은 순환 버퍼의
+    RV 위치를 <strong>66분의 몇</strong>, <strong>50분의 몇</strong>으로 적었습니다. 그 분모가 이것입니다 —
+    규격은 <strong>맨 앞 2열(2Z 비트)을 아예 보내지 않기</strong> 때문에 버퍼가 68Z가 아니라 <strong>66Z</strong>입니다.
+    <span class="src">(68 − 2)·Z = 66Z · (52 − 2)·Z = 50Z</span>
+    그리고 그 덕분에 어미 부호율이 22/66 = <strong>정확히 1/3</strong>, 10/50 = <strong>정확히 1/5</strong>로 떨어집니다.
+    68이나 52로 나누면 딱 떨어지지 않습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Polar — 칸마다 난이도를 갈라 둔다</h2>
+  <p>제어 채널은 사정이 다릅니다. <a href="../12-pdcch-blind-decoding/index.html">12에서 본</a> DCI는 <strong>수십 비트</strong>짜리입니다. 8,448비트를 담는 낱말풀이를 40비트에 쓸 수는 없습니다.</p>
+
+  <p>Polar는 완전히 다른 발상을 씁니다. <strong>똑같은 채널 두 개를 엮으면, 하나는 더 좋아지고 하나는 더 나빠집니다.</strong> 이것을 계속 반복하면 채널들이 <strong>거의 완벽한 것</strong>과 <strong>거의 쓸모없는 것</strong>으로 갈라집니다. 이 현상을 <strong>편극(polarization)</strong>이라 합니다.</p>
+
+  <!-- 유도: 지움 채널 BEC(ε) 두 개를 엮으면
+         ε⁻ = 2ε − ε²   (나빠지는 쪽)
+         ε⁺ = ε²        (좋아지는 쪽)
+       평균이 보존된다: (2ε−ε² + ε²)/2 = ε  → 용량 1−ε 가 보존된다
+       (스크립트에서 ε₀ = 0.5, 0.3 · n = 1, 3, 10 에서 1e-9 이내로 확인) -->
+  <div class="stage">
+    <svg viewBox="0 0 1100 130" role="img" aria-labelledby="tRec dRec">
+      <title id="tRec">지움 채널 두 개를 엮었을 때의 지워질 확률</title>
+      <desc id="dRec">지워질 확률이 ε인 채널 두 개를 엮으면 한쪽은 2ε 빼기 ε 제곱으로 나빠지고 다른 쪽은 ε 제곱으로 좋아진다. 두 값의 평균은 원래 ε 그대로다.</desc>
+      <text x="300" y="52" text-anchor="middle" class="celllab" fill="var(--alert)" style="font-size:20px">ε⁻ = 2ε − ε²</text>
+      <text x="300" y="82" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">나빠지는 쪽</text>
+      <text x="800" y="52" text-anchor="middle" class="celllab" fill="var(--dl)" style="font-size:20px">ε⁺ = ε²</text>
+      <text x="800" y="82" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">좋아지는 쪽</text>
+      <line x1="550" y1="30" x2="550" y2="100" stroke="var(--hair)" stroke-width="1"/>
+      <text x="550" y="112" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">둘의 평균은 ε 그대로 — 용량은 늘지도 줄지도 않는다</text>
+    </svg>
+  </div>
+  <p class="caption">지움 채널(Binary Erasure Channel, BEC)에서는 <strong>정확히</strong> 이렇게 됩니다. 실제 무선 채널은 더 복잡하지만, 편극이 <strong>왜</strong> 일어나는지는 이 두 줄로 전부 보입니다. <span class="src">지움 채널 모형 · 3GPP 규격값이 아님</span></p>
+
+  <p>엮기를 n번 반복하면 채널이 2<sup>n</sup>개로 늘어납니다. 아래에서 n을 올려 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="tPol dPol">
+      <title id="tPol">엮기를 반복하면 합성 채널이 좋은 것과 나쁜 것으로 갈라진다</title>
+      <desc id="dPol">가로축은 합성 채널을 좋은 순으로 세운 순위, 세로축은 그 채널에서 비트가 지워질 확률이다. 엮기 횟수가 적으면 곡선이 완만하지만 횟수를 늘릴수록 계단에 가까워져, 왼쪽 절반은 거의 0이고 오른쪽 절반은 거의 1이 된다. 계단이 서는 자리는 원래 채널의 용량이다.</desc>
+      <g id="polG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="plEps">원래 채널의 지워질 확률 ε₀</label>
+    <input type="range" id="plEps" min="5" max="95" step="1" value="50" aria-describedby="plOut">
+    <span class="segmented" id="plN" role="group" aria-label="엮기 횟수 선택"></span>
+    <span class="readout" id="plOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="plMean">—</span><span class="t">평균 ε · 보존되는가</span></div>
+    <div><span class="n" id="plGood">—</span><span class="t">거의 완벽 (ε &lt; 0.01) [%]</span></div>
+    <div><span class="n" id="plBad">—</span><span class="t">거의 쓸모없음 (ε &gt; 0.99) [%]</span></div>
+    <div><span class="n" id="plMid">—</span><span class="t">아직 가운데 [%]</span></div>
+  </div>
+  <p class="caption">평균은 <strong>몇 번을 엮어도 정확히 ε₀</strong>입니다 — 용량은 만들어지지도 사라지지도 않고 <strong>자리만 옮깁니다</strong>. 세로 점선이 용량 1 − ε₀가 서는 자리이고, n을 올리면 계단이 그 선에 붙습니다. <span class="src">지움 채널 모형 · 규격값이 아님</span></p>
+
+  <div class="note">
+    <strong>그래서 Polar는 이렇게 쓴다.</strong> 거의 완벽한 자리에만 정보를 싣고,
+    거의 쓸모없는 자리에는 <strong>송·수신이 미리 약속한 값(보통 0)</strong>을 넣습니다.
+    이 자리를 <strong>얼어붙은 비트(frozen bit)</strong>라 합니다.
+    받는 쪽은 얼어붙은 자리의 답을 <strong>이미 알고</strong> 있으므로, 거기서 얻은 확신을 다음 자리로 넘깁니다.
+    <strong>낱말풀이로 치면 어려운 칸의 답을 미리 적어 준 것</strong>입니다.
+  </div>
+
+  <div class="note">
+    <strong>ε₀을 0.9까지 올려 보세요.</strong> 열에 아홉이 지워지는 채널인데도
+    <strong>4.9 %는 거의 완벽한 자리로 남습니다.</strong> 아무리 나쁜 채널에도 쓸 수 있는 몫이 있고,
+    편극은 그것을 <strong>한군데로 모아 줍니다.</strong>
+    <strong>다만 아직 용량에 못 미칩니다</strong> — 이 채널의 용량은 1 − 0.9 = 10 %입니다.
+    N을 더 키우면 그쪽으로 갑니다.
+    <span class="src">ε₀ = 0.9: N = 1,024에서 4.88 % · 16,384에서 7.35 % · 262,144에서 8.71 %</span>
+    <strong>편극은 N이 커져야 완성됩니다.</strong> 그래서 N<sub>max</sub> = 1,024인 NR의 Polar는
+    <strong>이론적 한계를 다 쓰지 못하고</strong>, 대신 CRC를 끌어들인 목록 복호로 그 손해를 메웁니다.
+    "용량에 도달한다"는 것은 <strong>N을 무한히 키웠을 때</strong>의 이야기입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>규격은 순서를 표 하나로 못 박았다</h2>
+  <p>어느 자리가 좋은지는 채널에 따라 달라집니다. 그런데 규격은 <strong>채널을 보지 않고</strong> 미리 정한 <strong>순서표 하나</strong>를 씁니다.</p>
+
+  <!-- TS 38.212 §5.3.1.2 Table 5.3.1.2-1 — N_max = 1024 짜리 순열 Q
+       앞이 나쁜 자리, 뒤가 좋은 자리
+       중첩 성질: 임의의 N 에 대해, Q 에서 N 미만인 값만 순서대로 뽑으면 그것이 길이 N 의 순서다
+       (OAI 의 Q_0_Nminus1_1 ~ _9 와 N=2~512 전부 일치함을 스크립트로 확인) -->
+  <div class="stats">
+    <div><span class="n">1,024</span><span class="t">표의 길이 N<sub>max</sub></span></div>
+    <div><span class="n">1</span><span class="t">규격에 실린 표의 개수</span></div>
+    <div><span class="n">9</span><span class="t">이 표 하나로 덮는 N의 가짓수</span></div>
+  </div>
+  <p class="caption">표의 앞쪽이 <strong>나쁜 자리</strong>, 뒤쪽이 <strong>좋은 자리</strong>입니다. 앞 여덟 개는 <code>0, 1, 2, 4, 8, 16, 32, 3</code>이고 맨 뒤는 <code>1023</code>입니다. <span class="src">TS 38.212 §5.3.1.2 Table 5.3.1.2-1</span></p>
+
+  <div class="note">
+    <strong>표가 하나뿐인 이유 — 중첩된다.</strong> 길이 N짜리 순서가 필요하면
+    <strong>1024짜리 표에서 N보다 작은 값만 순서대로 골라내면</strong> 그대로 답이 됩니다.
+    N = 2, 4, 8, … 512의 <strong>아홉 가지 전부</strong>에서 이것이 성립하는 것을 확인했습니다.
+    그래서 규격은 표를 <strong>하나만</strong> 싣습니다.
+    <span class="src">OAI가 따로 담고 있는 <code>Q_0_Nminus1_1</code>~<code>_9</code>와 전부 일치</span>
+  </div>
+
+  <div class="note">
+    <strong>규격의 순서는 어느 한 채널에 맞춘 것이 아니다.</strong> 위의 지움 채널 계산으로 순서를 매겨
+    규격 표와 비교하면, 정보 비트 256개를 고를 때 <strong>248개(97 %)가 같습니다.</strong>
+    거의 같지만 <strong>완전히 같지는 않습니다.</strong> 규격의 표는 <strong>모든 부호율과 모든 채널 상태에서
+    두루 쓸 수 있도록</strong> 고른 것이라, 특정 채널에 최적화한 순서와는 조금씩 어긋납니다.
+    <span class="src">ε₀ = 0.5 기준 · K = 64/256/512에서 94/97/97 % 일치</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>왜 하나로 통일하지 않았는가</h2>
+  <p>둘 다 훌륭한 부호인데 왜 나눠 썼을까요. <strong>담아야 하는 크기와 요구가 다르기 때문</strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>데이터와 제어 <span class="src">TS 38.212 §5.3.1(Polar) · §5.3.2(LDPC)</span></caption>
+    <thead><tr><th>—</th><th class="num">LDPC</th><th class="num">Polar</th></tr></thead>
+    <tbody>
+      <tr><td>쓰는 곳</td><td class="num">PDSCH · PUSCH <span class="src">데이터</span></td>
+          <td class="num">PDCCH · PBCH · UCI <span class="src">제어</span></td></tr>
+      <tr><td>한 번에 담는 크기</td><td class="num">최대 <strong>8,448</strong>비트</td><td class="num">N<sub>max</sub> = <strong>1,024</strong></td></tr>
+      <tr><td>부호율을 바꾸는 법</td><td class="num">차수 1인 열을 떼었다 붙였다</td><td class="num">얼어붙은 자리 수를 바꿔서</td></tr>
+      <tr><td>재전송</td><td class="num"><strong>순환 버퍼로 이어붙인다</strong> <span class="src">→ <a href="../06-harq-timing/index.html">06</a></span></td>
+          <td class="num">제어에는 HARQ가 없다</td></tr>
+      <tr><td>가장 중요한 요구</td><td class="num">처리량 — 병렬로 빨리 풀려야</td>
+          <td class="num"><strong>짧은 블록에서의 성능과 오검출률</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">크기 차이가 <strong>8.25배</strong>입니다. LDPC는 블록이 길수록 좋아지는 부호라 수십 비트짜리 DCI에는 어울리지 않고, Polar는 <a href="../12-pdcch-blind-decoding/index.html">12에서 본 블라인드 복호</a>처럼 <strong>아닌 것을 아니라고 말해야</strong> 하는 자리에 맞습니다.</p>
+
+  <div class="note">
+    <strong>12가 말한 "CRC로 걸러낸다"가 여기서 만난다.</strong>
+    <a href="../12-pdcch-blind-decoding/index.html">12</a>에서 단말은 후보를 수십 번 복호해 보고
+    CRC가 맞는 것만 자기 것으로 받아들였습니다. Polar는 <strong>CRC를 복호 과정 안으로 끌어들여</strong>
+    후보 여러 개를 동시에 따라가다가 CRC가 맞는 것을 고릅니다.
+    <strong>그래서 제어 채널에서 "아닌 것을 아니라고 말하는" 능력이 좋습니다.</strong>
+    <!-- VERIFY: CRC 지원 목록복호(CA-SCL)의 목록 크기 L 은 규격이 정하지 않는다 —
+         구현이 고른다. 숫자를 쓰지 않았다. -->
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>성김이 곧 풀림이다.</strong> BG1은 3,128칸 중 316칸만 1이고, 검사식 하나가 평균 6.87개의 비트만 봅니다. 넷 중 셋을 알면 하나가 정해지는 일이 <strong>연쇄</strong>가 되려면 얽힘이 성겨야 합니다.</li>
+    <li><strong>차수 1인 열이 부호율을 자유롭게 한다.</strong> BG1의 68열 중 42열이 검사식 하나에만 걸려 있어, 뒤에서부터 떼어내며 부호율을 올릴 수 있습니다 — <a href="../06-harq-timing/index.html">06의 순환 버퍼</a>가 그것입니다.</li>
+    <li><strong>Polar는 용량을 만들지 않고 모은다.</strong> 엮어도 평균 용량은 그대로입니다. 다만 쓸 만한 몫이 <strong>한군데로 몰려서</strong>, 좋은 자리에만 정보를 싣고 나머지는 얼려 둘 수 있게 됩니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../19-measurement-handover/index.html">← 19 측정과 핸드오버</a>
+  <a href="../21-core-pdu-session/index.html">21 5G 코어와 세션 →</a>
+</nav>
+
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y});
+    if(cls)t.setAttribute('class',cls);
+    if(fill)t.setAttribute('fill',fill);
+    if(anchor)t.setAttribute('text-anchor',anchor);
+    t.textContent=s;return t;
+  }
+  function clear(g){while(g.firstChild)g.removeChild(g.firstChild);}
+  function mulberry32(seed){
+    var s=seed>>>0;
+    return function(){
+      s=(s+0x6D2B79F5)>>>0;
+      var t=s;
+      t=Math.imul(t^(t>>>15),t|1)>>>0;
+      t=(t^(t+Math.imul(t^(t>>>7),t|61)))>>>0;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
+  }
+
+  /* ── 1. 지우개 복호 ───────────────────────────────────────
+     비트 16개(정보 0~7, 검사 8~15) · 검사식 8개.
+     검사 i 는 정보 {i, i+1, i+2 mod 8} 과 검사비트 8+i 를 본다 → 차수 4.
+     설명용으로 지어낸 작은 부호이고 규격의 부호가 아니다. */
+  var CHECKS=[];
+  for(var i=0;i<8;i++){
+    var s=[i%8,(i+1)%8,(i+2)%8].sort(function(a,b){return a-b;});
+    CHECKS.push(s.concat([8+i]));
+  }
+  /* 2^16 패턴을 전부 돌려 얻은 성공률 — 파이썬 검산과 같은 값 */
+  var SUCC=[100,100,100,100,99.1,95.4,85.4,64.1,30.0,0,0,0,0];
+  var STOPSET=[0,1,9,14];              /* 못 푸는 가장 작은 패턴 */
+
+  function peel(erased){
+    var unknown={}, k;
+    erased.forEach(function(b){unknown[b]=1;});
+    var order=[], changed=true;
+    while(changed){
+      changed=false;
+      for(var i=0;i<8;i++){
+        var miss=CHECKS[i].filter(function(b){return unknown[b];});
+        if(miss.length===1){
+          delete unknown[miss[0]];
+          order.push({check:i,bit:miss[0]});
+          changed=true;
+        }
+      }
+    }
+    var left=[];
+    for(k in unknown) left.push(+k);
+    return {order:order,left:left};
+  }
+
+  var pkG=document.getElementById('pkG');
+  var pkN=document.getElementById('pkN'), pkSeed=document.getElementById('pkSeed');
+  var pkOut=document.getElementById('pkOut'), pkBox=document.getElementById('pkBox');
+  var pkTag=document.getElementById('pkTag'), pkWhy=document.getElementById('pkWhy');
+  var pkMode=0;                        /* 0 무작위 · 1 정지집합 */
+
+  var BX=140, BW=760, BH=34;
+  var ROW_I=64, ROW_C=214, ROW_P=328;  /* 정보비트 / 검사식 / 검사비트 */
+  function bitX(j){ return BX+j*(BW/8)+ (BW/8-70)/2; }   /* 칸 하나 폭 70 */
+
+  function drawPeel(){
+    clear(pkG);
+    var n=+pkN.value, seed=+pkSeed.value;
+    var erased;
+    if(pkMode===1){ erased=STOPSET.slice(); }
+    else{
+      var rnd=mulberry32(seed*7919+n*104729), pool=[];
+      for(var b=0;b<16;b++) pool.push(b);
+      for(var i=15;i>0;i--){ var j=Math.floor(rnd()*(i+1)); var t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
+      erased=pool.slice(0,n).sort(function(a,b){return a-b;});
+    }
+    var res=peel(erased);
+    var isEr={}, recAt={};
+    erased.forEach(function(b){isEr[b]=1;});
+    res.order.forEach(function(o,k){ recAt[o.bit]=k+1; });
+    var leftSet={};
+    res.left.forEach(function(b){leftSet[b]=1;});
+
+    /* 줄 이름 */
+    pkG.appendChild(txt(BX-14,ROW_I+22,'정보 비트','rowlab','var(--ink-soft)','end'));
+    pkG.appendChild(txt(BX-14,ROW_C+20,'검사식','rowlab','var(--ink-soft)','end'));
+    pkG.appendChild(txt(BX-14,ROW_P+22,'검사 비트','rowlab','var(--ink-soft)','end'));
+
+    /* 간선 먼저 (칸 밑에 깔리게) */
+    for(var c=0;c<8;c++){
+      var cx=bitX(c)+35;
+      CHECKS[c].forEach(function(b){
+        var isInfo=b<8;
+        var x2=bitX(isInfo?b:(b-8))+35;
+        var y2=isInfo?(ROW_I+BH):ROW_P;
+        var lit=(res.order.some(function(o){return o.check===c&&o.bit===b;}));
+        pkG.appendChild(el('line',{x1:cx,y1:isInfo?ROW_C:(ROW_C+26),x2:x2,y2:y2,
+          stroke:lit?'var(--ul)':'var(--hair)','stroke-width':lit?2:1}));
+      });
+    }
+
+    /* 검사식 노드 */
+    for(var c2=0;c2<8;c2++){
+      var used=res.order.some(function(o){return o.check===c2;});
+      pkG.appendChild(el('rect',{x:bitX(c2)+22,y:ROW_C,width:26,height:26,
+        fill:used?'var(--ul-bg)':'#fff',stroke:used?'var(--ul)':'var(--ink-soft)',
+        'stroke-width':1.4,rx:3}));
+      pkG.appendChild(txt(bitX(c2)+35,ROW_C+18,String(c2),'celllab',
+        used?'var(--ul)':'var(--ink-soft)','middle'));
+    }
+
+    /* 비트 칸 */
+    for(var b2=0;b2<16;b2++){
+      var isInfo=b2<8, col=isInfo?b2:(b2-8);
+      var x=bitX(col), y=isInfo?ROW_I:ROW_P;
+      var fill='#fff', stroke='var(--hair)', ink='var(--ink-soft)';
+      if(isEr[b2]){
+        if(leftSet[b2]){ fill='var(--alert-bg)'; stroke='var(--alert)'; ink='var(--alert)'; }
+        else{ fill='var(--ul-bg)'; stroke='var(--ul)'; ink='var(--ul)'; }
+      }else{
+        fill=isInfo?'var(--dl-bg)':'var(--gp-bg)';
+        stroke=isInfo?'var(--dl)':'var(--gp)';
+        ink=isInfo?'var(--dl)':'var(--gp)';
+      }
+      pkG.appendChild(el('rect',{x:x,y:y,width:70,height:BH,fill:fill,stroke:stroke,
+        'stroke-width':1.4,rx:3}));
+      var lab=isEr[b2]?(leftSet[b2]?'?':('↑'+recAt[b2])):String(b2);
+      pkG.appendChild(txt(x+35,y+23,lab,'celllab',ink,'middle'));
+    }
+
+    /* 범례 — 그림 아래, 격자 밖 */
+    var ly=396;
+    [['var(--dl-bg)','var(--dl)','정보 비트'],
+     ['var(--gp-bg)','var(--gp)','검사 비트'],
+     ['var(--alert-bg)','var(--alert)','끝내 못 푼 자리'],
+     ['var(--ul-bg)','var(--ul)','되살린 자리 (숫자는 순서)']].forEach(function(L,k){
+      var lx=BX+k*250;
+      pkG.appendChild(el('rect',{x:lx,y:ly-11,width:22,height:14,fill:L[0],stroke:L[1],'stroke-width':1.2,rx:2}));
+      pkG.appendChild(txt(lx+30,ly,L[2],'dimlab','var(--ink-soft)','start'));
+    });
+
+    document.getElementById('pkEr').textContent=erased.length;
+    document.getElementById('pkRec').textContent=res.order.length;
+    document.getElementById('pkLeft').textContent=res.left.length;
+    document.getElementById('pkRate').textContent=
+      (pkMode===1?'—':(erased.length<SUCC.length?SUCC[erased.length].toFixed(1):'0.0'));
+    pkOut.textContent=(pkMode===1?'정지집합 {0, 1, 9, 14}':'지움 '+erased.length+'개 · 패턴 '+seed);
+
+    var ok=res.left.length===0;
+    pkBox.className='verdict '+(ok?'ok':'bad');
+    if(ok){
+      pkTag.textContent='전부 되살렸다';
+      pkWhy.textContent=erased.length===0?'지운 것이 없습니다.'
+        :('검사식을 '+res.order.length+'번 풀어 '+erased.length+'개를 순서대로 되찾았습니다.');
+    }else if(erased.length>8){
+      pkTag.textContent='애초에 불가능';
+      pkWhy.textContent='검사식이 8개뿐인데 '+erased.length+'개를 지웠습니다 — 미지수가 식보다 많습니다.';
+    }else{
+      pkTag.textContent=res.left.length+'개가 남았다';
+      pkWhy.textContent='어느 검사식도 지워진 것을 하나만 보지 못해 시작할 데가 없습니다 — 정지집합입니다.';
+    }
+  }
+
+  /* ── 2. BG1 열 구조 (고정) ─────────────────────────────── */
+  (function drawBG(){
+    var g=document.getElementById('bgG');
+    var GX=70, GW=960, GY=96, GH=92;
+    var COLS=68, cw=GW/COLS;
+    var parts=[[0,22,'var(--dl-bg)','var(--dl)','정보열 22'],
+               [22,4,'var(--gp-bg)','var(--gp)','핵심 검사열 4'],
+               [26,42,'var(--gp-bg)','var(--gp)','확장 검사열 42 — 차수 1']];
+    parts.forEach(function(p){
+      g.appendChild(el('rect',{x:GX+p[0]*cw,y:GY,width:p[1]*cw,height:GH,
+        fill:p[2],stroke:p[3],'stroke-width':1.6}));
+    });
+    for(var c=0;c<COLS;c++){
+      g.appendChild(el('line',{x1:GX+c*cw,y1:GY,x2:GX+c*cw,y2:GY+GH,
+        stroke:'#fff','stroke-width':0.6,opacity:0.7}));
+    }
+    /* 덩어리 이름 — 상자 위·아래로 갈라 두어 서로 겹치지 않게 */
+    g.appendChild(txt(GX+11*cw,GY-16,'정보열 22','celllab','var(--dl)','middle'));
+    g.appendChild(txt(GX+24*cw,GY-44,'핵심 검사열 4','celllab','var(--gp)','middle'));
+    g.appendChild(el('line',{x1:GX+24*cw,y1:GY-36,x2:GX+24*cw,y2:GY-6,
+      stroke:'var(--gp)','stroke-width':1}));
+    g.appendChild(txt(GX+47*cw,GY-16,'확장 검사열 42 — 저마다 검사식 하나에만 걸린다',
+      'celllab','var(--gp)','middle'));
+
+    g.appendChild(txt(GX+11*cw,GY+GH+26,'여기가 실제 정보','dimlab','var(--ink-soft)','middle'));
+    g.appendChild(txt(GX+24*cw,GY+GH+26,'여러 검사식에 걸림','dimlab','var(--ink-soft)','middle'));
+    g.appendChild(txt(GX+47*cw,GY+GH+26,'뒤에서부터 떼어내며 부호율을 올린다','dimlab','var(--ink-soft)','middle'));
+
+    /* 안 보내는 앞 2열 */
+    g.appendChild(el('rect',{x:GX,y:GY,width:2*cw,height:GH,fill:'none',
+      stroke:'var(--alert)','stroke-width':2}));
+    g.appendChild(txt(GX+1*cw,GY+GH+62,'앞 2열(2Z 비트)은 아예 보내지 않는다',
+      'celllab','var(--alert)','start'));
+    g.appendChild(el('line',{x1:GX+1*cw,y1:GY+GH+34,x2:GX+1*cw,y2:GY+GH+50,
+      stroke:'var(--alert)','stroke-width':1.4}));
+    g.appendChild(txt(GX+GW,GY+GH+62,'→ 순환 버퍼 = (68 − 2)·Z = 66Z',
+      'celllab','var(--ink-soft)','end'));
+
+    /* 자 */
+    g.appendChild(el('line',{x1:GX,y1:GY+GH+8,x2:GX+GW,y2:GY+GH+8,
+      stroke:'var(--hair)','stroke-width':1}));
+    [0,22,26,68].forEach(function(c){
+      g.appendChild(el('line',{x1:GX+c*cw,y1:GY+GH+3,x2:GX+c*cw,y2:GY+GH+13,
+        stroke:'var(--ink-soft)','stroke-width':1}));
+    });
+  })();
+
+  /* ── 3. 편극 ───────────────────────────────────────────── */
+  var NS_OPT=[{n:1,lab:'n=1 · N=2'},{n:3,lab:'3 · 8'},{n:5,lab:'5 · 32'},
+              {n:7,lab:'7 · 128'},{n:10,lab:'10 · 1024'}];
+  var plState=1;
+  var polG=document.getElementById('polG');
+  var plEps=document.getElementById('plEps'), plOut=document.getElementById('plOut');
+  var PX=92, PY=44, PW=846, PH=272;
+
+  /* 엮을 때마다 ε⁻ = 2ε − ε², ε⁺ = ε² 로 갈라진다 */
+  function polarize(e0,n){
+    var e=[e0];
+    for(var k=0;k<n;k++){
+      var out=new Float64Array(e.length*2);
+      for(var i=0;i<e.length;i++){
+        out[2*i]=2*e[i]-e[i]*e[i];
+        out[2*i+1]=e[i]*e[i];
+      }
+      e=out;
+    }
+    return e;
+  }
+
+  function drawPol(){
+    clear(polG);
+    var e0=(+plEps.value)/100, n=NS_OPT[plState].n;
+    var e=polarize(e0,n), N=e.length;
+    var sorted=Array.prototype.slice.call(e).sort(function(a,b){return a-b;});
+
+    for(var v=0;v<=1.0001;v+=0.25){
+      var y=PY+(1-v)*PH;
+      polG.appendChild(el('line',{x1:PX,y1:y,x2:PX+PW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      polG.appendChild(txt(PX-12,y+4,v.toFixed(2),'dimlab','var(--ink-soft)','end'));
+    }
+    polG.appendChild(txt(PX-12,PY-16,'ε','rowlab','var(--ink-soft)','end'));
+
+    /* 용량 자리 — 세로 점선 */
+    var capX=PX+(1-e0)*PW;
+    polG.appendChild(el('rect',{x:PX,y:PY,width:capX-PX,height:PH,fill:'var(--dl-bg)',opacity:0.45}));
+    polG.appendChild(el('rect',{x:capX,y:PY,width:PX+PW-capX,height:PH,fill:'var(--gp-bg)',opacity:0.45}));
+    polG.appendChild(el('line',{x1:capX,y1:PY,x2:capX,y2:PY+PH,
+      stroke:'var(--ink)','stroke-width':1.6,'stroke-dasharray':'5 4'}));
+    /* 용량선이 가장자리에 붙으면 가운데 정렬한 이름표가 세로축 글자를 덮는다 —
+       그럴 때는 선 안쪽으로 흘려 붙인다. */
+    var capA='middle', capOff=0;
+    if(capX-PX<110){ capA='start'; capOff=8; }
+    else if(PX+PW-capX<110){ capA='end'; capOff=-8; }
+    polG.appendChild(txt(capX+capOff,PY-16,'용량 1 − ε₀ = '+(1-e0).toFixed(2),
+      'celllab','var(--ink)',capA));
+
+    /* 계단 곡선 */
+    var d='';
+    for(var px=0;px<=PW;px++){
+      var idx=Math.min(Math.floor(px/PW*N),N-1);
+      d+=(px?'L':'M')+(PX+px).toFixed(1)+' '+(PY+(1-sorted[idx])*PH).toFixed(1)+' ';
+    }
+    polG.appendChild(el('path',{d:d,fill:'none',stroke:'var(--dl)','stroke-width':2.4}));
+
+    /* 가로축 */
+    polG.appendChild(txt(PX,PY+PH+22,'좋은 자리','dimlab','var(--ink-soft)','start'));
+    polG.appendChild(txt(PX+PW,PY+PH+22,'나쁜 자리','dimlab','var(--ink-soft)','end'));
+    polG.appendChild(txt(PX+PW/2,PY+PH+48,'합성 채널 '+N+'개를 좋은 순으로 세운 것',
+      'dimlab','var(--ink-soft)','middle'));
+
+    /* 범례 — 축 아래 */
+    var ly=PY+PH+82;
+    polG.appendChild(el('rect',{x:PX,y:ly-11,width:22,height:14,fill:'var(--dl-bg)',
+      stroke:'var(--dl)','stroke-width':1.2,rx:2}));
+    polG.appendChild(txt(PX+30,ly,'정보를 실을 만한 몫','dimlab','var(--ink-soft)','start'));
+    polG.appendChild(el('rect',{x:PX+250,y:ly-11,width:22,height:14,fill:'var(--gp-bg)',
+      stroke:'var(--gp)','stroke-width':1.2,rx:2}));
+    polG.appendChild(txt(PX+280,ly,'얼려 둘 몫','dimlab','var(--ink-soft)','start'));
+
+    var sum=0,good=0,bad=0;
+    for(var i=0;i<N;i++){ sum+=e[i]; if(e[i]<0.01)good++; else if(e[i]>0.99)bad++; }
+    document.getElementById('plMean').textContent=(sum/N).toFixed(4);
+    document.getElementById('plGood').textContent=(good/N*100).toFixed(1);
+    document.getElementById('plBad').textContent=(bad/N*100).toFixed(1);
+    document.getElementById('plMid').textContent=((N-good-bad)/N*100).toFixed(1);
+    plOut.textContent='ε₀ = '+e0.toFixed(2)+' · N = '+N;
+  }
+
+  function seg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.lab;
+      b.setAttribute('aria-pressed',get()===i?'true':'false');
+      b.addEventListener('click',function(){
+        set(i);
+        Array.prototype.forEach.call(host.children,function(c,j){
+          c.setAttribute('aria-pressed',j===i?'true':'false');
+        });
+        redraw();
+      });
+      host.appendChild(b);
+    });
+  }
+  seg(document.getElementById('pkMode'),
+      [{lab:'무작위 패턴'},{lab:'정지집합 4개'}],
+      function(){return pkMode;},function(i){pkMode=i;},drawPeel);
+  seg(document.getElementById('plN'),NS_OPT,
+      function(){return plState;},function(i){plState=i;},drawPol);
+  [pkN,pkSeed].forEach(function(e){ e.addEventListener('input',drawPeel); });
+  plEps.addEventListener('input',drawPol);
+
+  drawPeel();
+  drawPol();
+})();
+</script>
+
+</body>
+</html>
