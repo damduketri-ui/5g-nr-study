@@ -86,6 +86,7 @@ def main():
     ok &= check_oai()
     ok &= check_offline()
     ok &= check_dmrs()
+    ok &= check_ho()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -662,6 +663,205 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 19 측정과 핸드오버 ───────────────────────────────────────
+# 근거: TS 38.331 §5.5.3.2(L3 필터), §5.5.4.4(이벤트 A3), ASN.1 모듈
+#       TS 38.215 §5.1(RSRP·RSRQ·SINR), TS 38.133 §10.1.6(보고 눈금)
+# 경로손실·그림자 페이딩 모형은 규격값이 아니라 자료가 고른 값이다.
+
+# ASN.1 에서 그대로 옮긴 열거값
+HO_FC = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 19]
+HO_TTT = [0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120]
+
+HO_D, HO_PLE = 500.0, 3.5          # 셀 간격 [m], 경로손실 지수 (모형)
+HO_GRID, HO_DCORR = 0.5, 20.0      # 그림자 격자 [m], 상관거리 [m] (모형)
+HO_TMEAS = 0.200                   # L1 측정 주기 [s] (가정)
+HO_P0 = -95 + 10 * HO_PLE * math.log10(250)
+
+
+def l3_samples(k):
+    """F_n = (1−a)F_{n−1} + a·M_n 가 63 %에 이르는 표본 수. a = 2^(−k/4)"""
+    a = 2.0 ** (-k / 4)
+    return None if a >= 1.0 else -1.0 / math.log(1 - a)
+
+
+def ho_rsrp(d):
+    return HO_P0 - 10 * HO_PLE * math.log10(max(d, 10.0))
+
+
+def ho_diff(x, d=HO_D):
+    """Mn − Mp [dB] — 서빙은 x=0, 이웃은 x=d"""
+    return 10 * HO_PLE * math.log10(x / (d - x))
+
+
+def ho_trigger_x(margin, d=HO_D):
+    """Mn − Mp = margin 이 되는 위치"""
+    r = 10 ** (margin / (10 * HO_PLE))
+    return d * r / (1 + r)
+
+
+def _mulberry32(seed):
+    """자료의 자바스크립트와 비트까지 같은 결과를 내는 PRNG"""
+    s = seed & 0xFFFFFFFF
+
+    def nxt():
+        nonlocal s
+        s = (s + 0x6D2B79F5) & 0xFFFFFFFF
+        t = s
+        t = (t ^ (t >> 15)) * (t | 1) & 0xFFFFFFFF
+        t = (t ^ (t + ((t ^ (t >> 7)) * (t | 61) & 0xFFFFFFFF))) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
+    return nxt
+
+
+def _gauss(rnd):
+    u = max(rnd(), 1e-12)
+    return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * rnd())
+
+
+def ho_field(sigma, seed=20260905):
+    """그림자 페이딩을 위치 격자에 깔아 둔다 — 속도를 바꿔도 채널은 그대로여야
+    비교가 성립한다. 표본마다 난수를 뽑으면 속도마다 다른 채널을 보게 된다."""
+    rnd = _mulberry32(seed)
+    n = int(HO_D / HO_GRID) + 1
+    rho = math.exp(-HO_GRID / HO_DCORR)
+    sd = sigma * math.sqrt(max(1 - rho * rho, 0))
+    f = [[0.0] * n, [0.0] * n]
+    for c in (0, 1):
+        for i in range(1, n):
+            f[c][i] = rho * f[c][i - 1] + sd * _gauss(rnd)
+    return f
+
+
+def ho_run(hys_db, off_db, ttt_ms, k, sigma, kmh, field=None):
+    """자료의 그림과 같은 모형. 반환: [(위치, 그때의 차)]"""
+    if field is None:
+        field = ho_field(sigma)
+    a = 2.0 ** (-k / 4)
+    step = kmh / 3.6 * HO_TMEAS
+    fil = [None, None]
+    serving, hold, hos = 0, 0.0, []
+    x = 20.0
+    while x < HO_D - 20.0:
+        gi = min(int(x / HO_GRID + 0.5), len(field[0]) - 1)
+        raw = [ho_rsrp(x) + field[0][gi], ho_rsrp(HO_D - x) + field[1][gi]]
+        for c in (0, 1):
+            fil[c] = raw[c] if fil[c] is None else (1 - a) * fil[c] + a * raw[c]
+        nb = 1 - serving
+        enter = fil[nb] - hys_db > fil[serving] + off_db
+        hold = hold + HO_TMEAS * 1000 if enter else 0.0
+        if enter and hold >= ttt_ms:
+            hos.append((x, fil[nb] - fil[serving]))
+            serving, hold = nb, 0.0
+        x += step
+    return hos
+
+
+def check_ho():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[19] L3 필터 — TS 38.331 §5.5.3.2 · a = 1/2^(k/4)")
+    hit = len(HO_FC) == 15 and len(HO_TTT) == 16
+    ok &= hit
+    print(f"  filterCoefficient {len(HO_FC)}가지 · timeToTrigger {len(HO_TTT)}가지"
+          f"  {'✓' if hit else '✗'}")
+    ok &= l3_samples(0) is None
+    print(f"  fc0 은 필터 없음 (a = 1)  {'✓' if l3_samples(0) is None else '✗'}")
+    for k, n_pub, ms_pub in ((4, 1.443, 289), (9, 4.237, 847), (19, 26.406, 5281)):
+        n = l3_samples(k)
+        hit = abs(n - n_pub) < 0.001 and abs(n * 200 - ms_pub) < 1
+        ok &= hit
+        print(f"  fc{k:<2} a={2.0**(-k/4):.5f} → {n:7.3f} 표본 · 200 ms 주기면 "
+              f"{n*200:6.0f} ms  {'✓' if hit else '✗'}")
+    eq("ASN.1 기본값 fc4 의 a", 2.0 ** -1, 0.5, 1e-12)
+
+    print("\n[19] A3 조건 — TS 38.331 §5.5.4.4")
+    # 진입 Mn+Ofn+Ocn−Hys > Mp+Ofp+Ocp+Off · 이탈 Mn+Ofn+Ocn+Hys < Mp+Ofp+Ocp+Off
+    # 오프셋을 모두 0 으로 두면 진입 Mn−Mp > Off+Hys, 이탈 Mn−Mp < Off−Hys
+    for off, hys in ((3.0, 2.0), (0.0, 0.0), (-1.5, 7.5)):
+        enter, leave = off + hys, off - hys
+        hit = abs((enter - leave) - 2 * hys) < 1e-12
+        ok &= hit
+        if not hit:
+            print(f"  ✗ Off={off} Hys={hys} 에서 띠 너비가 2·Hys 가 아니다")
+    print("  죽은 띠 너비 = 2·Hys (세 조합에서 확인)  ✓")
+    eq("hysteresis 상한 [dB]", 30 * 0.5, 15.0, 1e-12)
+    eq("a3-Offset 상한 [dB]", 30 * 0.5, 15.0, 1e-12)
+    eq("timeToTrigger 상한 [ms]", HO_TTT[-1], 5120, 0.5)
+
+    print("\n[19] 기하 — 경로손실 모형 (규격값 아님)")
+    slope = (10 * HO_PLE / math.log(10)) * (4.0 / HO_D)
+    num = (ho_diff(HO_D / 2 + 0.05) - ho_diff(HO_D / 2 - 0.05)) / 0.1
+    hit = abs(slope - num) < 1e-4
+    ok &= hit
+    print(f"  중간지점 기울기 (10n/ln10)(4/D) = {slope:.5f} dB/m · "
+          f"수치미분 {num:.5f}  {'✓' if hit else '✗'}")
+    eq("중간지점 기울기 [dB/m]", slope, 0.1216, 0.0001)
+    eq("250 m 에서의 RSRP [dBm]", ho_rsrp(250), -95.0, 0.01)
+    eq("차이 3 dB 가 되는 곳 · 중간에서 [m]", ho_trigger_x(3) - HO_D / 2, 24.6, 0.1)
+    eq("차이 5 dB 가 되는 곳 · 중간에서 [m]", ho_trigger_x(5) - HO_D / 2, 40.8, 0.1)
+    # 차이가 3 dB 안쪽인 구간의 길이 — 자료의 띠
+    span = 2 * (ho_trigger_x(3) - HO_D / 2)
+    eq("차이가 ±3 dB 안쪽인 구간 [m]", span, 49.2, 0.2)
+
+    print("\n[19] 지연이 거리로 바뀐다 — Off+Hys = 5 dB · fc4 · TTT 320 ms")
+    lag_ms = l3_samples(4) * 200
+    eq("L3 필터 지연 [ms]", lag_ms, 288.5, 1.0)
+    tot = (lag_ms + 320) / 1000.0
+    eq("전체 지연 [ms]", tot * 1000, 608.5, 1.0)
+    for kmh, dist_pub, past_pub, gap_pub in ((120, 20.3, 61.0, 7.58), (300, 50.7, 91.5, 11.66)):
+        dist = kmh / 3.6 * tot
+        x = ho_trigger_x(5) + dist
+        hit = (abs(dist - dist_pub) < 0.1 and abs(x - HO_D / 2 - past_pub) < 0.1
+               and abs(ho_diff(x) - gap_pub) < 0.01)
+        ok &= hit
+        print(f"  {kmh:3d} km/h → {dist:5.1f} m 이동 · 중간에서 {x-HO_D/2:5.1f} m · "
+              f"차 {ho_diff(x):5.2f} dB  {'✓' if hit else '✗'}")
+    # 느린 단말이 그림자 하나를 못 벗어난다 — 자료 본문의 5 m / 51 m
+    eq("30 km/h 가 609 ms 동안 가는 거리 [m]", 30 / 3.6 * tot, 5.1, 0.1)
+    eq("300 km/h 가 609 ms 동안 가는 거리 [m]", 300 / 3.6 * tot, 50.7, 0.1)
+
+    print("\n[19] 보고 눈금 — RSRP-Range INTEGER(0..127), (k − 156) dBm")
+    eq("눈금 0 이 뜻하는 값 [dBm]", 0 - 156, -156, 0.5)
+    eq("눈금 126 이 뜻하는 값 [dBm]", 126 - 156, -30, 0.5)
+    eq("1 dB 눈금이 덮는 폭 [dB]", 126 - 1, 125, 0.5)
+    eq("보고에 쓰는 비트 수", math.log2(128), 7, 1e-12)
+
+    print("\n[19] 주행 모형 — 자료의 그림과 같은 모형")
+    h = ho_run(0, 0, 0, 0, 0.0, 120)
+    hit = len(h) == 1 and abs(h[0][0] - HO_D / 2) < 12
+    ok &= hit
+    print(f"  σ=0 · 방어 없음 → 핸드오버 {len(h)}회, {h[0][0]:.0f} m "
+          f"(중간 {HO_D/2:.0f} m)  {'✓' if hit else '✗'}")
+
+    h = ho_run(0, 0, 0, 0, 6.0, 120)
+    hit = len(h) == 11
+    ok &= hit
+    print(f"  σ=6 · 방어 없음 → 핸드오버 {len(h)}회 (되돌아온 것 {len(h)-1}회)"
+          f"  게시 11회  {'✓' if hit else '✗'}")
+
+    h = ho_run(2.0, 3.0, 320, 4, 6.0, 120)
+    hit = len(h) == 1 and h[0][0] > HO_D / 2 + 40
+    ok &= hit
+    print(f"  σ=6 · Hys 2 · Off 3 · TTT 320 · fc4 → {len(h)}회, "
+          f"중간에서 {h[0][0]-HO_D/2:+.0f} m · {h[0][1]:.1f} dB  {'✓' if hit else '✗'}")
+
+    # 같은 채널을 다른 속도로 — 느린 쪽이 더 오간다
+    fld = ho_field(6.0)
+    counts = {v: len(ho_run(2.0, 3.0, 320, 4, 6.0, v, field=fld)) for v in (30, 60, 120, 300)}
+    hit = counts[30] == 3 and counts[60] == 3 and counts[120] == 1 and counts[300] == 1
+    ok &= hit
+    print(f"  같은 채널 · 속도만 바꿈 → {counts}  게시 30·60은 3회, 120·300은 1회"
+          f"  {'✓' if hit else '✗'}")
 
     return ok
 

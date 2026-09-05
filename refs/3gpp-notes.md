@@ -202,6 +202,8 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | 항목 | 조항 | 내용 | 사용처 | 검증 |
 |---|---|---|---|---|
 | BWP 전환 지연 | §8.6.2 Table 8.6.2-1 | 슬롯 단위, μ=0…3<br>타입 1: 1 / 2 / 3 / 6 · 타입 2: 3 / 5 / 9 / 18<br>DCI를 받은 슬롯 n으로부터 슬롯 n+T부터 새 BWP에서 송수신 가능 | 05 | |
+| RSRP 보고 눈금 | §10.1.6 | 7비트(0..127), **1 dB 눈금**. 보고값 k ↔ (k − 156) dBm<br>k=0 −156 dBm · k=126 −30 dBm · 양 끝은 열려 있다 → 1 dB 눈금이 덮는 폭 125 dB | 19 | ⚠️ 원문 미대조 · OAI 주석과 일치 |
+| L1 측정 구간 | §9.2.5 | 자료 19가 **200 ms**로 가정한 값. 필터 시상수를 밀리초로 바꿀 때만 쓴다 | 19 | ⚠️ 미검증 — 표본 수 쪽이 규격에서 바로 나오는 값 |
 
 ---
 
@@ -210,6 +212,16 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | 항목 | 조항 | 내용 | 사용처 | 검증 |
 |---|---|---|---|---|
 | 단말 전력 모델 | 전반 | 3GPP 자체의 상대 전력 모델과 대역폭 스케일링이 여기 있다 | 05 | ⚠️ 미검증 — **수치를 인용하지 않았음** |
+
+---
+
+## TS 38.215 — Physical layer measurements
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| SS-RSRP | §5.1.1 | SSB의 기준신호를 나르는 자원 요소들의 **전력 선형 평균** [dBm]<br>간섭과 무관하다 — "이 셀이 얼마나 가까운가"만 본다 | 19 | ⚠️ 미검증 |
+| SS-RSRQ | §5.1.3 | N × RSRP ÷ NR 반송파 RSSI [dB], N = RSSI 측정 대역의 자원블록 수 | 19 | ⚠️ 미검증 |
+| SS-SINR | §5.1.5 | 기준신호 전력 ÷ (잡음 + 간섭) [dB] | 19 | ⚠️ 미검증 |
 
 ---
 
@@ -237,6 +249,16 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | 순환 시프트 설정 | `zeroCorrelationZoneConfig` · `prach-RootSequenceIndex` | 0–15가 N_CS 표의 행을 가리킨다 · 루트 시퀀스 시작 번호 | 08 | |
 | TCI 상태 수 | `maxNrofTCI-States` | 설정 최대 128개, MAC-CE로 8개까지 활성화 | 07 | ⚠️ 미검증 |
 | 빔 실패 설정 | `BeamFailureRecoveryConfig` · `RadioLinkMonitoringConfig` | `beamFailureInstanceMaxCount` · `beamFailureDetectionTimer` · 후보 빔 RSRP 임계 | 07 | ⚠️ 미검증 (열거값) |
+| L3 필터 | §5.5.3.2 | F_n = (1−a)·F_{n−1} + a·M_n, **a = 1/2^(k/4)**<br>k = `filterCoefficient`. 첫 측정에서는 F를 그 값으로 놓고 시작한다 | 19 | ⚠️ 원문 미대조 · OAI 구현과 일치 |
+| `FilterCoefficient` | ASN.1 | ENUMERATED {fc0…fc9, fc11, fc13, fc15, fc17, fc19, spare1} — **15가지**<br>`FilterConfig` 의 세 필드가 모두 **DEFAULT fc4** (a = 0.5) | 19 | ASN.1 원문 |
+| 이벤트 A3 | §5.5.4.4 | 진입 Mn + Ofn + Ocn − Hys > Mp + Ofp + Ocp + Off<br>이탈 Mn + Ofn + Ocn + Hys < Mp + Ofp + Ocp + Off<br>→ 오프셋을 0으로 두면 죽은 띠 너비 = **2·Hys** | 19 | ⚠️ 원문 미대조 |
+| `EventTriggerConfig` | ASN.1 | eventA1~A6. **여섯 전부** `hysteresis`·`timeToTrigger`·`reportOnLeave` 를 가진다<br>A3·A6 만 오프셋(상대), 나머지는 문턱(절대) | 19 | ASN.1 원문 |
+| `Hysteresis` | ASN.1 | INTEGER (0..30) · 눈금 0.5 dB → **0 ~ 15 dB** | 19 | ASN.1 원문 |
+| `MeasTriggerQuantityOffset` | ASN.1 | CHOICE {rsrp/rsrq/sinr INTEGER (−30..30)} · 눈금 0.5 dB → **−15 ~ +15 dB**<br>a3-Offset 이 이 타입이다 | 19 | ASN.1 원문 · OAI 주석 `field value * 0.5 dB` 와 일치 |
+| `TimeToTrigger` | ASN.1 | 16가지: 0, 40, 64, 80, 100, 128, 160, 256, 320, 480, 512, 640, 1024, 1280, 2560, 5120 ms | 19 | ASN.1 원문 |
+| `Q-OffsetRange` | ASN.1 | −24 ~ +24 dB. 0 부근은 1 dB, 멀어지면 2 dB 간격<br>`cellIndividualOffset` 이 이 타입이다 | 19 | ASN.1 원문 |
+| `SSB-MTC` | ASN.1 | 측정 창 주기 sf5/10/20/40/80/160, duration sf1~sf5 | 19 | ASN.1 원문 |
+| `RSRP-Range` 등 | ASN.1 | RSRP·RSRQ·SINR 모두 INTEGER(0..127) — **7비트** | 19 | ASN.1 원문 |
 
 ---
 
@@ -270,6 +292,58 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | 실시간 BFW | O-RAN.WG4.CUS.0 Section Extension 1 | 빔포밍 웨이트 값을 C-plane에 실어 보낸다<br>PRB 묶음 단위로 보낼 수 있어 부담을 줄인다 | 14 | ⚠️ 미검증 (확장 번호 · 묶음 설정 필드명) |
 | Option 8 (CPRI) | CPRI Specification | **시간영역** IQ를 안테나마다 통째로. 실린 데이터와 무관하게 양이 일정하다 | 14 | ⚠️ 미검증 (버전·비트폭 관행) |
 | 시각 동기 | IEEE 1588 PTP · ITU-T G.8275.1 | O-RU와 O-DU의 시계를 맞춘다. 양이 아니라 **정확도**가 관건 | 14 | ⚠️ 미검증 (요구 정확도 수치) |
+
+---
+
+## 유도한 값 — 19 측정과 핸드오버 (계산 근거)
+
+```
+[L3 필터]  F_n = (1−a)F_{n−1} + a·M_n 의 충격응답은 (1−a)^n 로 준다
+  63.2 % (= 1 − 1/e) 에 이르는 표본 수 N = −1 / ln(1−a),  a = 2^(−k/4)
+    fc0  a = 1        필터 없음
+    fc4  a = 0.5      N =  1.443 표본 → 200 ms 주기면    289 ms   (ASN.1 기본값)
+    fc9  a = 0.21022  N =  4.237      →                  847 ms
+    fc19 a = 0.037163 N = 26.406      →                5,281 ms
+  ※ 표본 수는 규격에서 바로 나오고, 밀리초는 측정 주기 200 ms 를 곱한 것이다.
+
+[A3 의 죽은 띠]  오프셋(Ofn·Ocn·Ofp·Ocp)을 0 으로 두면
+  진입: Mn − Mp >  Off + Hys
+  이탈: Mn − Mp <  Off − Hys
+  → 너비 = (Off+Hys) − (Off−Hys) = 2·Hys        (Off·Hys 세 조합에서 확인)
+  Off 는 띠를 옮기고 Hys 는 띠를 넓힌다 — 다른 일을 한다.
+
+[기하 — 모형이지 규격값이 아니다]
+  RSRP(d) = P0 − 10n·log10(d),  n = 3.5 (도심 가정), D = 500 m
+  250 m 에서 −95 dBm 이 되도록 P0 = −95 + 35·log10(250) = −11.07 dBm
+  두 셀의 차 Δ(x) = 10n·log10(x/(D−x))
+  중간지점 기울기 dΔ/dx = (10n/ln10)·(4/D) = 0.1216 dB/m   (수치미분과 일치)
+    Δ = 3 dB 인 곳: 중간에서 24.6 m  → ±3 dB 안쪽 구간이 49.2 m
+    Δ = 5 dB 인 곳: 중간에서 40.8 m
+
+[지연이 거리로 바뀐다]  Off+Hys = 5 dB · fc4 · TTT 320 ms
+  규격이 정하는 지연은 둘뿐 — L3 시상수 289 ms + TTT 320 ms = 609 ms
+  (측정 보고·RRC 처리·타깃 접속은 구현이 정하므로 숫자를 쓰지 않았다 → 아래쪽 한계)
+            이동거리   중간에서   그때의 차
+    120 km/h  20.3 m    61.0 m    7.58 dB
+    300 km/h  50.7 m    91.5 m   11.66 dB
+  609 ms 동안 30 km/h 는 5.1 m, 300 km/h 는 50.7 m 를 간다
+  → 필터와 TTT 는 시간 단위인데 채널의 요동은 거리 단위다.
+    느린 단말은 그림자 하나(상관거리 20 m)를 벗어나지 못해 더 많이 오간다.
+
+[주행 모형 — 규격값이 아니라 자료가 고른 값]
+  그림자 페이딩: AR(1), 상관거리 20 m, 위치 격자 0.5 m 에 미리 깔아 둔다.
+    (표본마다 난수를 뽑으면 속도마다 다른 채널을 보게 되어 비교가 성립하지 않는다)
+  난수는 mulberry32(씨앗 20260905) — 자바스크립트와 파이썬이 비트까지 같은 값을 낸다.
+  측정 주기 200 ms, 20 m 에서 480 m 까지 주행.
+    σ=0 · 방어 없음                     → 핸드오버 1회, 253 m (중간 250 m)
+    σ=6 · 방어 없음                     → 11회 (되돌아온 것 10회)
+    σ=6 · Hys 2 · Off 3 · TTT 320 · fc4 → 1회, 중간에서 +70 m, 그때 12.5 dB
+    같은 채널 · 속도만 바꿈             → 30·60 km/h 는 3회, 120·300 km/h 는 1회
+  브라우저에서 읽은 값이 파이썬과 전부 일치함을 확인했다.
+
+[보고 눈금]  RSRP-Range INTEGER(0..127) = 7비트, 1 dB 눈금
+  k ↔ (k − 156) dBm · k=0 −156 · k=126 −30 · 양 끝 열림 → 눈금이 덮는 폭 125 dB
+```
 
 ---
 
@@ -1178,6 +1252,11 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | DMRS 심볼 위치 표 (7.4.1.1.2-3) | `openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.c` `table_7_4_1_1_2_3_pdsch_dmrs_positions_l` — l_d=14 행 `{0, 2048, 2176, 2336}` 를 비트로 펴면 18의 네 줄이 그대로 나온다 |
 | l_0 = 3 일 때 addpos3 금지 | 같은 파일 `get_l_prime()` 의 `AssertFatal((l0 == 2) \|\| (l0 == 3 && dmrs_AdditionalPosition != 3))` |
 | 변환 프리코딩 시 DMRS 가 저-PAPR 로 바뀐다 | `openair1/PHY/NR_UE_TRANSPORT/nr_ulsch_ue.c` — `transform_precoding == transformPrecoder_enabled` 분기에서만 `dmrs_lowpaprtype1_ul_ref_sig[u][v][index]`, 같은 줄에 `num_dmrs_res_per_symbol = nb_rb * (NR_NB_SC_PER_RB / 2)` 로 자원블록당 6 RE |
+| L3 필터의 a = 1/2^(k/4) | `openair2/RRC/NR_UE/rrc_UE.c:1374` `1./pow(2, filterCoefficientRSRP/4)` |
+| 점화식 F_n = (1−a)F_{n−1} + a·M_n | 같은 파일 `apply_ema()` — `*quant = (1-coef)*(*quant) + coef*rsrp_dBm`, 첫 측정은 coef=1 |
+| a3-Offset 의 눈금이 0.5 dB | `openair2/RRC/NR/rrc_gNB.c:1853` 주석 + `a3_offset*0.5 + hysteresis < (이웃 − 서빙)` 판정 |
+| RSRP 보고값 ↔ (k − 156) dBm | `openair2/LAYER2/NR_MAC_UE/nr_ra_procedures.c:920` 주석 |
+| **TS 38.331 ASN.1 모듈 원문** | `openair2/RRC/NR/MESSAGES/ASN.1/nr-rrc-16.1.0.asn1` — 구현이 아니라 **규격의 규범적 부속서**다. 19의 열거값·범위는 전부 여기서 옮겼다 |
 
 ---
 
@@ -1190,6 +1269,9 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 - [ ] **Case C 비페어드(TDD) 기준의 2.4 GHz 경계** — TS 38.213 §4.1 원문 대조 필요. 04에 그대로 실림
 - [ ] **FR1 상한** — Rel-15는 6 GHz, Rel-16 이후 7.125 GHz. 04는 "FR1 > 3 GHz"로만 적어 회피했으나 표에 릴리즈 병기 검토
 - [ ] **18의 §7.4.1.1.2 표 넷** (자원 매핑식·포트별 w_f/w_t·심볼 위치·l_0 제약) — OAI 소스와는 전부 일치하나 3GPP 원문 대조는 아직. 원문을 보면 위 표의 "원문 미대조 · OAI와 일치"를 지우고 검증일을 남길 것
+- [ ] **19의 L1 측정 주기 200 ms** — TS 38.133 §9.2.5 대조 필요. 자료는 "가정"이라 밝혔고 표본 수 쪽을 규격값으로 썼다
+- [ ] **19의 TS 38.215 §5.1 정의 셋** (RSRP·RSRQ·SINR) — 원문 대조 아직. ASN.1 에는 정의가 없어 OAI로도 못 받쳤다
+- [ ] **19의 A3 부등식** — ASN.1 은 필드 이름만 주고 부등식은 절차 본문(§5.5.4.4)에 있다. OAI gNB 판정식과는 방향이 일치
 - [ ] **18의 ε_crit 는 규격값이 아니다** — 정사각 M-QAM 기하로 유도한 절대 천장이며, TS 38.101-1 §6.4.2 의 송신기 EVM 요구와는 다른 값이다. 두 값을 나란히 놓는 절을 나중에 넣을지 검토
 - [ ] **대역별 SSB 케이스 지정** (n78 → Case C) — TS 38.104 Table 5.4.3.3-1 대조 필요. 04의 버튼 라벨 "C · 30 kHz · n78"이 여기 의존
 - [ ] **대역별 GSCN 범위** (예: n78) — TS 38.104 Table 5.4.3.3-1. 04 본문은 래스터 간격에서 유도한 "약 350"만 제시해 회피함
