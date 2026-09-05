@@ -85,6 +85,7 @@ def main():
     ok &= check_gold()
     ok &= check_oai()
     ok &= check_offline()
+    ok &= check_dmrs()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -661,6 +662,232 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 18 DMRS와 채널 추정 ─────────────────────────────────────
+# 근거: TS 38.211 §7.4.1.1.2(자리와 부호), 표 7.4.1.1.2-1/-2(포트별 w_f·w_t),
+#       표 7.4.1.1.2-3(심볼 위치), §6.4.1.1.1.2(변환 프리코딩 시 저-PAPR DMRS)
+# 변조 임계 ε_crit 은 정사각 M-QAM 의 기하이지 규격값이 아니다.
+
+# 표 7.4.1.1.2-1 — 포트 1000~1007: (λ, Δ, w_f(0), w_f(1), w_t(0), w_t(1))
+DMRS_T1 = [(0, 0, 1, 1, 1, 1), (0, 0, 1, -1, 1, 1), (1, 1, 1, 1, 1, 1), (1, 1, 1, -1, 1, 1),
+           (0, 0, 1, 1, 1, -1), (0, 0, 1, -1, 1, -1), (1, 1, 1, 1, 1, -1), (1, 1, 1, -1, 1, -1)]
+# 표 7.4.1.1.2-2 — 포트 1000~1011 (Δ ∈ {0,2,4})
+DMRS_T2 = [(0, 0, 1, 1, 1, 1), (0, 0, 1, -1, 1, 1), (1, 2, 1, 1, 1, 1), (1, 2, 1, -1, 1, 1),
+           (2, 4, 1, 1, 1, 1), (2, 4, 1, -1, 1, 1),
+           (0, 0, 1, 1, 1, -1), (0, 0, 1, -1, 1, -1), (1, 2, 1, 1, 1, -1), (1, 2, 1, -1, 1, -1),
+           (2, 4, 1, 1, 1, -1), (2, 4, 1, -1, 1, -1)]
+
+# OAI table_7_4_1_1_2_3_pdsch_dmrs_positions_l 의 l_d=14 행 (매핑 타입 A, addpos 0~3).
+# 비트 i = 심볼 i 이고 l_0 는 따로 OR 된다 — dmrs-TypeA-Position = pos2 → l_0 = 2.
+DMRS_POS_BITS_LD14 = (0, 2048, 2176, 2336)
+DMRS_L0 = 2
+
+
+def dmrs_re_grid(dtype, delta):
+    """자원블록(부반송파 12개) 안에서 한 CDM 묶음이 쓰는 부반송파 — §7.4.1.1.2"""
+    if dtype == 1:                                   # k = 4n + 2k' + Δ
+        return sorted(4 * n + 2 * kp + delta for n in range(3) for kp in (0, 1))
+    return sorted(6 * n + kp + delta for n in range(2) for kp in (0, 1))   # k = 6n + k' + Δ
+
+
+def occ_leak(phi):
+    """짝 사이 위상차 φ 일 때 다른 포트가 섞여 드는 상대 크기"""
+    return abs(math.tan(phi / 2))
+
+
+def qam_eps_crit(m):
+    """정사각 M-QAM 모서리 점이 판정 경계를 넘는 상대오차 = 1/((√M−1)·√2)"""
+    return 1.0 / ((math.isqrt(m) - 1) * math.sqrt(2))
+
+
+def dmrs_est_err(syms, fd, tsym):
+    """DMRS 심볼에서만 채널을 알 때의 심볼별 상대오차 |Ĥ−H|/|Ĥ|.
+    사이는 직선 보간, 바깥은 기울기 외삽. 말뚝이 하나면 값을 붙든다.
+    자료의 자바스크립트와 같은 모형이다."""
+    def h(l):
+        return complex(math.cos(2 * math.pi * fd * l * tsym),
+                       math.sin(2 * math.pi * fd * l * tsym))
+    out = []
+    for l in range(14):
+        if l in syms:
+            a = b = l
+        else:
+            lo = [s for s in syms if s < l]
+            hi = [s for s in syms if s > l]
+            if lo and hi:
+                a, b = max(lo), min(hi)
+            elif len(syms) == 1:
+                a = b = syms[0]
+            elif hi:
+                a, b = syms[0], syms[1]
+            else:
+                a, b = syms[-2], syms[-1]
+        est = h(a) if a == b else h(a) + (h(b) - h(a)) * ((l - a) / (b - a))
+        out.append(abs(est - h(l)) / abs(est))
+    return out
+
+
+def check_dmrs():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[18] DMRS 자리 — TS 38.211 §7.4.1.1.2")
+    for dtype, deltas, per, pair in ((1, (0, 1), 6, 2), (2, (0, 2, 4), 4, 1)):
+        total = set()
+        gaps = set()
+        for d in deltas:
+            res = dmrs_re_grid(dtype, d)
+            assert all(0 <= r < 12 for r in res), (dtype, d, res)
+            total |= set(res)
+            gaps.add(res[1] - res[0])          # 같은 n 의 k'=0,1 이 이웃한다
+        hit = len(total) == 12 and len(dmrs_re_grid(dtype, deltas[0])) == per and gaps == {pair}
+        ok &= hit
+        print(f"  타입 {dtype}: 묶음 {len(deltas)}개 × {per} RE = {len(total)} RE/RB/심볼, "
+              f"OCC 짝 간격 {pair} 부반송파  {'✓' if hit else '✗'}")
+
+    # 표의 포트 수 — Δ(2 또는 3) × w_f(2) × w_t(2)
+    eq("타입1 최대 포트 (2심볼)", len(DMRS_T1), 8, 0.5)
+    eq("타입2 최대 포트 (2심볼)", len(DMRS_T2), 12, 0.5)
+    for name, tab, ndelta in (("타입1", DMRS_T1, 2), ("타입2", DMRS_T2, 3)):
+        single = [r for r in tab if r[4] == 1 and r[5] == 1]
+        hit = len(single) == ndelta * 2 and len(tab) == ndelta * 4
+        ok &= hit
+        print(f"  {name} 1심볼 포트 {len(single)}개 = Δ {ndelta} × w_f 2  {'✓' if hit else '✗'}")
+    # 부호열이 실제로 직교하는가
+    orth = all(sum(a * b for a, b in zip(r1[2:4], r2[2:4])) == 0
+               for r1, r2 in ((DMRS_T1[0], DMRS_T1[1]), (DMRS_T2[0], DMRS_T2[1])))
+    ok &= orth
+    print(f"  w_f = [+1,+1] 과 [+1,−1] 이 직교하는가  {'✓' if orth else '✗'}")
+
+    print("\n[18] 저울 — 합과 차로 두 포트를 되찾는다")
+    # a_{k,l} = w_f(k')·w_t(l')·r(2n+k'), |r| = 1
+    ha, hb = complex(0.8, 0.3), complex(-0.5, 0.6)
+    r0, r1 = complex(math.cos(0.7), math.sin(0.7)), complex(math.cos(2.1), math.sin(2.1))
+    y0 = ha * r0 + hb * r0                       # 포트A w_f(0)=+1, 포트B w_f(0)=+1
+    y1 = ha * r1 - hb * r1                       # 포트A w_f(1)=+1, 포트B w_f(1)=−1
+    z0, z1 = y0 * r0.conjugate(), y1 * r1.conjugate()
+    ea, eb = (z0 + z1) / 2, (z0 - z1) / 2
+    hit = abs(ea - ha) < 1e-12 and abs(eb - hb) < 1e-12
+    ok &= hit
+    print(f"  채널이 두 칸에서 같으면 오차 {max(abs(ea-ha), abs(eb-hb)):.1e}  {'✓' if hit else '✗'}")
+    # 자료에 실은 정수 예시: H_A=3, H_B=1 → y0=4, y1=2 → 합/2=3, 차/2=1
+    hit = (3 + 1, 3 - 1) == (4, 2) and ((4 + 2) // 2, (4 - 2) // 2) == (3, 1)
+    ok &= hit
+    print(f"  자료의 정수 예시 3·1 → 4·2 → 3·1  {'✓' if hit else '✗'}")
+
+    print("\n[18] 저울이 흔들릴 때 — 누설 tan(φ/2)")
+    for phi in (0.05, 0.3, 0.882, 1.5):          # 닫힌형이 직접 계산과 같은가
+        e = (1 - complex(math.cos(phi), -math.sin(phi)))
+        s = (1 + complex(math.cos(phi), -math.sin(phi)))
+        hit = abs(abs(e) / abs(s) - occ_leak(phi)) < 1e-12
+        ok &= hit
+        if not hit:
+            print(f"  ✗ φ={phi} 에서 닫힌형 불일치")
+    print("  닫힌형이 직접 계산과 일치 (φ = 0.05, 0.3, 0.882, 1.5)  ✓")
+
+    scs = 30e3
+    for tau_us, d1_pub, d2_pub in ((0.1, -34.5, -40.5), (0.3, -24.9, -31.0), (1.0, -14.4, -20.5)):
+        a = 20 * math.log10(occ_leak(2 * math.pi * 2 * scs * tau_us * 1e-6))
+        b = 20 * math.log10(occ_leak(2 * math.pi * 1 * scs * tau_us * 1e-6))
+        hit = abs(a - d1_pub) < 0.06 and abs(b - d2_pub) < 0.06 and abs(a - b - 6.02) < 0.1
+        ok &= hit
+        print(f"  τ={tau_us:4.1f} μs → 타입1 {a:7.2f} dB · 타입2 {b:7.2f} dB · "
+              f"차 {a-b:.2f} dB  {'✓' if hit else '✗'}")
+    eq("간격 절반의 이득 [dB]", 10 * math.log10(4), 6.02, 0.01)
+
+    # CP 눈금에서의 누설은 μ와 무관해야 한다 (φ = 2π·d·15000·2^μ · 144·64·2^-μ·Tc)
+    cp_phi = {}
+    for mu in (0, 1, 3):
+        tau = cp(mu) * 1e-6
+        cp_phi[mu] = 2 * math.pi * 2 * (15e3 * 2**mu) * tau
+    hit = max(cp_phi.values()) - min(cp_phi.values()) < 1e-12
+    ok &= hit
+    print(f"  CP 눈금의 위상차가 μ와 무관한가 ({cp_phi[1]:.4f} rad)  {'✓' if hit else '✗'}")
+    eq("CP 눈금 · 타입1 누설 [dB]", 20 * math.log10(occ_leak(cp_phi[1])), -6.50, 0.02)
+    eq("CP 눈금 · 타입2 누설 [dB]", 20 * math.log10(occ_leak(cp_phi[1] / 2)), -12.97, 0.02)
+
+    print("\n[18] 변조 천장 — 정사각 M-QAM 기하 (규격값 아님)")
+    for m, e_pub, db_pub in ((4, 70.71, -3.01), (16, 23.57, -12.55),
+                             (64, 10.10, -19.91), (256, 4.71, -26.53)):
+        e = qam_eps_crit(m)
+        hit = abs(e * 100 - e_pub) < 0.01 and abs(20 * math.log10(e) - db_pub) < 0.01
+        ok &= hit
+        print(f"  {m:>4}QAM  ε_crit {e*100:6.2f} %  {20*math.log10(e):7.2f} dB  "
+              f"{'✓' if hit else '✗'}")
+    # QPSK 의 ε_crit 은 정확히 45° 회전과 같아야 한다 (|e^{jπ/4} − 1| = 2sin(π/8) 이 아니라
+    # 등화 상대오차 기준: 모서리 점 (1,1) 이 축에 닿을 때 |δ| = 1/√2)
+    hit = abs(qam_eps_crit(4) - 1 / math.sqrt(2)) < 1e-12
+    ok &= hit
+    print(f"  QPSK ε_crit = 1/√2  {'✓' if hit else '✗'}")
+
+    # 타입1이 64QAM 천장에 닿는 지연 — 자료 본문의 0.53 μs / CP의 23 %
+    tau_hit = math.atan(qam_eps_crit(64)) / (math.pi * 2 * scs)
+    eq("타입1이 64QAM 천장에 닿는 τ [μs]", tau_hit * 1e6, 0.53, 0.005)
+    eq("그때 CP 대비 [%]", tau_hit * 1e6 / cp(1) * 100, 22.8, 0.2)
+
+    print("\n[18] 겹친 대가 — 포트당 표본 간격")
+    for sp, want, gain_pub, label in ((2, 64 / 9, 8.52, '타입1 · 포트 하나만'),
+                                      (4, 32 / 9, 5.51, '타입1 · OCC로 둘'),
+                                      (6, 64 / 27, 3.75, '타입2 · OCC로 둘')):
+        ratios = []
+        for mu in (0, 1, 3):
+            win = 1.0 / (sp * 15e3 * 2**mu) * 1e6      # μs
+            ratios.append(win / cp(mu))
+        hit = (max(ratios) - min(ratios) < 1e-9 and abs(ratios[1] - want) < 1e-9
+               and abs(10 * math.log10(ratios[1]) - gain_pub) < 0.01)
+        ok &= hit
+        print(f"  {label:<18} 간격 {sp} SC → 창 {1e6/(sp*30e3):5.2f} μs · "
+              f"CP 대비 {ratios[1]:.4f}배 · 잡음이득 {10*math.log10(ratios[1]):.2f} dB"
+              f"  {'✓' if hit else '✗'}")
+    eq("겹치며 반납하는 이득 [dB]", 10 * math.log10(7.111111 / 3.555556), 3.01, 0.01)
+    eq("타입2가 덜 받는 이득 [dB]",
+       10 * math.log10(32 / 9) - 10 * math.log10(64 / 27), 1.76, 0.01)
+
+    print("\n[18] 오버헤드 — 자원블록 168 RE 기준")
+    eq("포트 4개를 따로 박으면 [RE]", 4 * 6, 24, 0.5)
+    eq("그때 비율 [%]", 24 / 168 * 100, 14.3, 0.05)
+    eq("겹쳐 실으면 [RE]", 2 * 6, 12, 0.5)
+    eq("그때 비율 [%]", 12 / 168 * 100, 7.1, 0.05)
+
+    print("\n[18] 심볼 위치 — 표 7.4.1.1.2-3, 매핑 타입 A, l_d=14, l_0=2")
+    want_pos = {0: [2], 1: [2, 11], 2: [2, 7, 11], 3: [2, 5, 8, 11]}
+    pos = {}
+    for ap, bits in enumerate(DMRS_POS_BITS_LD14):
+        pos[ap] = sorted({DMRS_L0} | {i for i in range(14) if bits >> i & 1})
+        hit = pos[ap] == want_pos[ap]
+        ok &= hit
+        print(f"  addpos{ap}: 비트 {bits:5d} → 심볼 {str(pos[ap]):<16} {'✓' if hit else '✗'}")
+    for ap, far_pub, avg_pub in ((0, 11, 4.93), (1, 4, 1.86), (2, 2, 1.14), (3, 2, 0.86)):
+        dists = [min(abs(l - s) for s in pos[ap]) for l in range(14)]
+        hit = max(dists) == far_pub and abs(sum(dists) / 14 - avg_pub) < 0.01
+        ok &= hit
+        print(f"  addpos{ap}: 가장 먼 데이터 {max(dists):2d} 심볼 · 평균 {sum(dists)/14:.2f}"
+              f"  {'✓' if hit else '✗'}")
+
+    print("\n[18] 시간 방향 오차 — 3.5 GHz · μ=1 · 자료의 그림과 같은 모형")
+    tsym1 = 1e-3 / 2 / 14
+    c_ms = 299792458.0
+    for kmh, deg_pub in ((30, 1.25), (120, 5.00), (300, 12.51)):
+        fd = (kmh / 3.6) * 3.5e9 / c_ms
+        eq(f"{kmh} km/h · 심볼당 위상 [°]", 360 * fd * tsym1, deg_pub, 0.01)
+    # pos0 은 시속 30 km에서도 64QAM 천장(10.1 %)을 넘는다 — 본문의 24 %
+    fd30 = (30 / 3.6) * 3.5e9 / c_ms
+    eq("30 km/h · pos0 최대 오차 [%]", max(dmrs_est_err(pos[0], fd30, tsym1)) * 100, 24.0, 0.1)
+    for ap, pub in ((1, 0.52), (2, 0.33), (3, 0.24)):
+        eq(f"30 km/h · pos{ap} 최대 오차 [%]",
+           max(dmrs_est_err(pos[ap], fd30, tsym1)) * 100, pub, 0.01)
+    # 28 GHz·μ=3 은 심볼이 1/4로 짧아지지만 f_c 가 8배라 심볼당 위상이 정확히 2배가 된다
+    fd28 = (120 / 3.6) * 28e9 / c_ms
+    r = (360 * fd28 * (1e-3 / 8 / 14)) / (360 * ((120 / 3.6) * 3.5e9 / c_ms) * tsym1)
+    eq("28 GHz·μ=3 의 심볼당 위상 배수", r, 2.0, 1e-9)
 
     return ok
 

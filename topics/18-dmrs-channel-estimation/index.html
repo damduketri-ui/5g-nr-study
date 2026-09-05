@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>18 DMRS와 채널 추정 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>18 / DMRS와 채널 추정</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">18 · dmrs · channel estimation</p>
+  <h1>같은 칸에<br><em>둘을 겹쳐</em> 싣는다</h1>
+  <p class="lead"><a href="../11-reference-signals/index.html">11</a>은 주파수 방향 말뚝이 <strong>"포트를 몇 개까지 구별할 것인가"라는 다른 문제를 푼다</strong>고 말하고 끝났습니다. 그런데 <strong>어떻게</strong> 구별하는지는 말하지 않았습니다. 타입 1이 12 RE로 포트 4개를 준다면, 말뚝 하나가 포트 <strong>둘</strong>을 감당한다는 뜻입니다. 한 칸에 두 사람의 신호가 겹쳐 있는데 어떻게 각자를 되찾을까요.</p>
+</header>
+
+<section class="wrap">
+  <h2>11이 남긴 질문</h2>
+  <p>레이어가 넷이면 단말은 채널을 <strong>넷</strong> 재야 합니다. <a href="../10-physical-layer-chain/index.html">10에서 봤듯</a> 레이어마다 다른 프리코딩을 지나오므로, 하나를 재서 나머지를 짐작할 수가 없습니다.</p>
+
+  <p>가장 단순한 방법은 <strong>말뚝을 네 배 박는 것</strong>입니다. 포트마다 자기 자리를 주면 됩니다. 그런데 그러면 자원이 남지 않습니다.</p>
+
+  <!-- 유도: 자원블록 = 12 부반송파 × 14 심볼 = 168 RE
+       타입1 CDM묶음 하나 = 6 RE/RB/심볼 (k = 4n+2k'+delta, n=0..2, k'=0,1)
+       포트마다 따로 박으면 4포트 × 6 RE = 24 RE = 14.29%
+       겹쳐 싣는 지금 규격은 4포트를 12 RE = 7.14% 로 끝낸다 -->
+  <div class="stats">
+    <div><span class="n">24</span><span class="t">포트 4개를 따로 박으면 [RE]</span></div>
+    <div><span class="n">14.3</span><span class="t">그때 자원블록에서 먹는 비율 [%]</span></div>
+    <div><span class="n">12</span><span class="t">겹쳐 실으면 [RE]</span></div>
+    <div><span class="n">7.1</span><span class="t">그때 먹는 비율 [%]</span></div>
+  </div>
+  <p class="caption">자원블록 하나 = 12 부반송파 × 14 심볼 = 168 RE 기준. 타입 1의 CDM 묶음 하나는 심볼당 6 RE를 씁니다 — <code>k = 4n + 2k′ + Δ</code>에서 n = 0,1,2와 k′ = 0,1이니 자원블록 안에 여섯 자리입니다. <span class="src">TS 38.211 §7.4.1.1.2</span></p>
+
+  <div class="note">
+    <strong>겹쳐 싣는다는 것이 이 자료의 전부다.</strong> 규격은 포트를 늘리면서 자원을 늘리지 않습니다.
+    같은 두 칸에 두 포트를 함께 실어 놓고, 받는 쪽이 <strong>산수 한 번</strong>으로 각자를 되찾게 합니다.
+    이것을 <strong>CDM(Code Division Multiplexing, 부호 분할 다중화)</strong>이라 부르고,
+    5G NR에서는 <strong>OCC(Orthogonal Cover Code, 직교 커버 부호)</strong>라는 아주 짧은 부호로 구현합니다.
+    이후로는 OCC라 부르겠습니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>저울 — 합과 차</h2>
+  <p>상자 두 개의 무게를 각각 알고 싶은데, 저울에 하나씩 올릴 수가 없다고 합시다. 방법이 있습니다. <strong>둘을 함께 올려 합을 재고, 양팔 저울에 하나씩 올려 차를 잽니다.</strong> 합과 차를 알면 각자를 알 수 있습니다.</p>
+
+  <p>OCC가 정확히 이것입니다. 두 포트가 <strong>같은 두 칸</strong>을 씁니다. 한 포트는 두 칸에 <strong>같은 부호</strong>로, 다른 포트는 <strong>반대 부호</strong>로 싣습니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 350" role="img" aria-labelledby="tSc dSc">
+      <title id="tSc">두 포트를 같은 두 칸에 겹쳐 싣고 합과 차로 되찾는 과정</title>
+      <desc id="dSc">왼쪽에는 두 개의 부반송파 칸이 있고 각 칸마다 포트 A와 포트 B가 함께 실린다. 포트 A는 두 칸에 같은 부호로, 포트 B는 위 칸에 더하기 아래 칸에 빼기 부호로 실린다. 가운데에서 두 신호가 공중에서 그대로 더해져 각 칸에 하나의 값만 남는다. 오른쪽에서 두 값을 더해 반으로 나누면 포트 A의 채널이, 빼서 반으로 나누면 포트 B의 채널이 나온다.</desc>
+
+      <!-- 열 제목 -->
+      <text x="50"  y="40" class="rowlab" fill="var(--ink-soft)">보내는 쪽 — 같은 칸에 겹친다</text>
+      <text x="470" y="40" class="rowlab" fill="var(--ink-soft)">공중 — 그냥 더해진다</text>
+      <text x="740" y="40" class="rowlab" fill="var(--ink-soft)">받는 쪽 — 합과 차</text>
+
+      <!-- 포트 머리글 -->
+      <text x="205" y="80" class="celllab" fill="var(--dl)" text-anchor="middle">포트 A</text>
+      <text x="315" y="80" class="celllab" fill="var(--dl)" text-anchor="middle">포트 B</text>
+
+      <!-- 부반송파 k -->
+      <text x="140" y="128" class="dimlab" fill="var(--ink-soft)" text-anchor="end">부반송파 k</text>
+      <rect x="155" y="106" width="100" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.2" rx="3"/>
+      <text x="205" y="129" class="celllab" fill="var(--ink)" text-anchor="middle">+3</text>
+      <rect x="265" y="106" width="100" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.2" rx="3"/>
+      <text x="315" y="129" class="celllab" fill="var(--ink)" text-anchor="middle">+1</text>
+
+      <!-- 부반송파 k+2 -->
+      <text x="140" y="200" class="dimlab" fill="var(--ink-soft)" text-anchor="end">부반송파 k+2</text>
+      <rect x="155" y="178" width="100" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.2" rx="3"/>
+      <text x="205" y="201" class="celllab" fill="var(--ink)" text-anchor="middle">+3</text>
+      <rect x="265" y="178" width="100" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.2" rx="3"/>
+      <text x="315" y="201" class="celllab" fill="var(--ink)" text-anchor="middle">−1</text>
+
+      <text x="205" y="240" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">w_f = [+1, +1]</text>
+      <text x="315" y="240" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">w_f = [+1, −1]</text>
+      <text x="260" y="270" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">채널이 3과 1이라고 두었습니다</text>
+
+      <!-- 화살표 -->
+      <path d="M378 123 L440 123" stroke="var(--ink-soft)" stroke-width="1.4" fill="none" marker-end="url(#arw)"/>
+      <path d="M378 195 L440 195" stroke="var(--ink-soft)" stroke-width="1.4" fill="none" marker-end="url(#arw)"/>
+      <defs>
+        <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <!-- 공중 -->
+      <rect x="455" y="106" width="110" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.6" rx="3"/>
+      <text x="510" y="129" class="celllab" fill="var(--ink)" text-anchor="middle">y₀ = 4</text>
+      <rect x="455" y="178" width="110" height="34" fill="var(--dl-bg)" stroke="var(--dl)" stroke-width="1.6" rx="3"/>
+      <text x="510" y="201" class="celllab" fill="var(--ink)" text-anchor="middle">y₁ = 2</text>
+      <text x="510" y="240" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">3+1 = 4 · 3−1 = 2</text>
+      <text x="510" y="264" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">둘이 섞여 있다</text>
+
+      <path d="M578 123 L645 123" stroke="var(--ink-soft)" stroke-width="1.4" fill="none" marker-end="url(#arw)"/>
+      <path d="M578 195 L645 195" stroke="var(--ink-soft)" stroke-width="1.4" fill="none" marker-end="url(#arw)"/>
+
+      <!-- 양팔 저울 글리프 -->
+      <line x1="660" y1="150" x2="700" y2="150" stroke="var(--ink-soft)" stroke-width="1.2"/>
+      <line x1="680" y1="150" x2="680" y2="176" stroke="var(--ink-soft)" stroke-width="1.2"/>
+      <path d="M664 150 a16 16 0 0 0 32 0" fill="none" stroke="var(--ink-soft)" stroke-width="1.2"/>
+      <line x1="668" y1="176" x2="692" y2="176" stroke="var(--ink-soft)" stroke-width="1.2"/>
+
+      <!-- 받는 쪽 -->
+      <rect x="720" y="100" width="330" height="46" fill="none" stroke="var(--hair)" stroke-width="1" rx="3"/>
+      <text x="736" y="129" class="celllab" fill="var(--ink)">합  (4 + 2) / 2 = 3</text>
+      <text x="1034" y="129" class="celllab" fill="var(--dl)" text-anchor="end">= 포트 A의 채널</text>
+
+      <rect x="720" y="172" width="330" height="46" fill="none" stroke="var(--hair)" stroke-width="1" rx="3"/>
+      <text x="736" y="201" class="celllab" fill="var(--ink)">차  (4 − 2) / 2 = 1</text>
+      <text x="1034" y="201" class="celllab" fill="var(--dl)" text-anchor="end">= 포트 B의 채널</text>
+
+      <text x="885" y="252" class="dimlab" fill="var(--ink-soft)" text-anchor="middle">칸 두 개에서 값 두 개 — 미지수 두 개를 정확히 푼다</text>
+
+      <!-- 조건 -->
+      <line x1="50" y1="300" x2="1050" y2="300" stroke="var(--hair)" stroke-width="1"/>
+      <text x="50" y="326" class="dimlab" fill="var(--alert)">조건: 두 칸의 채널이 같아야 한다. 다르면 합과 차가 서로에게 새어 든다 — 아래에서 그 양을 잽니다.</text>
+    </svg>
+  </div>
+  <p class="caption">채널을 실수 3과 1로 두어 산수만 남겼습니다. 실제 채널은 복소수이고 각 칸에는 시퀀스 값 r이 곱해져 있지만, <strong>|r| = 1</strong>이라 받는 쪽이 켤레를 곱해 벗겨내면 위 그림 그대로가 됩니다. 시퀀스가 왜 <strong>|r| = 1</strong>인지는 <a href="../16-gold-sequence-csi-rs/index.html">16</a>에 있습니다.</p>
+
+  <!-- 유도: a_{k,l} = w_f(k') w_t(l') r(2n+k')      TS 38.211 §7.4.1.1.2
+       포트 A: w_f=[+1,+1] → y0 = H_A r0 + H_B r0,  y1 = H_A r1 − H_B r1
+       |r|=1 이므로 z0 = y0 r0* = H_A + H_B,  z1 = y1 r1* = H_A − H_B
+       → H_A = (z0+z1)/2,  H_B = (z0−z1)/2      (복소수로 검산 완료, 오차 1.1e-16) -->
+  <div class="note">
+    <strong>왜 하필 더하기와 빼기인가.</strong> 두 포트가 쓰는 부호열 [+1, +1]과 [+1, −1]은 서로 <strong>직교</strong>합니다 —
+    (+1)(+1) + (+1)(−1) = 0. 직교한다는 말은 <strong>한쪽을 꺼낼 때 다른 쪽이 정확히 0이 된다</strong>는 뜻이고,
+    그래서 합과 차가 서로를 완전히 지웁니다. <a href="../15-zadoff-chu-srs/index.html">15</a>와 <a href="../16-gold-sequence-csi-rs/index.html">16</a>이
+    긴 시퀀스로 어렵게 얻어낸 성질을, 여기서는 <strong>길이 2짜리 부호</strong>가 공짜로 줍니다.
+    대신 조건이 붙습니다 — <strong>두 칸의 채널이 같아야</strong> 합니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>규격이 정한 부호</h2>
+  <p>어느 포트가 어떤 부호를 쓰는지는 규격이 표로 못 박아 두었습니다. 세 가지가 함께 정해집니다 — <strong>어느 CDM 묶음(λ)</strong>에 속하는지, <strong>부반송파를 얼마나 밀지(Δ)</strong>, 그리고 <strong>주파수·시간 부호(w<sub>f</sub>, w<sub>t</sub>)</strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>DMRS 구성 타입 1 · 안테나 포트별 부호 <span class="src">TS 38.211 표 7.4.1.1.2-1</span></caption>
+    <thead><tr><th class="num">포트 p</th><th class="num">CDM 묶음 λ</th><th class="num">Δ</th>
+      <th class="num">w<sub>f</sub>(0), w<sub>f</sub>(1)</th><th class="num">w<sub>t</sub>(0), w<sub>t</sub>(1)</th><th>쓰이는 때</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1000</td><td class="num">0</td><td class="num">0</td><td class="num">+1, +1</td><td class="num">+1, +1</td><td>1심볼로 충분</td></tr>
+      <tr><td class="num">1001</td><td class="num">0</td><td class="num">0</td><td class="num">+1, −1</td><td class="num">+1, +1</td><td>1심볼로 충분</td></tr>
+      <tr><td class="num">1002</td><td class="num">1</td><td class="num">1</td><td class="num">+1, +1</td><td class="num">+1, +1</td><td>1심볼로 충분</td></tr>
+      <tr><td class="num">1003</td><td class="num">1</td><td class="num">1</td><td class="num">+1, −1</td><td class="num">+1, +1</td><td>1심볼로 충분</td></tr>
+      <tr><td class="num">1004</td><td class="num">0</td><td class="num">0</td><td class="num">+1, +1</td><td class="num">+1, −1</td><td><strong>2심볼이 필요</strong></td></tr>
+      <tr><td class="num">1005</td><td class="num">0</td><td class="num">0</td><td class="num">+1, −1</td><td class="num">+1, −1</td><td><strong>2심볼이 필요</strong></td></tr>
+      <tr><td class="num">1006</td><td class="num">1</td><td class="num">1</td><td class="num">+1, +1</td><td class="num">+1, −1</td><td><strong>2심볼이 필요</strong></td></tr>
+      <tr><td class="num">1007</td><td class="num">1</td><td class="num">1</td><td class="num">+1, −1</td><td class="num">+1, −1</td><td><strong>2심볼이 필요</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">표를 세로로 읽으면 규칙이 보입니다. <strong>Δ가 자리를 나누고(주파수 분할), w<sub>f</sub>가 한 자리 안에서 둘로 나누고(주파수 부호), w<sub>t</sub>가 다시 둘로 나눕니다(시간 부호).</strong> 2 × 2 × 2 = 8. 포트 8개가 이렇게 나옵니다.</p>
+
+  <!-- 유도: 타입1 k = 4n + 2k' + delta, delta in {0,1}
+         delta=0 → RE {0,2,4,6,8,10},  delta=1 → RE {1,3,5,7,9,11}   각 6 RE
+         쌍(k'=0,1)의 간격 = 2 SC
+       타입2 k = 6n + k' + delta, delta in {0,2,4}
+         delta=0 → {0,1,6,7}, delta=2 → {2,3,8,9}, delta=4 → {4,5,10,11}  각 4 RE
+         쌍의 간격 = 1 SC
+       두 타입 모두 합계 12 RE / RB / 심볼 — 스크립트로 확인 -->
+  <div class="table-scroll">
+  <table>
+    <caption>두 타입이 자원블록 위에서 자리를 나누는 법 · 1심볼 기준</caption>
+    <thead><tr><th>—</th><th class="num">타입 1</th><th class="num">타입 2</th></tr></thead>
+    <tbody>
+      <tr><td>자리 규칙</td><td class="num">k = 4n + 2k′ + Δ</td><td class="num">k = 6n + k′ + Δ</td></tr>
+      <tr><td>Δ가 가질 수 있는 값</td><td class="num">0, 1</td><td class="num">0, 2, 4</td></tr>
+      <tr><td>묶음 하나가 쓰는 RE</td><td class="num">0,2,4,6,8,10 (6개)</td><td class="num">0,1,6,7 (4개)</td></tr>
+      <tr><td><strong>OCC 짝의 간격</strong></td><td class="num"><strong>2 부반송파</strong></td><td class="num"><strong>1 부반송파</strong></td></tr>
+      <tr><td>합계</td><td class="num">12 RE · 묶음 2개</td><td class="num">12 RE · 묶음 3개</td></tr>
+      <tr><td>최대 포트</td><td class="num">4 · 2심볼이면 8</td><td class="num">6 · 2심볼이면 12</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption"><strong>굵게 표시한 줄이 이 자료의 반전입니다.</strong> 타입 2는 말뚝이 성기다고 <a href="../11-reference-signals/index.html">11</a>에서 봤는데, <strong>OCC 짝만은 오히려 더 붙어 있습니다</strong> — 바로 옆 부반송파입니다. 저울 조건에는 타입 2가 유리하다는 뜻입니다. <span class="src">TS 38.211 §7.4.1.1.2</span></p>
+
+  <div class="note">
+    <strong>이 표들은 OAI 구현과 대조했다.</strong> <a href="../17-openairinterface/index.html">17에서 본</a> 소스의
+    <span class="src">openair1/PHY/<wbr>NR_TRANSPORT/nr_sch_dmrs.c</span>에 <code>pdsch_dmrs_1[8][7]</code>과
+    <code>pdsch_dmrs_2[12][7]</code>이 그대로 있고, 자리 계산은 <code>get_dmrs_freq_idx()</code> 한 줄
+    <code>(dmrs_type)? (6*n+k_prime+delta) : ((n&lt;&lt;2)+(k_prime&lt;&lt;1)+delta)</code>입니다.
+    위 표의 여덟 줄과 부호까지 일치합니다. <span class="src">커밋 b3930e3 · 태그 2026.w36</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>저울이 흔들릴 때</h2>
+  <p>합과 차가 통하려면 <strong>두 칸의 채널이 같아야</strong> 합니다. 그런데 <a href="../11-reference-signals/index.html">11에서 봤듯</a> 채널은 주파수에 따라 출렁입니다. 지연 확산이 크면 두 칸 사이에서도 이미 달라집니다.</p>
+
+  <p>얼마나 달라지는지는 계산됩니다. 지연 τ인 경로 하나만 두면 두 칸 사이의 위상 차는 <strong>φ = 2π · d · Δf · τ</strong>입니다(d는 짝의 간격, Δf는 부반송파 간격). 이때 되찾은 값에 섞이는 다른 포트의 크기는</p>
+
+  <!-- 유도: H(k) = exp(-j 2 pi k df tau) 로 두면 두 칸이 e^{-j phi} 만큼 차이
+       Ĥ_A = (z0+z1)/2 = H_A (1+e^{-j phi})/2 + H_B (1-e^{-j phi})/2
+       |H_A| ~ |H_B| 이면 상대 누설 = |1-e^{-j phi}| / |1+e^{-j phi}| = |tan(phi/2)|
+       닫힌형이 직접 계산과 일치함을 phi = 0.05, 0.3, 0.882, 1.5 에서 확인
+       지수감쇠 다중경로 몬테카를로(씨앗 20260905)에서도 6.0 dB 차이 재현 -->
+  <div class="stats">
+    <div><span class="n">tan(φ/2)</span><span class="t">섞여 드는 크기 ÷ 제 값의 크기</span></div>
+    <div><span class="n">6.02</span><span class="t">짝 간격이 절반이면 벌어지는 차 [dB]</span></div>
+  </div>
+  <p class="caption">두 번째 값이 타입 1과 타입 2를 가릅니다. 작은 각도에서 tan(φ/2) ≈ φ/2이므로 간격 d가 절반이면 누설도 절반, 전력으로는 <strong>1/4 = −6.02 dB</strong>입니다. 타입 2의 짝은 간격이 1 부반송파, 타입 1은 2 부반송파입니다.</p>
+
+  <p>아래에서 지연 확산을 올려 보세요. 두 곡선이 <strong>나란히 6 dB 떨어져</strong> 올라갑니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="tLk dLk">
+      <title id="tLk">지연 확산이 커지면 OCC로 되찾은 값에 다른 포트가 섞여 든다</title>
+      <desc id="dLk">가로축은 지연 확산이고 세로축은 다른 포트가 섞여 드는 상대 크기를 데시벨로 나타낸다. 타입 1과 타입 2 두 곡선이 나란히 오르며 타입 2가 항상 약 6 데시벨 아래에 있다. 가로 점선은 변조 방식별로 잡음이 전혀 없어도 판정이 무너지는 경계이고, 세로 점선은 순환 전치 길이다.</desc>
+      <g id="lkG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="lkTau">지연 확산</label>
+    <input type="range" id="lkTau" min="2" max="250" step="1" value="30" aria-describedby="lkOut">
+    <span class="readout" id="lkOut"></span>
+  </div>
+
+  <div class="verdict" id="lkBox">
+    <span class="tag" id="lkTag"></span>
+    <span class="why" id="lkWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="lkP1">—</span><span class="t">타입 1 · 짝 사이 위상차 [°]</span></div>
+    <div><span class="n" id="lkL1">—</span><span class="t">타입 1 · 섞여 드는 양 [dB]</span></div>
+    <div><span class="n" id="lkL2">—</span><span class="t">타입 2 · 섞여 드는 양 [dB]</span></div>
+    <div><span class="n" id="lkD">—</span><span class="t">둘의 차 [dB]</span></div>
+  </div>
+  <p class="caption">30 kHz 부반송파 간격(μ = 1) 기준입니다. 경로 하나짜리 채널로 그렸습니다 — 여러 경로가 겹친 지수 감쇠 채널로 몬테카를로를 돌려도 같은 6 dB 차가 나옵니다(τ<sub>rms</sub> = 0.1 / 0.3 / 1.0 μs에서 6.02 / 6.01 / 5.86 dB). <strong>이 그림은 누설 하나만 본 것입니다</strong> — 실제로는 잡음, 시간 방향 오차와 예산을 나눠 씁니다.</p>
+
+  <!-- 유도: 정사각 M-QAM 모서리 점 (a,a), a = sqrt(M)-1, 격자 간격 2, 판정 경계까지 1
+       등화식 s·H/Ĥ 에서 상대오차 eps 는 성상점을 |s|·eps = a√2·eps 만큼 민다
+       → 무너짐 조건 a√2·eps > 1  →  eps_crit = 1/((√M −1)√2)
+       QPSK 70.71% (-3.01 dB) · 16QAM 23.57% (-12.55) · 64QAM 10.10% (-19.91) · 256QAM 4.71% (-26.53)
+       QPSK 는 정확히 45도 회전 한계와 같음을 별도로 검산 -->
+  <div class="table-scroll">
+  <table>
+    <caption>잡음이 전혀 없어도 판정이 무너지는 상대오차 · ε<sub>crit</sub> = 1 / ((√M − 1)·√2)</caption>
+    <thead><tr><th class="num">변조</th><th class="num">모서리 점 a</th><th class="num">ε<sub>crit</sub></th><th class="num">dB</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td class="num">QPSK</td><td class="num">1</td><td class="num">70.71 %</td><td class="num">−3.01</td><td>사실상 무엇이든 견딘다</td></tr>
+      <tr><td class="num">16QAM</td><td class="num">3</td><td class="num">23.57 %</td><td class="num">−12.55</td><td>—</td></tr>
+      <tr><td class="num">64QAM</td><td class="num">7</td><td class="num">10.10 %</td><td class="num">−19.91</td><td>—</td></tr>
+      <tr><td class="num">256QAM</td><td class="num">15</td><td class="num">4.71 %</td><td class="num">−26.53</td><td><strong>추정이 5 %만 틀려도 무너진다</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">순수한 기하입니다 — 규격값이 아닙니다. 정사각 M-QAM의 모서리 성상점이 판정 경계를 넘는 지점을 계산한 것으로, <strong>잡음이 하나도 없을 때의 절대 천장</strong>입니다. 실제 설계는 여기에 한참 못 미치는 곳에서 이미 변조 차수를 내립니다. <span class="src">기하 계산 · 3GPP 규격값이 아님</span></p>
+
+  <div class="note">
+    <strong>μ가 바뀌어도 이 그림은 그대로다.</strong> 위상차는 φ = 2π·d·Δf·τ라 Δf가 커지면 나빠지는데,
+    <a href="../03-cyclic-prefix/index.html">03에서 봤듯</a> CP도 같은 2<sup>−μ</sup>로 짧아집니다.
+    그래서 <strong>CP 눈금에서의 누설은 μ와 무관하게 항상 같습니다</strong> — 타입 1 −6.50 dB, 타입 2 −12.97 dB.
+    <span class="src">2π·2·15000·2<sup>μ</sup> × 144·64·2<sup>−μ</sup>·T<sub>c</sub> = 0.8836 rad (μ 약분)</span>
+  </div>
+
+  <div class="note">
+    <strong>그래서 CP 근처의 지연 확산에서는 OCC가 먼저 무너진다.</strong> <a href="../11-reference-signals/index.html">11</a>은
+    "말뚝이 모자라기 전에 CP가 먼저 막는다"고 했습니다. 맞습니다 — 다만 그것은 <strong>말뚝 사이를 잇는 문제</strong>였습니다.
+    <strong>말뚝 하나 안에서 둘을 갈라내는 문제</strong>는 CP보다 훨씬 앞에서 어려워집니다.
+    타입 1이 −19.9 dB(64QAM 천장)에 닿는 지연은 <strong>0.53 μs</strong>, CP의 <strong>23 %</strong> 지점입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>겹친 대가 — 표본이 절반이 된다</h2>
+  <p>공짜는 아닙니다. 칸 두 개에서 값 두 개를 얻어 미지수 두 개를 풀었다면, <strong>포트 하나가 받은 표본은 하나</strong>입니다. 겹치지 않았다면 둘이었을 것입니다.</p>
+
+  <p><a href="../11-reference-signals/index.html">11</a>은 타입 1의 말뚝 간격이 2 부반송파라고 했습니다. 맞습니다 — 다만 그것은 <strong>RE 격자의 간격</strong>입니다. OCC로 둘을 겹치면 <strong>포트 하나가 보는 간격은 4 부반송파</strong>가 됩니다.</p>
+
+  <!-- 유도: 표본 간격 sp 부반송파 → 구별 가능한 지연 창 = 1/(sp·SCS)
+       일반 CP = 144·64·2^-mu·Tc,  SCS = 15000·2^mu → 배수에서 mu 가 약분된다
+       sp=2 → 16.667 us / 2.3438 us = 64/9  = 7.1111
+       sp=4 →  8.333 us / 2.3438 us = 32/9  = 3.5556
+       sp=6 →  5.556 us / 2.3438 us = 64/27 = 2.3704
+       mu = 0, 1, 3 에서 배수가 같음을 스크립트로 확인
+       지연영역 잡음이득 = 10log10(창/CP) : 8.52 / 5.51 / 3.75 dB -->
+  <div class="table-scroll">
+  <table>
+    <caption>포트 하나가 실제로 받는 표본 간격과 그 결과 · 30 kHz 기준, 배수는 μ와 무관</caption>
+    <thead><tr><th>배치</th><th class="num">표본 간격</th><th class="num">구별 가능한 지연</th>
+      <th class="num">CP 대비</th><th class="num">잡음 이득</th></tr></thead>
+    <tbody>
+      <tr><td>타입 1 · 묶음에 포트 하나만</td><td class="num">2 부반송파</td><td class="num">16.67 μs</td>
+          <td class="num">64/9 = 7.11배</td><td class="num">8.52 dB</td></tr>
+      <tr><td><strong>타입 1 · OCC로 둘을 겹침</strong></td><td class="num"><strong>4 부반송파</strong></td><td class="num">8.33 μs</td>
+          <td class="num"><strong>32/9 = 3.56배</strong></td><td class="num">5.51 dB</td></tr>
+      <tr><td>타입 2 · OCC로 둘을 겹침</td><td class="num">6 부반송파</td><td class="num">5.56 μs</td>
+          <td class="num">64/27 = 2.37배</td><td class="num">3.75 dB</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">타입 2는 겹쳐도 간격이 늘지 않습니다 — 묶음의 RE가 {0, 1, 6, 7}처럼 <strong>이미 짝으로 붙어 있어</strong> 짝 하나가 자리 하나를 이루기 때문입니다. 값을 치른 것이 아니라 <strong>애초에 그 값으로 설계된 것</strong>입니다. <span class="src">TS 38.211 §7.4.1.1.2 · CP는 §4.2</span></p>
+
+  <div class="note">
+    <strong>11의 "64/9"에 이제 단위가 붙는다.</strong> 11은 comb-2 말뚝이 CP의 7.11배까지 지연을 구별한다는 데서 멈췄습니다.
+    그 여유는 그냥 남는 것이 아니라 <strong>잡음 이득으로 환전됩니다.</strong> 받은 말뚝 값을 지연 영역으로 옮기면
+    채널은 CP 안쪽 몇 개의 탭에만 모여 있고 나머지는 잡음뿐입니다. 그 나머지를 0으로 지우고 되돌리면
+    잡음만 <strong>창 ÷ CP</strong>배만큼 줄어듭니다 — 7.11배면 <strong>8.52 dB</strong>입니다.
+    <strong>겹치면 그중 3 dB를 반납합니다.</strong>
+  </div>
+
+  <div class="note">
+    <strong>그래서 규격이 두 타입을 다 두었다.</strong> 정리하면 타입 2는 같은 12 RE로 포트를 1.5배 주고,
+    OCC 짝이 붙어 있어 누설이 <strong>6 dB 적고</strong>, 대신 잡음 이득을 <strong>1.76 dB</strong> 덜 받습니다.
+    포트가 많이 필요한 다중 사용자 전송에서 타입 2를 쓰는 이유가 앞의 둘이고,
+    단일 사용자에 타입 1이 기본인 이유가 마지막 하나입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>언제 다시 재는가</h2>
+  <p>여기까지가 주파수 방향입니다. 시간 방향은 <a href="../11-reference-signals/index.html">11</a>이 도플러로 다뤘는데, <strong>말뚝을 슬롯 안에 고르게 놓은 것으로 그렸고 실제 위치는 규격 표가 정한다</strong>고 남겨 두었습니다. 그 표가 이것입니다.</p>
+
+  <!-- OAI table_7_4_1_1_2_3_pdsch_dmrs_positions_l 의 ld=14 행 = {0, 2048, 2176, 2336}
+       비트 i = 심볼 i, l0 은 따로 OR 된다 (dmrs-TypeA-Position = pos2 → l0 = 2)
+         2048 = 2^11                  → {2, 11}
+         2176 = 2^11 + 2^7            → {2, 7, 11}
+         2336 = 2^11 + 2^8 + 2^5      → {2, 5, 8, 11}
+       가장 가까운 DMRS 까지의 거리: 최대 11 / 4 / 2 / 2, 평균 4.93 / 1.86 / 1.14 / 0.86 -->
+  <div class="table-scroll">
+  <table>
+    <caption>PDSCH DMRS 심볼 위치 · 매핑 타입 A · 슬롯 전체(l<sub>d</sub> = 14) · <code>dmrs-TypeA-Position</code> = pos2 <span class="src">TS 38.211 표 7.4.1.1.2-3</span></caption>
+    <thead><tr><th class="num"><code>dmrs-AdditionalPosition</code></th><th class="num">DMRS 심볼</th>
+      <th class="num">개수</th><th class="num">가장 먼 데이터까지</th><th class="num">평균 거리</th></tr></thead>
+    <tbody>
+      <tr><td class="num">pos0</td><td class="num">2</td><td class="num">1</td><td class="num"><strong>11 심볼</strong></td><td class="num">4.93</td></tr>
+      <tr><td class="num">pos1</td><td class="num">2, 11</td><td class="num">2</td><td class="num">4 심볼</td><td class="num">1.86</td></tr>
+      <tr><td class="num">pos2</td><td class="num">2, 7, 11</td><td class="num">3</td><td class="num">2 심볼</td><td class="num">1.14</td></tr>
+      <tr><td class="num">pos3</td><td class="num">2, 5, 8, 11</td><td class="num">4</td><td class="num">2 심볼</td><td class="num">0.86</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">첫 말뚝 위치 l<sub>0</sub>는 <a href="../04-ssb-initial-access/index.html">04에서 읽은 MIB</a>의 <code>dmrs-TypeA-Position</code>이 정합니다(pos2 또는 pos3). 규격 표는 <strong>추가 말뚝만</strong> 담고 있고 l<sub>0</sub>는 따로 더해집니다. 할당 길이 l<sub>d</sub>가 짧아지면 표의 다른 행이 걸려 말뚝이 줄어듭니다.</p>
+
+  <div class="note">
+    <strong>이 네 줄도 OAI로 대조했다.</strong> <span class="src">openair2/LAYER2/<wbr>NR_MAC_COMMON/nr_mac_common.c</span>의
+    <code>table_7_4_1_1_2_3_<wbr>pdsch_dmrs_positions_l</code>은 이 표를 <strong>비트맵</strong>으로 담고 있습니다.
+    l<sub>d</sub> = 14 행이 <code>{0, 2048, 2176, 2336}</code>이고, 2336을 이진수로 펴면
+    <code>00100100100000</code> — 심볼 5, 8, 11입니다. 여기에 <code>l0_shift = 1 &lt;&lt; l0</code>가 OR로 더해져
+    <strong>{2, 5, 8, 11}</strong>이 됩니다. <span class="src">커밋 b3930e3</span>
+  </div>
+
+  <p>이제 <a href="../11-reference-signals/index.html">11의 도플러 그림</a>을 실제 위치로 다시 그려 봅니다. 11은 "따라갈 수 있는가"를 물었습니다. 여기서는 한 걸음 더 가서 <strong>"그래서 어느 변조까지 살아남는가"</strong>를 묻습니다 — 위에서 만든 ε<sub>crit</sub> 자를 그대로 씁니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 420" role="img" aria-labelledby="tTm dTm">
+      <title id="tTm">DMRS 심볼 위치에 따라 슬롯 안에서 채널 추정 오차가 어떻게 변하는가</title>
+      <desc id="dTm">위쪽 띠는 슬롯의 14개 심볼이고 DMRS가 놓인 심볼이 칠해져 있다. 아래 그래프는 심볼마다의 채널 추정 상대오차이며, 가로 점선은 변조 방식별로 판정이 무너지는 경계다. 속도를 올리면 곡선이 위로 올라가 높은 차수의 변조부터 차례로 경계를 넘는다. DMRS를 더 자주 박으면 곡선이 내려간다.</desc>
+      <g id="tmG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="tmV">속도</label>
+    <input type="range" id="tmV" min="3" max="300" step="1" value="120" aria-describedby="tmOut">
+    <span class="segmented" id="tmPos" role="group" aria-label="추가 DMRS 위치 선택"></span>
+    <span class="segmented" id="tmBand" role="group" aria-label="주파수 대역 선택"></span>
+    <span class="readout" id="tmOut"></span>
+  </div>
+
+  <div class="verdict" id="tmBox">
+    <span class="tag" id="tmTag"></span>
+    <span class="why" id="tmWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="tmFd">—</span><span class="t">도플러 주파수 [Hz]</span></div>
+    <div><span class="n" id="tmDeg">—</span><span class="t">심볼 하나 지나는 동안 도는 위상 [°]</span></div>
+    <div><span class="n" id="tmErr">—</span><span class="t">최대 추정 오차 [%]</span></div>
+    <div><span class="n" id="tmMod">—</span><span class="t">살아남는 최고 변조</span></div>
+  </div>
+  <p class="caption">채널을 <strong>단일 도플러 정현파</strong>로 두고, DMRS 심볼 사이는 <strong>직선 보간</strong>, 바깥은 <strong>기울기를 이어 외삽</strong>했습니다(pos0은 말뚝이 하나라 외삽할 기울기가 없어 값을 붙들 수밖에 없습니다). 실제 수신기는 여러 슬롯을 함께 보며 더 잘합니다 — <strong>이 곡선은 한 슬롯만으로 버틸 때의 값</strong>입니다. 세로축은 <strong>로그</strong>이며 0.1 % 아래와 200 % 위는 축에 눌러 담아 작은 점으로 그렸습니다. <span class="src">TS 38.211 §7.4.1.1.2 · 도플러는 물리 관계</span></p>
+
+  <div class="note">
+    <strong>pos0은 왜 남아 있는가.</strong> 위 그림에서 pos0은 시속 30 km에서도 24 %까지 벌어져
+    64QAM 천장(10.1 %)을 이미 넘습니다. 말뚝이 하나뿐이라 <strong>기울기를 알 수 없고</strong>, 값을 붙들고 갈 수밖에 없기 때문입니다.
+    그래도 규격에 남아 있는 이유는 <strong>슬롯 전체를 쓰지 않는 짧은 할당</strong> 때문입니다 —
+    l<sub>d</sub>가 7 이하면 규격 표는 어차피 pos1·pos2·pos3에도 말뚝을 하나만 줍니다.
+    <strong>거리가 짧으면 말뚝 하나로 충분합니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>DMRS는 하나가 아니다</h2>
+  <p>지금까지 본 것은 PDSCH의 DMRS입니다. 그런데 <strong>복조할 것이 있는 채널마다 자기 DMRS가 있습니다.</strong> 이 자료들에서 이미 여러 번 만났는데, 이름이 같아서 같은 것처럼 보였을 뿐입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>DMRS 네 갈래 · 같은 이름, 다른 신호</caption>
+    <thead><tr><th>어디의 DMRS</th><th>시퀀스 족보</th><th class="num">자원블록당</th><th>이미 만난 곳</th><th class="num">조항</th></tr></thead>
+    <tbody>
+      <tr><td><strong>PBCH</strong></td><td>골드</td><td class="num">3 RE</td>
+          <td><a href="../04-ssb-initial-access/index.html">04</a> — SSB 번호를 실어 나른다</td><td class="num">§7.4.1.4</td></tr>
+      <tr><td><strong>PDCCH</strong></td><td>골드</td><td class="num">3 RE</td>
+          <td><a href="../12-pdcch-blind-decoding/index.html">12</a> — REG당 3 RE가 이것</td><td class="num">§7.4.1.3</td></tr>
+      <tr><td><strong>PDSCH</strong></td><td>골드</td><td class="num">12 RE</td>
+          <td><a href="../11-reference-signals/index.html">11</a>과 이 자료</td><td class="num">§7.4.1.1</td></tr>
+      <tr><td><strong>PUSCH</strong> · CP-OFDM</td><td>골드</td><td class="num">12 RE</td>
+          <td>하향과 같은 표를 쓴다</td><td class="num">§6.4.1.1</td></tr>
+      <tr><td><strong>PUSCH</strong> · DFT-s-OFDM</td><td><strong>저-PAPR(ZC 계열)</strong></td><td class="num">6 RE</td>
+          <td><a href="../13-uplink-physical-layer/index.html">13</a>의 변환 프리코딩 · <a href="../15-zadoff-chu-srs/index.html">15</a>의 시퀀스</td><td class="num">§6.4.1.1.1.2</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">마지막 줄만 족보가 다릅니다. <a href="../13-uplink-physical-layer/index.html">13에서 봤듯</a> 변환 프리코딩은 <strong>PAPR을 낮추려고</strong> 켜는 것인데, 그 신호 옆에 PAPR이 높은 골드 시퀀스를 두면 애써 낮춘 것이 도로 올라갑니다. 그래서 DMRS까지 <a href="../15-zadoff-chu-srs/index.html">15의 저-PAPR 시퀀스</a>로 바꿔 답니다.</p>
+
+  <div class="note">
+    <strong>이 마지막 줄도 OAI가 확인해 준다.</strong> <span class="src">openair1/PHY/<wbr>NR_UE_TRANSPORT/nr_ulsch_ue.c</span>에서
+    <code>transform_precoding == transformPrecoder_enabled</code>일 때만
+    <code>dmrs_seq = dmrs_lowpaprtype1_ul_ref_sig<wbr>[u][v][index]</code>로 갈아탑니다.
+    같은 줄에 <code>num_dmrs_res_per_symbol = <wbr>nb_rb * (NR_NB_SC_PER_RB / 2)</code> —
+    자원블록당 <strong>6 RE</strong>, 즉 <strong>타입 1의 묶음 하나</strong>입니다.
+    변수 이름 <code>u</code>, <code>v</code>가 <a href="../15-zadoff-chu-srs/index.html">15에서 본</a> 그 그룹 번호와 시퀀스 번호입니다.
+    <span class="src">커밋 b3930e3</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>OCC는 저울이다.</strong> 두 포트를 같은 두 칸에 겹쳐 싣고, <strong>합과 차</strong>로 각자를 되찾습니다. 자원을 늘리지 않고 포트를 늘리는 유일한 방법입니다.</li>
+    <li><strong>조건은 두 칸의 채널이 같을 것.</strong> 어긋난 만큼 <strong>tan(φ/2)</strong>가 새어 듭니다. 타입 2의 짝이 더 붙어 있어 <strong>6 dB</strong> 유리합니다.</li>
+    <li><strong>겹치면 표본이 절반이 된다.</strong> 11이 남긴 여유 <strong>64/9</strong>는 <strong>8.5 dB의 잡음 이득</strong>이었고, 겹치는 순간 그중 3 dB를 반납합니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../17-openairinterface/index.html">← 17 OpenAirInterface</a>
+  <span>18 / 18</span>
+</nav>
+
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y});
+    if(cls)t.setAttribute('class',cls);
+    if(fill)t.setAttribute('fill',fill);
+    if(anchor)t.setAttribute('text-anchor',anchor);
+    t.textContent=s;return t;
+  }
+  function clear(g){while(g.firstChild)g.removeChild(g.firstChild);}
+
+  /* 변조별 임계 상대오차 — 정사각 M-QAM 모서리 점이 판정 경계를 넘는 지점
+     eps_crit = 1 / ((sqrt(M)-1) * sqrt(2))   (본문 표와 같은 값) */
+  var MODS=[
+    {n:'QPSK',  a:1 },
+    {n:'16QAM', a:3 },
+    {n:'64QAM', a:7 },
+    {n:'256QAM',a:15}
+  ];
+  MODS.forEach(function(m){m.eps=1/(m.a*Math.SQRT2); m.db=20*Math.log10(m.eps);});
+  function bestMod(e){
+    var best=null;
+    for(var i=0;i<MODS.length;i++) if(e<MODS[i].eps) best=MODS[i];
+    return best;
+  }
+
+  /* ---------------- 저울이 흔들릴 때 ---------------- */
+  var SCS=30e3;
+  /* 일반 CP = 144·kappa·2^-mu·Tc,  kappa=64, Tc=1/(480e3·4096) — mu=1 에서 2.3438 us */
+  var CP_US=144*64*Math.pow(2,-1)/(480e3*4096)*1e6;
+
+  var lkG=document.getElementById('lkG'), lkTau=document.getElementById('lkTau');
+  var lkOut=document.getElementById('lkOut'), lkBox=document.getElementById('lkBox');
+  var lkTag=document.getElementById('lkTag'), lkWhy=document.getElementById('lkWhy');
+  var LX=88, LY=40, LW=830, LH=272;          /* 그래프 안쪽 상자 */
+  var TAU_MAX=2.5, DB_LO=-46, DB_HI=0;
+
+  function leakEps(tauUs,d){ return Math.abs(Math.tan(Math.PI*d*SCS*tauUs*1e-6)); }
+  function lx(t){ return LX + t/TAU_MAX*LW; }
+  function ly(db){ return LY + (DB_HI-db)/(DB_HI-DB_LO)*LH; }
+
+  function drawLeak(){
+    clear(lkG);
+    var tau=(+lkTau.value)/100;
+
+    /* 세로 눈금 */
+    for(var db=DB_HI; db>=DB_LO; db-=10){
+      var y=ly(db);
+      lkG.appendChild(el('line',{x1:LX,y1:y,x2:LX+LW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      lkG.appendChild(txt(LX-12,y+4,db+' dB','dimlab','var(--ink-soft)','end'));
+    }
+    /* 가로 눈금 */
+    for(var t=0;t<=TAU_MAX+1e-9;t+=0.5){
+      var x=lx(t);
+      lkG.appendChild(el('line',{x1:x,y1:LY,x2:x,y2:LY+LH,stroke:'var(--hair)','stroke-width':1}));
+      lkG.appendChild(txt(x,LY+LH+22,t.toFixed(1),'dimlab','var(--ink-soft)','middle'));
+    }
+    lkG.appendChild(txt(LX+LW/2,LY+LH+46,'지연 확산 τ [μs]','dimlab','var(--ink-soft)','middle'));
+
+    /* 변조 천장 — 오른쪽 여백에 라벨을 둔다 */
+    MODS.forEach(function(m){
+      var y=ly(m.db);
+      lkG.appendChild(el('line',{x1:LX,y1:y,x2:LX+LW,y2:y,stroke:'var(--ink-soft)',
+        'stroke-width':1,'stroke-dasharray':'2 4',opacity:0.75}));
+      lkG.appendChild(txt(LX+LW+10,y+4,m.n,'celllab','var(--ink-soft)','start'));
+    });
+
+    /* CP 눈금 — 라벨은 상자 위로 빼서 어떤 격자선과도 겹치지 않게 한다 */
+    var cx=lx(CP_US);
+    lkG.appendChild(el('line',{x1:cx,y1:LY,x2:cx,y2:LY+LH,stroke:'var(--gp)',
+      'stroke-width':1.6,'stroke-dasharray':'5 4'}));
+    lkG.appendChild(txt(cx+6,LY-10,'CP '+CP_US.toFixed(2)+' μs','celllab','var(--gp)','start'));
+
+    /* 두 곡선 */
+    [{d:2,lab:'타입 1 · 짝 간격 2',w:2.2},{d:1,lab:'타입 2 · 짝 간격 1',w:2.2}].forEach(function(c,i){
+      var dstr='', started=false;
+      for(var px=0;px<=LW;px++){
+        var t=px/LW*TAU_MAX;
+        var db=20*Math.log10(leakEps(t,c.d));
+        if(db<DB_LO){started=false;continue;}          /* 축 아래는 그리지 않는다 */
+        var X=LX+px, Y=ly(Math.min(db,DB_HI));
+        dstr+=(started?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' ';
+        started=true;
+      }
+      lkG.appendChild(el('path',{d:dstr,fill:'none',stroke:'var(--dl)','stroke-width':c.w,
+        'stroke-dasharray':i?'6 4':'none'}));
+    });
+    /* 곡선 이름표 — 격자선 위에 얹히지 않도록 상자 바깥(축 제목 아래)에 한 줄로 둔다 */
+    var lgy=LY+LH+72;
+    lkG.appendChild(el('line',{x1:LX,y1:lgy-4,x2:LX+32,y2:lgy-4,
+      stroke:'var(--dl)','stroke-width':2.2}));
+    lkG.appendChild(txt(LX+40,lgy,'타입 1 · 짝 간격 2 부반송파','dimlab','var(--ink-soft)','start'));
+    lkG.appendChild(el('line',{x1:LX+250,y1:lgy-4,x2:LX+282,y2:lgy-4,
+      stroke:'var(--dl)','stroke-width':2.2,'stroke-dasharray':'6 4'}));
+    lkG.appendChild(txt(LX+290,lgy,'타입 2 · 짝 간격 1 부반송파','dimlab','var(--ink-soft)','start'));
+    lkG.appendChild(el('line',{x1:LX+540,y1:lgy-4,x2:LX+572,y2:lgy-4,
+      stroke:'var(--alert)','stroke-width':2.2}));
+    lkG.appendChild(txt(LX+580,lgy,'지금 고른 지연','dimlab','var(--ink-soft)','start'));
+
+    /* 현재 지점 */
+    var e1=leakEps(tau,2), e2=leakEps(tau,1);
+    var d1=20*Math.log10(e1), d2=20*Math.log10(e2);
+    var mx=lx(tau);
+    lkG.appendChild(el('line',{x1:mx,y1:LY,x2:mx,y2:LY+LH,stroke:'var(--alert)','stroke-width':1.4}));
+    [[d1,e1],[d2,e2]].forEach(function(p){
+      if(p[0]>=DB_LO&&p[0]<=DB_HI)
+        lkG.appendChild(el('circle',{cx:mx,cy:ly(p[0]),r:5,fill:'var(--alert)'}));
+    });
+
+    document.getElementById('lkP1').textContent=(360*2*SCS*tau*1e-6).toFixed(1);
+    document.getElementById('lkL1').textContent=d1.toFixed(1);
+    document.getElementById('lkL2').textContent=d2.toFixed(1);
+    document.getElementById('lkD').textContent=(d1-d2).toFixed(2);
+    lkOut.textContent='τ = '+tau.toFixed(2)+' μs (CP의 '+(tau/CP_US*100).toFixed(0)+'%)';
+
+    var m1=bestMod(e1), m2=bestMod(e2);
+    var ok=!!m1;
+    lkBox.className='verdict '+(ok?'ok':'bad');
+    lkTag.textContent=ok?('타입 1 → '+m1.n+'까지'):'타입 1 → 어느 변조도 못 버틴다';
+    lkWhy.textContent='타입 2는 '+(m2?m2.n+'까지':'어느 변조도 못 버틴다')
+      +' · 누설만으로 정한 천장이며 잡음은 아직 넣지 않았습니다';
+  }
+  lkTau.addEventListener('input',drawLeak);
+
+  /* ---------------- 언제 다시 재는가 ---------------- */
+  var C=299792458;
+  var POS={0:[2],1:[2,11],2:[2,7,11],3:[2,5,8,11]};
+  var BANDS=[
+    {k:'fr1',lab:'3.5 GHz · 30 kHz',fc:3.5e9,mu:1},
+    {k:'fr2',lab:'28 GHz · 120 kHz',fc:28e9,mu:3}
+  ];
+  var tmState={pos:2,band:0};
+
+  /* 심볼 하나의 평균 길이 = 슬롯(1 ms · 2^-mu) / 14 */
+  function tsym(mu){ return 1e-3/Math.pow(2,mu)/14; }
+
+  /* DMRS 심볼에서만 채널을 알고, 사이는 직선 보간, 바깥은 기울기를 이어 외삽한다.
+     말뚝이 하나뿐이면(pos0) 기울기를 알 수 없어 값을 붙들 수밖에 없다. */
+  function estimate(syms,fd,T){
+    function re(l){return Math.cos(2*Math.PI*fd*l*T);}
+    function im(l){return Math.sin(2*Math.PI*fd*l*T);}
+    var out=[];
+    for(var l=0;l<14;l++){
+      var a,b;
+      if(syms.indexOf(l)>=0){ a=b=l; }
+      else{
+        var lo=-1,hi=-1,i;
+        for(i=0;i<syms.length;i++){ if(syms[i]<l)lo=syms[i]; }
+        for(i=syms.length-1;i>=0;i--){ if(syms[i]>l)hi=syms[i]; }
+        if(lo>=0&&hi>=0){ a=lo;b=hi; }
+        else if(syms.length===1){ a=b=syms[0]; }
+        else if(hi>=0){ a=syms[0];b=syms[1]; }
+        else{ a=syms[syms.length-2];b=syms[syms.length-1]; }
+      }
+      var w=(a===b)?0:(l-a)/(b-a);
+      var er=re(a)+(re(b)-re(a))*w, ei=im(a)+(im(b)-im(a))*w;
+      var dr=er-re(l), di=ei-im(l);
+      var mag=Math.sqrt(er*er+ei*ei);
+      out.push(mag>1e-12?Math.sqrt(dr*dr+di*di)/mag:1);
+    }
+    return out;
+  }
+
+  var tmG=document.getElementById('tmG'), tmV=document.getElementById('tmV');
+  var tmOut=document.getElementById('tmOut'), tmBox=document.getElementById('tmBox');
+  var tmTag=document.getElementById('tmTag'), tmWhy=document.getElementById('tmWhy');
+  var TX=92, TY=118, TW=826, TH=214;         /* 오차 그래프 상자 */
+  var SY=44, SH=34;                          /* 심볼 띠 */
+  /* 세로축은 로그다. 오차가 0.2 %에서 190 %까지 세 자릿수를 오가서
+     선형으로 그리면 낮은 쪽이 전부 바닥에 붙고, 64QAM(10.1 %)과
+     256QAM(4.71 %) 기준선도 서로 붙어 읽히지 않는다. */
+  var EPS_HI=2.0, EPS_LO=1e-3;               /* 200 % ~ 0.1 % */
+  var LG_HI=Math.log10(EPS_HI), LG_LO=Math.log10(EPS_LO);
+
+  function ex(l){ return TX + (l+0.5)/14*TW; }
+  function ey(e){
+    var v=Math.log10(Math.min(Math.max(e,EPS_LO),EPS_HI));
+    return TY + (LG_HI-v)/(LG_HI-LG_LO)*TH;
+  }
+
+  function drawTime(){
+    clear(tmG);
+    var syms=POS[tmState.pos], band=BANDS[tmState.band];
+    var kmh=+tmV.value, v=kmh/3.6, fd=v*band.fc/C, T=tsym(band.mu);
+    var errs=estimate(syms,fd,T);
+
+    /* 심볼 띠 */
+    tmG.appendChild(txt(TX-12,SY+22,'슬롯','rowlab','var(--ink-soft)','end'));
+    for(var l=0;l<14;l++){
+      var isD=syms.indexOf(l)>=0;
+      var w=TW/14;
+      tmG.appendChild(el('rect',{x:TX+l*w+1,y:SY,width:w-2,height:SH,
+        fill:isD?'var(--dl-bg)':'#fff',stroke:isD?'var(--dl)':'var(--hair)',
+        'stroke-width':isD?1.6:1,rx:2}));
+      tmG.appendChild(txt(TX+l*w+w/2,SY+22,isD?'DM':String(l),'celllab',
+        isD?'var(--dl)':'var(--ink-soft)','middle'));
+    }
+    tmG.appendChild(txt(TX+TW+10,SY+22,'심볼 →','dimlab','var(--ink-soft)','start'));
+
+    /* 세로 눈금 — 로그, 한 자릿수마다 */
+    [1,0.1,0.01,0.001].forEach(function(v){
+      var y=ey(v);
+      tmG.appendChild(el('line',{x1:TX,y1:y,x2:TX+TW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      tmG.appendChild(txt(TX-12,y+4,(v*100)+' %','dimlab','var(--ink-soft)','end'));
+    });
+
+    /* 변조 천장 */
+    MODS.forEach(function(m){
+      if(m.eps>EPS_HI) return;
+      var y=ey(m.eps);
+      tmG.appendChild(el('line',{x1:TX,y1:y,x2:TX+TW,y2:y,stroke:'var(--ink-soft)',
+        'stroke-width':1,'stroke-dasharray':'2 4',opacity:0.75}));
+      tmG.appendChild(txt(TX+TW+10,y+4,m.n,'celllab','var(--ink-soft)','start'));
+    });
+
+    /* 오차 곡선 */
+    var d='';
+    for(var i=0;i<14;i++) d+=(i?'L':'M')+ex(i).toFixed(1)+' '+ey(errs[i]).toFixed(1)+' ';
+    tmG.appendChild(el('path',{d:d,fill:'none',stroke:'var(--alert)','stroke-width':2.2}));
+    for(var j=0;j<14;j++){
+      var clamped=errs[j]>=EPS_HI||errs[j]<=EPS_LO;   /* 축 밖은 작은 점으로 */
+      tmG.appendChild(el('circle',{cx:ex(j),cy:ey(errs[j]),r:clamped?2.5:4,
+        fill:syms.indexOf(j)>=0?'var(--dl)':'var(--alert)'}));
+    }
+    tmG.appendChild(txt(TX+TW/2,TY+TH+40,'심볼마다의 채널 추정 상대오차','dimlab','var(--ink-soft)','middle'));
+
+    var worst=Math.max.apply(null,errs);
+    var m=bestMod(worst);
+    document.getElementById('tmFd').textContent=fd.toFixed(0);
+    document.getElementById('tmDeg').textContent=(360*fd*T).toFixed(2);
+    document.getElementById('tmErr').textContent=(worst*100).toFixed(1);
+    document.getElementById('tmMod').textContent=m?m.n:'없음';
+    tmOut.textContent=kmh+' km/h · pos'+tmState.pos+' · '+band.lab;
+
+    tmBox.className='verdict '+(m&&m.a>=3?'ok':'bad');
+    tmTag.textContent=m?(m.n+'까지'):'복조 불가';
+    tmWhy.textContent=m
+      ? ('최대 오차 '+(worst*100).toFixed(1)+' % — '+m.n+' 천장 '+(m.eps*100).toFixed(2)+' % 안쪽입니다')
+      : ('최대 오차 '+(worst*100).toFixed(1)+' % — QPSK 천장 70.71 %도 넘었습니다');
+  }
+
+  /* 버튼 묶음 */
+  function seg(host,items,get,set){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.lab;
+      b.setAttribute('aria-pressed',get()===i?'true':'false');
+      b.addEventListener('click',function(){
+        set(i);
+        Array.prototype.forEach.call(host.children,function(c,j){
+          c.setAttribute('aria-pressed',j===i?'true':'false');
+        });
+        drawTime();
+      });
+      host.appendChild(b);
+    });
+  }
+  seg(document.getElementById('tmPos'),
+      [{lab:'pos0'},{lab:'pos1'},{lab:'pos2'},{lab:'pos3'}],
+      function(){return tmState.pos;}, function(i){tmState.pos=i;});
+  seg(document.getElementById('tmBand'),
+      BANDS.map(function(b){return {lab:b.lab};}),
+      function(){return tmState.band;}, function(i){tmState.band=i;});
+  tmV.addEventListener('input',drawTime);
+
+  drawLeak();
+  drawTime();
+})();
+</script>
+
+</body>
+</html>
