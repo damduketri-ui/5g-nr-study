@@ -221,6 +221,48 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 
 ---
 
+## TS 23.501 — System architecture for the 5G System (시스템 구조 계열)
+
+**여기부터는 38.xxx 무선 계열이 아니다.** 같은 3GPP이지만 회의체가 다르다 — 자료 21이 이 계열을 쓴다.
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| PDU 세션 | §5.6 | 단말과 데이터망 사이의 논리적 연결. 목적지가 다르면 세션이 다르다 | 21 | ⚠️ 미검증 |
+| QoS Flow | §5.7 | PDU 세션 안에서 대접이 갈리는 가장 작은 단위. QFI 로 식별 | 21 | ⚠️ 미검증 |
+| 표준 5QI | Table 5.7.4-1 | **26가지** = GBR 12 + 비GBR 9 + 지연확정 GBR 5<br>기본 우선순위는 5~90 · 가장 앞이 5QI 69(5), 가장 뒤가 5QI 9(90)<br>우선순위 56 을 71·72·73·74·76 이 함께 쓴다 | 21 | ⚠️ 원문 미대조 · **우선순위만** OAI와 일치. PDB·PER·MDBV 열은 대조 못 함 |
+| 지연 예산(PDB) | §5.7.3.4 | 단말~UPF 구간의 상한. 코어 몫과 무선 몫으로 나뉜다 | 21 | ⚠️ 미검증 — 자료는 코어 몫을 슬라이더로 두어 값을 주장하지 않았다 |
+
+---
+
+## TS 38.413 — NG Application Protocol (NGAP)
+
+ASN.1 모듈은 규격의 **규범적 부속서**다. 아래는 전부 원문에서 그대로 옮긴 것.
+
+| 항목 | 정의 | 뜻 | 사용처 | 검증 |
+|---|---|---|---|---|
+| `FiveQI` | INTEGER (0..255) | 5QI 를 실어 나르는 폭 | 21 | ASN.1 원문 |
+| `PriorityLevelQos` | INTEGER (1..127) | 작을수록 먼저. 표준 5QI 는 5~90 만 쓴다 | 21 | ASN.1 원문 |
+| `PacketDelayBudget` | INTEGER (0..1023) | 지연 예산 | 21 | ASN.1 원문 · ⚠️ **단위 미확인** (OAI 는 ms 로 읽는다) |
+| `QosFlowIdentifier` | INTEGER (0..63) | **64가지 = 2^6** — SDAP 헤더의 QFI:6 과 맞물린다 | 21 | ASN.1 원문 |
+| `PDUSessionID` | INTEGER (0..255) | **256가지 = 2^8** = `maxnoofPDUSessions` | 21 | ASN.1 원문 |
+| `PacketErrorRate` | SEQUENCE { pERScalar (0..9), pERExponent (0..9) } | **scalar × 10^−exponent** · 100가지 조합<br>부동소수점을 안 쓰고 계수와 자릿수를 따로 보낸다 | 21 | ASN.1 원문 |
+| `AveragingWindow` | INTEGER (0..4095) | GBR 을 재는 창 | 21 | ASN.1 원문 |
+| `MaximumDataBurstVolume` | INTEGER (0..4095) | 지연확정 GBR 에 함께 붙는다 | 21 | ASN.1 원문 |
+| `maxnoofQosFlows` | 64 | `QosFlowIdentifier` 범위와 정확히 같다 | 21 | ASN.1 원문 |
+| `maxnoofPDUSessions` | 256 | `PDUSessionID` 범위와 정확히 같다 | 21 | ASN.1 원문 |
+| `maxnoofDRBs` | 32 | NGAP 목록의 한계. RRC 의 `maxDRB 29` 와 **다른 값이다** | 21 | ASN.1 원문 |
+
+---
+
+## TS 37.324 — SDAP (Service Data Adaptation Protocol)
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| SDAP 헤더 | §6.2 | **1바이트**. 하향 { QFI:6, RQI:1, RDI:1 } · 상향 { QFI:6, R:1, D/C:1 } | 21 | ⚠️ 원문 미대조 · OAI 구조체와 비트까지 일치 |
+| 하는 일 | §5 | QoS Flow ↔ DRB 매핑. **NR 에서 새로 생긴 계층** — LTE 에는 없다 | 21 | ⚠️ 미검증 |
+
+---
+
 ## TS 38.215 — Physical layer measurements
 
 | 항목 | 조항 | 내용 | 사용처 | 검증 |
@@ -265,6 +307,8 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | `Q-OffsetRange` | ASN.1 | −24 ~ +24 dB. 0 부근은 1 dB, 멀어지면 2 dB 간격<br>`cellIndividualOffset` 이 이 타입이다 | 19 | ASN.1 원문 |
 | `SSB-MTC` | ASN.1 | 측정 창 주기 sf5/10/20/40/80/160, duration sf1~sf5 | 19 | ASN.1 원문 |
 | `RSRP-Range` 등 | ASN.1 | RSRP·RSRQ·SINR 모두 INTEGER(0..127) — **7비트** | 19 | ASN.1 원문 |
+| `maxDRB` | ASN.1 | **29** — 단말 하나에 설정할 수 있는 DRB 상한<br>주석: "(that can be added in DRB-ToAddModLIst)"<br>QoS Flow 는 64 까지이므로 **29 개를 넘으면 반드시 섞어 실어야 한다** | 21 | ASN.1 원문 |
+| `maxNrofQFIs` | ASN.1 | **64** — NGAP 의 `maxnoofQosFlows` 와 같은 수 | 21 | ASN.1 원문 |
 
 ---
 
@@ -298,6 +342,63 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | 실시간 BFW | O-RAN.WG4.CUS.0 Section Extension 1 | 빔포밍 웨이트 값을 C-plane에 실어 보낸다<br>PRB 묶음 단위로 보낼 수 있어 부담을 줄인다 | 14 | ⚠️ 미검증 (확장 번호 · 묶음 설정 필드명) |
 | Option 8 (CPRI) | CPRI Specification | **시간영역** IQ를 안테나마다 통째로. 실린 데이터와 무관하게 양이 일정하다 | 14 | ⚠️ 미검증 (버전·비트폭 관행) |
 | 시각 동기 | IEEE 1588 PTP · ITU-T G.8275.1 | O-RU와 O-DU의 시계를 맞춘다. 양이 아니라 **정확도**가 관건 | 14 | ⚠️ 미검증 (요구 정확도 수치) |
+
+---
+
+## 유도한 값 — 21 5G 코어와 세션 (계산 근거)
+
+```
+[폭과 개수가 맞물린다]  세 규격이 같은 수를 말한다
+  NGAP  QosFlowIdentifier ::= INTEGER (0..63)  → 64가지
+  NGAP  maxnoofQosFlows = 64
+  RRC   maxNrofQFIs     = 64
+  SDAP  QFI:6 비트필드                          → 2^6 = 64
+  NGAP  PDUSessionID ::= INTEGER (0..255) = 256 = maxnoofPDUSessions = 2^8
+  SDAP 헤더 = QFI 6 + 1 + 1 = 8비트 = 1바이트 (OAI SDAP_HDR_LENGTH 1)
+
+[섞는 것은 선택이 아니라 구조다]
+  QoS Flow 최대 64 · RRC maxDRB 29
+  → 흐름이 29 개를 넘는 순간 규격상 반드시 여럿을 한 DRB 에 실어야 한다.
+  (NGAP maxnoofDRBs 32 는 다른 목록의 한계이며 같은 수가 아니다)
+
+[오류율의 인코딩]  PacketErrorRate = pERScalar(0..9) × 10^−pERExponent(0..9)
+  10 × 10 = 100 가지.  10^-2 = (scalar 1, exponent 2).  가장 작은 값 9×10^-9.
+
+[표준 5QI 의 구조]  OAI 가 TS 23.501 Table 5.7.4-1 에서 옮긴 26개
+  GBR 12 (1,2,3,4,65,66,67,71,72,73,74,76)
+  비GBR 9 (5,6,7,8,9,69,70,79,80)
+  지연확정 GBR 5 (82,83,84,85,86)
+  12 + 9 + 5 = 26 = 배열 길이
+  우선순위는 전부 PriorityLevelQos(1..127) 안, 실제 사용 5~90
+  우선순위 순으로 세우면 앞 넷이 [69, 65, 5, 67] —
+    69(임무중요 신호) · 65(임무중요 음성) · 5(IMS 신호) · 67(임무중요 영상)
+    → 신호가 미디어보다 앞선다
+  맨 뒤는 5QI 9 (90) — 기본 흐름
+  우선순위 56 을 71·72·73·74·76 다섯이 함께 쓴다
+  지연확정 GBR 의 우선순위는 18~24 — 급한 것과 중요한 것은 다르다
+
+[지연 예산 안에 HARQ 왕복이 몇 번]
+  왕복 모형 = N1 + N2 + 슬롯 2개.  규격이 정하는 것은 N1·N2 뿐(TS 38.214 §5.3·§6.4)이고
+  슬롯 둘은 전송 자신의 시간이다. 스케줄링 대기·전파지연은 뺐으므로 아래쪽 한계다.
+  06 이 검산한 심볼 수(처리 능력 1)를 그대로 쓴다:
+    μ=0 (8,10)  →  570.8 +  713.5 + 2000.0 = 3284.4 μs
+    μ=1 (10,12) →  356.8 +  428.1 + 1000.0 = 1784.9 μs
+    μ=2 (17,23) →  303.3 +  410.3 +  500.0 = 1213.5 μs
+    μ=3 (20,36) →  178.4 +  321.1 +  250.0 =  749.5 μs
+  무선에 남은 몫 → 왕복 횟수 (μ=0,1,2,3 순)
+    80 ms → 24 · 44 · 65 · 106
+     8 ms →  2 ·  4 ·  6 ·  10
+     3 ms →  0 ·  1 ·  2 ·   4     ← μ=0 은 한 번도 못 한다
+  브라우저에서 읽은 값이 파이썬 검산과 전부 일치함을 확인했다.
+
+[흐름을 베어러에 묶는 세 방식 — 자료의 인터랙션]
+  흐름의 5QI 는 표준 26가지를 순서대로 돌려가며 붙인 고정된 예다(실제 배치가 아니다).
+  흐름 29개 기준:
+    흐름마다 하나        → 베어러 29대, 우선순위 폭 0   (30개부터 maxDRB 초과)
+    우선순위 대역별      → 베어러 10대, 폭 9
+    GBR·비GBR·지연확정   → 베어러  3대, 폭 85
+  섞으면 한 베어러의 RLC 설정 하나로 둘 중 하나는 잘못 대접받는다.
+```
 
 ---
 
@@ -1323,6 +1424,9 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 | a3-Offset 의 눈금이 0.5 dB | `openair2/RRC/NR/rrc_gNB.c:1853` 주석 + `a3_offset*0.5 + hysteresis < (이웃 − 서빙)` 판정 |
 | RSRP 보고값 ↔ (k − 156) dBm | `openair2/LAYER2/NR_MAC_UE/nr_ra_procedures.c:920` 주석 |
 | **TS 38.331 ASN.1 모듈 원문** | `openair2/RRC/NR/MESSAGES/ASN.1/nr-rrc-16.1.0.asn1` — 구현이 아니라 **규격의 규범적 부속서**다. 19의 열거값·범위는 전부 여기서 옮겼다 |
+| **TS 38.413 NGAP ASN.1 모듈 원문** | `openair3/NGAP/MESSAGES/ASN1/ngap-15.8.0.asn1` — 21 의 범위·개수는 전부 여기서 옮겼다 |
+| 표준 5QI 26가지와 기본 우선순위 | `openair2/LAYER2/NR_MAC_gNB/mac_rrc_dl_handler.c:30` — 주석이 TS 23.501 Table 5.7.4-1 을 직접 가리킨다. `qos_fiveqi[26]` / `qos_priority[26]` |
+| SDAP 헤더 비트 배치 | `openair2/SDAP/nr_sdap/nr_sdap_entity.h` — `QFI:6` 비트필드, `SDAP_BITMASK_QFI 0x3F`, `SDAP_HDR_LENGTH 1`, `SDAP_MAX_QFI 64` |
 | LDPC 차수 분포 (BG1·BG2) | `openair1/PHY/CODING/nrLDPC_decoder/nrLDPCdecoder_defs.h` — `lut_numCnInCnGroups_*` / `lut_numBnInBnGroups_*` / `lut_numEdgesPerBn_*`. **세 배열을 각각 합치면 316(BG1)·197(BG2)로 일치**한다 |
 | 들어올리기 크기 51가지 | `openair1/PHY/CODING/TESTBENCH/ldpctest.c` `lift_size[51]` — a·2^j 로 만든 집합과 값 하나까지 같다 |
 | K_cb = 8448 / 3840 · CRC 24 | `openair1/PHY/CODING/nr_segmentation.c` |
@@ -1339,6 +1443,9 @@ CP 오버헤드 = 144/(2048+144) = 6.57%
 - [ ] **Case C 비페어드(TDD) 기준의 2.4 GHz 경계** — TS 38.213 §4.1 원문 대조 필요. 04에 그대로 실림
 - [ ] **FR1 상한** — Rel-15는 6 GHz, Rel-16 이후 7.125 GHz. 04는 "FR1 > 3 GHz"로만 적어 회피했으나 표에 릴리즈 병기 검토
 - [ ] **18의 §7.4.1.1.2 표 넷** (자원 매핑식·포트별 w_f/w_t·심볼 위치·l_0 제약) — OAI 소스와는 전부 일치하나 3GPP 원문 대조는 아직. 원문을 보면 위 표의 "원문 미대조 · OAI와 일치"를 지우고 검증일을 남길 것
+- [ ] **21의 TS 23.501 Table 5.7.4-1 전체** — 우선순위 열만 OAI로 대조했다. PDB·PER·평균화창·MDBV 열은 원문 대조 필요. 자료의 PDB 표에 ⚠️를 달아 두었다
+- [ ] **21의 코어 구간 지연 몫** — TS 23.501 §5.7.3.4 주석이 정하는 값. 자료는 슬라이더로 두어 값을 주장하지 않았다
+- [ ] **21의 `PacketDelayBudget` 단위** — NGAP ASN.1 은 INTEGER(0..1023) 만 주고 단위는 의미 설명에 있다. OAI는 ms로 읽는다
 - [ ] **20의 LDPC 차수 분포** — OAI 배열에서 세 방향으로 교차 검증했으나 TS 38.212 Table 5.3.2-2/-3 원문 대조는 아직. 1의 **위치**는 아예 인용하지 않았다(자료도 덩어리 구조만 그렸다)
 - [ ] **20의 Polar 를 쓰는 곳** (PDCCH·PBCH·UCI) — 조항 번호까지 확인 필요
 - [ ] **20의 CA-SCL 목록 크기 L** — 규격이 정하지 않고 구현이 고른다. 자료에 숫자를 쓰지 않았다

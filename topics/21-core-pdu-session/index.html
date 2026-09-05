@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>21 5G 코어와 세션 — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>21 / 5G 코어와 세션</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">21 · 5g core · pdu session · qos flow</p>
+  <h1>스티커는 코어가 붙이고<br><em>트럭은 기지국이</em> 고른다</h1>
+  <p class="lead"><a href="../10-physical-layer-chain/index.html">10</a>은 <strong>"MAC이 건넨 상자"</strong>에서 시작했습니다. 그 상자는 어디서 왔을까요. 인터넷에서 온 IP 패킷이 무선까지 오는 동안 <strong>스티커 하나</strong>가 붙습니다. 코어는 스티커만 붙이고 <strong>어느 트럭에 실을지는 정하지 않습니다.</strong> 그 분리가 LTE와 5G를 가르는 자리입니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>먼저 — 여기는 다른 계열이다</h2>
+  <p>지금까지의 자료는 전부 <strong>TS 38.2xx·38.3xx</strong>, 즉 무선 구간 규격이었습니다. 이 자료가 다루는 것은 <strong>TS 23.5xx 시스템 구조 계열</strong>입니다. 같은 3GPP이지만 <strong>쓰는 사람도 회의체도 다릅니다.</strong></p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>이 자료가 밟는 규격들</caption>
+    <thead><tr><th class="num">규격</th><th>무엇을 정하나</th><th>이 자료에서</th></tr></thead>
+    <tbody>
+      <tr><td class="num">TS 23.501</td><td>5G 시스템 구조 — PDU 세션, QoS Flow, 5QI</td><td>스티커와 등급표</td></tr>
+      <tr><td class="num">TS 38.413</td><td>NGAP — 코어와 기지국 사이의 말</td><td>파라미터의 <strong>범위</strong>가 전부 여기 ASN.1에 있다</td></tr>
+      <tr><td class="num">TS 37.324</td><td>SDAP — 스티커를 보고 트럭에 싣는 계층</td><td>헤더 1바이트</td></tr>
+      <tr><td class="num">TS 38.331</td><td>RRC — 기지국이 단말에게 트럭을 알려준다</td><td><strong>트럭이 몇 대까지인가</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">아래의 <strong>범위와 개수는 전부 ASN.1 원문에서 옮긴 것</strong>입니다 — NGAP(TS 38.413)와 RRC(TS 38.331)의 ASN.1 모듈은 규격의 <strong>규범적 부속서</strong>입니다. 반면 5QI 표의 지연 예산 값은 <strong>대조하지 못했습니다</strong>. 그 자리는 따로 표시했습니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>PDU 세션 — 데이터망까지 가는 한 가닥</h2>
+  <p>단말이 인터넷을 쓰려면 <strong>데이터망(Data Network)까지 이어진 한 가닥</strong>이 있어야 합니다. 이것이 <strong>PDU 세션(PDU Session)</strong>입니다. 회사 인트라넷을 따로 쓴다면 세션을 하나 더 엽니다 — 목적지가 다르면 세션이 다릅니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 360" role="img" aria-labelledby="tArc dArc">
+      <title id="tArc">단말에서 데이터망까지의 경로와 그 위에 놓인 QoS Flow</title>
+      <desc id="dArc">왼쪽부터 단말, 기지국, 사용자평면기능, 데이터망이 가로로 놓여 있다. 단말과 데이터망을 잇는 한 가닥이 PDU 세션이고, 그 안에 여러 개의 QoS Flow가 나란히 흐른다. 기지국과 단말 사이 구간에서는 QoS Flow들이 더 적은 수의 무선 베어러로 묶여 실린다. 아래쪽에는 제어를 맡는 접속·이동성 관리 기능과 세션 관리 기능이 따로 그려져 있다.</desc>
+      <g id="arcG"></g>
+    </svg>
+  </div>
+  <p class="caption">굵은 선이 <strong>사용자 데이터가 실제로 지나는 길</strong>이고, 아래쪽 점선은 <strong>제어</strong>입니다. AMF는 단말이 어디 있는지와 접속을 맡고, SMF는 세션을 세우고 UPF에게 어떻게 흘리라고 지시합니다. <span class="src">TS 23.501 §4.2</span></p>
+
+  <!-- NGAP ASN.1 (TS 38.413):
+         PDUSessionID ::= INTEGER (0..255)          → 256가지 = 2^8
+         maxnoofPDUSessions INTEGER ::= 256          → 둘이 정확히 맞물린다 -->
+  <div class="note">
+    <strong>세션은 256개까지.</strong> NGAP ASN.1이 <code>PDUSessionID ::= INTEGER (0..255)</code>로 정하고,
+    같은 파일의 <code>maxnoofPDUSessions</code>가 <strong>256</strong>입니다 — 폭과 개수가 정확히 맞물립니다.
+    실제로 단말 하나가 여는 세션은 보통 <strong>한두 개</strong>입니다.
+    <span class="src">TS 38.413 ASN.1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>스티커 — QoS Flow와 QFI</h2>
+  <p>세션 하나 안에서도 <strong>급한 것과 안 급한 것</strong>이 섞입니다. 영상통화 소리와 배경에서 도는 앱 갱신을 같이 취급할 수는 없습니다. 그래서 코어는 패킷마다 <strong>스티커</strong>를 붙입니다 — <strong>QFI(QoS Flow Identifier)</strong>입니다.</p>
+
+  <!-- OAI nr_sdap_entity.h:
+         SDAP_BITMASK_QFI (0x3F) → 6비트 · SDAP_MAX_QFI (64) · SDAP_HDR_LENGTH (1)
+         nr_sdap_dl_hdr_t { QFI:6, RQI:1, RDI:1 } · nr_sdap_ul_hdr_t { QFI:6, R:1, DC:1 }
+       NGAP: QosFlowIdentifier ::= INTEGER (0..63) · maxnoofQosFlows 64
+       RRC : maxNrofQFIs INTEGER ::= 64
+       → 6비트 = 64가지, 세 규격이 같은 수를 말한다 -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 240" role="img" aria-labelledby="tHdr dHdr">
+      <title id="tHdr">SDAP 헤더 1바이트의 비트 배치</title>
+      <desc id="dHdr">한 바이트가 여덟 칸으로 나뉘어 있다. 아래쪽 여섯 칸이 QoS Flow 식별자이고, 위쪽 두 칸은 하향에서는 반사 QoS 지시와 반사 QoS 매핑 지시, 상향에서는 예약 비트와 데이터·제어 구분 비트다.</desc>
+      <g id="hdrG"></g>
+    </svg>
+  </div>
+  <p class="caption">스티커에 쓸 수 있는 것은 <strong>번호뿐</strong>입니다. 무엇을 뜻하는지는 헤더에 없고 <strong>양쪽이 미리 합의한 표</strong>에 있습니다. <span class="src">TS 37.324 §6.2 · OAI <code>nr_sdap_entity.h</code></span></p>
+
+  <div class="stats">
+    <div><span class="n">6</span><span class="t">QFI에 쓰는 비트 수</span></div>
+    <div><span class="n">64</span><span class="t">그래서 스티커 가짓수</span></div>
+    <div><span class="n">1</span><span class="t">SDAP 헤더 크기 [바이트]</span></div>
+    <div><span class="n">3</span><span class="t">같은 64를 말하는 규격 수</span></div>
+  </div>
+  <p class="caption">NGAP의 <code>QosFlowIdentifier ::= INTEGER (0..63)</code>, RRC의 <code>maxNrofQFIs ::= 64</code>, SDAP 구현의 <code>QFI:6</code>이 <strong>같은 수를 세 곳에서</strong> 말합니다. 이런 맞물림이 있으면 잘못 읽었을 가능성이 크게 줍니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>번호의 뜻은 표에 있다 — 5QI</h2>
+  <p>QFI는 <strong>이 세션 안에서 몇 번 흐름인가</strong>만 말합니다. 그 흐름을 <strong>어떻게 대접할지</strong>는 <strong>5QI(5G QoS Identifier)</strong>가 정합니다. 자주 쓰는 조합은 규격이 <strong>표로 못 박아</strong> 두었습니다 — 그러면 코어가 파라미터를 하나하나 보내지 않고 <strong>번호 하나만</strong> 보내면 됩니다.</p>
+
+  <!-- OAI mac_rrc_dl_handler.c:30 — "Standarized 5QI values and Default Priority levels
+       as mentioned in 3GPP TS 23.501 Table 5.7.4-1"
+       qos_fiveqi[26]  = {1,2,3,4,65,66,67,71,72,73,74,76, 5,6,7,8,9,69,70,79,80, 82,83,84,85,86}
+       qos_priority[26]= {20,40,30,50,7,20,15,56,56,56,56,56, 10,60,70,80,90,5,55,65,68, 19,22,24,21,18}
+       → 26가지 = GBR 12 + 비GBR 9 + 지연확정 GBR 5
+       우선순위는 전부 NGAP PriorityLevelQos(1..127) 안, 실제 사용 범위 5~90 -->
+  <div class="table-scroll">
+  <table>
+    <caption>표준 5QI 26가지 · 우선순위가 낮을수록 먼저 <span class="src">TS 23.501 Table 5.7.4-1 · 우선순위는 OAI 대조</span></caption>
+    <thead><tr><th>갈래</th><th class="num">개수</th><th class="num">5QI</th><th class="num">우선순위 범위</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td><strong>GBR</strong></td><td class="num">12</td>
+          <td class="num">1, 2, 3, 4, 65, 66, 67, 71~76</td><td class="num">7 ~ 56</td>
+          <td>대역폭을 <strong>보장</strong>한다 — 통화·실시간 영상</td></tr>
+      <tr><td><strong>비GBR</strong></td><td class="num">9</td>
+          <td class="num">5, 6, 7, 8, 9, 69, 70, 79, 80</td><td class="num">10 ~ 90</td>
+          <td>보장 없이 <strong>남는 만큼</strong> — 웹·앱 트래픽</td></tr>
+      <tr><td><strong>지연확정 GBR</strong></td><td class="num">5</td>
+          <td class="num">82, 83, 84, 85, 86</td><td class="num">18 ~ 24</td>
+          <td>보장에 더해 <strong>늦으면 버린다</strong> — 산업 자동화</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">12 + 9 + 5 = <strong>26</strong>이고, OAI가 담고 있는 배열의 길이와 정확히 같습니다. 우선순위 값은 전부 NGAP의 <code>PriorityLevelQos ::= INTEGER (1..127)</code> 안에 들어가며, 실제로 쓰인 것은 <strong>5부터 90까지</strong>입니다.</p>
+
+  <div class="note">
+    <strong>표를 우선순위 순으로 세우면 규격의 가치관이 보인다.</strong>
+    가장 앞이 <strong>5QI 69(우선순위 5)</strong>, 임무 중요 통신의 <strong>신호</strong>입니다.
+    그다음이 5QI 65(7)로 임무 중요 <strong>음성</strong>, 셋째가 5QI 5(10)로 IMS <strong>신호</strong>입니다.
+    <strong>신호가 미디어보다 앞섭니다</strong> — 신호가 막히면 미디어를 세울 수조차 없기 때문입니다.
+    맨 뒤는 <strong>5QI 9(90)</strong>, 아무 표시 없는 트래픽이 실려 가는 기본 흐름입니다.
+  </div>
+
+  <div class="note">
+    <strong>지연확정 GBR이 맨 앞이 아니다.</strong> 82~86은 우선순위 <strong>18~24</strong>로,
+    임무 중요 신호·음성보다 <strong>뒤</strong>입니다. <strong>급한 것과 중요한 것은 다르다</strong>는 뜻입니다 —
+    이들은 <strong>늦게 가느니 버리는</strong> 쪽이라 별도의 <strong>최대 데이터 버스트 용량</strong>을 함께 받습니다.
+    <span class="src">NGAP <code>MaximumDataBurstVolume ::= INTEGER (0..4095)</code></span>
+  </div>
+
+  <!-- NGAP: PacketErrorRate ::= SEQUENCE { pERScalar INTEGER(0..9), pERExponent INTEGER(0..9) }
+       → scalar × 10^-exponent, 10×10 = 100가지 조합. 10^-2 는 scalar 1 · exponent 2 -->
+  <div class="note">
+    <strong>오류율을 두 숫자로 보낸다.</strong> NGAP은 패킷 오류율을
+    <code>pERScalar(0..9)</code>와 <code>pERExponent(0..9)</code> <strong>두 정수</strong>로 나눠 보냅니다 —
+    값은 <strong>scalar × 10<sup>−exponent</sup></strong>입니다. 10<sup>−2</sup>은 (1, 2)로,
+    가장 작게는 9 × 10<sup>−9</sup>까지 <strong>100가지</strong>를 표현합니다.
+    <strong>부동소수점을 쓰지 않고 자릿수와 계수를 따로 보내는</strong> 것이 규격이 즐겨 쓰는 방식입니다.
+    <span class="src">TS 38.413 ASN.1</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>트럭은 29대뿐 — 그래서 반드시 섞인다</h2>
+  <p>여기까지가 코어의 일입니다. 이제 기지국이 받습니다. 무선 구간에서 데이터를 나르는 것은 <strong>DRB(Data Radio Bearer)</strong>입니다 — RLC와 PDCP를 각자 하나씩 가진 <strong>트럭</strong>입니다.</p>
+
+  <!-- RRC ASN.1 (TS 38.331): maxDRB INTEGER ::= 29
+         "-- Maximum number of DRBs (that can be added in DRB-ToAddModLIst)."
+       NGAP ASN.1 (TS 38.413): maxnoofDRBs INTEGER ::= 32  (다른 목록의 한계)
+       QoS Flow 는 64 → 64 > 29 이므로 흐름이 29개를 넘으면 반드시 섞어 실어야 한다 -->
+  <div class="note">
+    <strong>스티커는 64가지인데 트럭은 29대다.</strong> RRC ASN.1의
+    <code>maxDRB ::= 29</code>가 단말 하나에 설정할 수 있는 DRB의 상한입니다.
+    QoS Flow는 <strong>64</strong>까지 가능하므로, 흐름이 <strong>29개를 넘는 순간 규격상 반드시 섞어 실어야</strong> 합니다.
+    <strong>섞는 것은 선택이 아니라 구조입니다.</strong>
+    <span class="src">TS 38.331 ASN.1 <code>maxDRB</code> · NGAP의 <code>maxnoofDRBs 32</code>는 다른 목록의 한계다</span>
+  </div>
+
+  <p>어떻게 묶을지는 <strong>규격이 정하지 않습니다.</strong> 기지국이 정합니다. 아래에서 묶는 방식을 바꿔 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 400" role="img" aria-labelledby="tMap dMap">
+      <title id="tMap">QoS Flow를 무선 베어러에 묶는 세 가지 방식</title>
+      <desc id="dMap">위쪽 줄에 QoS Flow들이 각자의 5QI 번호를 달고 늘어서 있고, 아래쪽에 그것들을 묶은 무선 베어러 막대가 놓여 있다. 흐름마다 베어러를 하나씩 주면 격리는 완벽하지만 개수가 상한을 넘을 수 있고, 크게 묶으면 개수는 줄지만 한 베어러 안에 우선순위가 크게 다른 흐름이 섞인다.</desc>
+      <g id="mapG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="mpN">QoS Flow 개수</label>
+    <input type="range" id="mpN" min="1" max="64" step="1" value="12" aria-describedby="mpOut">
+    <span class="segmented" id="mpMode" role="group" aria-label="묶는 방식 선택"></span>
+    <span class="readout" id="mpOut"></span>
+  </div>
+
+  <div class="verdict" id="mpBox">
+    <span class="tag" id="mpTag"></span>
+    <span class="why" id="mpWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="mpDrb">—</span><span class="t">필요한 베어러 수</span></div>
+    <div><span class="n" id="mpLimit">29</span><span class="t">규격 상한 maxDRB</span></div>
+    <div><span class="n" id="mpSpread">—</span><span class="t">한 베어러 안 우선순위 폭 · 최대</span></div>
+    <div><span class="n" id="mpWorst">—</span><span class="t">가장 크게 섞인 베어러의 흐름 수</span></div>
+  </div>
+  <p class="caption">흐름의 5QI는 표준 26가지를 <strong>순서대로 돌려가며</strong> 붙였습니다 — 어떤 실제 배치를 흉내 낸 것이 아니라 <strong>비교를 위한 고정된 예</strong>입니다. "우선순위 폭"은 한 베어러가 나르는 흐름 중 가장 앞선 것과 가장 뒤진 것의 우선순위 차입니다.</p>
+
+  <div class="note">
+    <strong>섞으면 무엇을 잃는가.</strong> 한 베어러는 <strong>RLC 설정을 하나만</strong> 가집니다 —
+    재전송을 할지, 순서를 맞춰 올릴지가 베어러 단위로 정해집니다.
+    그래서 우선순위 5짜리와 90짜리를 같은 트럭에 실으면 <strong>둘 중 하나는 반드시 잘못 대접받습니다.</strong>
+    엄격한 쪽에 맞추면 느슨한 흐름에 <strong>자원을 과하게</strong> 쓰고,
+    느슨한 쪽에 맞추면 엄격한 흐름이 <strong>약속을 못 지킵니다.</strong>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>지연 예산을 나눠 쓴다</h2>
+  <p>5QI에는 <strong>패킷 지연 예산(Packet Delay Budget, PDB)</strong>이 딸려 옵니다. 단말과 UPF 사이를 <strong>이 시간 안에</strong> 건너야 한다는 뜻입니다. 그런데 그 구간에는 <strong>코어 구간</strong>과 <strong>무선 구간</strong>이 함께 들어 있습니다.</p>
+
+  <p>코어가 얼마를 가져가느냐에 따라 <strong>무선에 남는 몫</strong>이 정해지고, 그 몫이 <a href="../06-harq-timing/index.html">06에서 본 HARQ 재전송</a>을 몇 번 할 수 있는지를 정합니다.</p>
+
+  <!-- 왕복 모형 = N1 + N2 + 슬롯 2개.  규격이 정하는 것은 N1·N2 뿐이고(TS 38.214 §5.3, §6.4)
+       슬롯 2개는 PDSCH 와 재전송 자신이 차지하는 시간이다 — 아래쪽 한계 모형이다.
+       06 이 검산한 심볼 수(처리 능력 1): μ=0 (8,10) · μ=1 (10,12) · μ=2 (17,23) · μ=3 (20,36)
+         μ=0  570.8 + 713.5 + 2000.0 = 3284.4 μs
+         μ=1  356.8 + 428.1 + 1000.0 = 1784.9 μs
+         μ=2  303.3 + 410.3 +  500.0 = 1213.5 μs
+         μ=3  178.4 + 321.1 +  250.0 =  749.5 μs -->
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="tBud dBud">
+      <title id="tBud">지연 예산을 코어 몫과 무선 몫으로 나누고 그 안에 재전송을 채운다</title>
+      <desc id="dBud">가로로 긴 막대가 전체 지연 예산이고 왼쪽 조각이 코어 구간, 나머지가 무선 구간이다. 무선 구간 안에 HARQ 왕복 시간만 한 칸들이 반복해서 채워지며, 몇 번이 들어가는지가 보인다. 예산이 짧거나 부반송파 간격이 좁으면 한 칸도 들어가지 않는다.</desc>
+      <g id="budG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="bdPdb">지연 예산 PDB</label>
+    <input type="range" id="bdPdb" min="3" max="300" step="1" value="100" aria-describedby="bdOut">
+    <label for="bdCn">코어 몫</label>
+    <input type="range" id="bdCn" min="0" max="30" step="1" value="20" aria-describedby="bdOut">
+    <span class="segmented" id="bdMu" role="group" aria-label="부반송파 간격 선택"></span>
+    <span class="readout" id="bdOut"></span>
+  </div>
+
+  <div class="verdict" id="bdBox">
+    <span class="tag" id="bdTag"></span>
+    <span class="why" id="bdWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="bdRadio">—</span><span class="t">무선에 남는 몫 [ms]</span></div>
+    <div><span class="n" id="bdRtt">—</span><span class="t">HARQ 왕복 하나 [μs]</span></div>
+    <div><span class="n" id="bdCnt">—</span><span class="t">들어가는 왕복 횟수</span></div>
+    <div><span class="n" id="bdLeft">—</span><span class="t">쓰고 남는 시간 [ms]</span></div>
+  </div>
+  <p class="caption">왕복 하나를 <strong>N1 + N2 + 슬롯 2개</strong>로 잡았습니다. 규격이 정하는 것은 <strong>N1과 N2뿐</strong>이고(<a href="../06-harq-timing/index.html">06</a>이 검산한 값), 슬롯 두 개는 전송 자신이 차지하는 시간입니다 — 스케줄링 대기와 전파 지연은 넣지 않았으므로 <strong>아래쪽 한계</strong>입니다. <strong>코어 몫은 슬라이더로 두었습니다</strong> — 규격이 주석으로 정하는 값을 원문 대조하지 못했기 때문입니다. <span class="src">⚠️ 코어 몫의 규정값은 미검증</span></p>
+
+  <!-- VERIFY: TS 23.501 Table 5.7.4-1 의 각 5QI 별 PDB 값과,
+       "코어 구간에 몇 ms 를 떼어 준다"는 주석의 정확한 값을 원문 대조하지 못했다.
+       아래 표의 PDB 열은 널리 인용되는 값이며 ⚠️ 로 표시했다. -->
+  <div class="table-scroll">
+  <table>
+    <caption>자주 인용되는 PDB 값 <span class="src">⚠️ 미검증 — 원문 대조 필요</span></caption>
+    <thead><tr><th class="num">5QI</th><th>무엇</th><th class="num">우선순위</th><th class="num">PDB</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>대화형 음성</td><td class="num">20</td><td class="num">100 ms <span class="src">⚠️</span></td></tr>
+      <tr><td class="num">2</td><td>대화형 영상</td><td class="num">40</td><td class="num">150 ms <span class="src">⚠️</span></td></tr>
+      <tr><td class="num">3</td><td>실시간 게임 · V2X</td><td class="num">30</td><td class="num">50 ms <span class="src">⚠️</span></td></tr>
+      <tr><td class="num">9</td><td>기본 흐름</td><td class="num">90</td><td class="num">300 ms <span class="src">⚠️</span></td></tr>
+      <tr><td class="num">85</td><td>지연확정 GBR</td><td class="num">21</td><td class="num">5 ms <span class="src">⚠️</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption"><strong>우선순위 열만 OAI로 대조했고 PDB 열은 못 했습니다.</strong> 위 인터랙션의 슬라이더를 이 값들에 맞춰 보면 이야기가 보이지만, <strong>값 자체는 원문으로 확인해야 합니다.</strong></p>
+
+  <div class="note">
+    <strong>여기서 μ가 왜 중요한지가 드러난다.</strong> 무선에 <strong>8 ms</strong>가 남았다고 해봅시다.
+    <a href="../01-frame-numerology/index.html">01의 μ</a>에 따라 왕복 횟수가
+    <strong>2 · 4 · 6 · 10</strong>회로 갈립니다. 예산이 <strong>3 ms</strong>까지 줄면
+    μ = 0에서는 <strong>한 번도 재전송하지 못합니다.</strong>
+    <strong>슬롯을 짧게 하는 것이 지연을 줄이려는 것이라는 말</strong>이 여기서 숫자가 됩니다.
+    <span class="src">왕복 3284 / 1785 / 1214 / 750 μs</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>LTE와 갈라진 곳</h2>
+  <p>LTE에도 QoS는 있었습니다. 다만 <strong>코어의 단위와 무선의 단위가 같았습니다.</strong> EPS 베어러 하나가 곧 무선 베어러 하나였습니다 — <strong>1 대 1</strong>이었습니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 일을 나누는 두 방식</caption>
+    <thead><tr><th>—</th><th class="num">LTE · EPS 베어러</th><th class="num">5G · QoS Flow</th></tr></thead>
+    <tbody>
+      <tr><td>코어의 단위</td><td class="num">EPS 베어러</td><td class="num">QoS Flow</td></tr>
+      <tr><td>무선의 단위</td><td class="num">EPS 베어러 <span class="src">같은 것</span></td><td class="num">DRB <span class="src">다른 것</span></td></tr>
+      <tr><td>둘의 관계</td><td class="num"><strong>1 : 1</strong></td><td class="num"><strong>N : 1</strong> (여럿이 한 트럭에)</td></tr>
+      <tr><td>새 등급을 더하려면</td><td class="num">코어와 무선을 <strong>함께</strong> 고쳐야</td>
+          <td class="num">코어만 고치면 된다 — <strong>기지국은 스티커만 본다</strong></td></tr>
+      <tr><td>가운데 계층</td><td class="num">없다</td><td class="num"><strong>SDAP</strong> <span class="src">TS 37.324 · NR에서 새로 생김</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">SDAP이 <strong>NR에서 새로 생긴 계층</strong>인 이유가 이것입니다. 스티커와 트럭을 갈라 놓았으니 <strong>둘을 이어 주는 자리</strong>가 필요해졌습니다. 그 계층이 하는 일은 거의 전부 <strong>"이 QFI는 어느 DRB로"</strong> 하나입니다.</p>
+
+  <div class="note">
+    <strong>분리의 값어치.</strong> 새 서비스 등급이 필요하면 코어에 5QI를 하나 더하고 스티커를 붙이면 됩니다.
+    기지국은 <strong>그 번호가 무슨 뜻인지 몰라도</strong> 자기가 아는 트럭 중 하나에 실으면 됩니다.
+    LTE에서는 같은 일을 하려면 <strong>무선 규격까지 손봐야</strong> 했습니다.
+    <strong>10에서 본 "MAC이 건넨 상자"는 이 모든 과정을 지나온 것</strong>입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>코어는 스티커만 붙이고 트럭은 기지국이 고른다.</strong> QFI는 <strong>6비트·64가지</strong>이고 뜻은 5QI 표에 있습니다. 이 분리가 LTE의 1:1 베어러와 갈라지는 자리이고, 그래서 NR에 SDAP이 생겼습니다.</li>
+    <li><strong>섞는 것은 선택이 아니라 구조다.</strong> 스티커는 64가지인데 <code>maxDRB</code>는 <strong>29</strong>입니다. 흐름이 29개를 넘으면 규격상 반드시 섞어야 하고, 섞이면 한 베어러의 RLC 설정 하나로 <strong>둘 중 하나는 잘못 대접받습니다.</strong></li>
+    <li><strong>지연 예산은 코어와 무선이 나눠 쓴다.</strong> 무선에 남은 몫이 재전송 횟수를 정합니다 — 8 ms면 μ에 따라 <strong>2·4·6·10회</strong>, 3 ms면 μ = 0에서 <strong>한 번도</strong> 못 합니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../20-channel-coding/index.html">← 20 채널 코딩</a>
+  <span>21 / 21</span>
+</nav>
+
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y});
+    if(cls)t.setAttribute('class',cls);
+    if(fill)t.setAttribute('fill',fill);
+    if(anchor)t.setAttribute('text-anchor',anchor);
+    t.textContent=s;return t;
+  }
+  function clear(g){while(g.firstChild)g.removeChild(g.firstChild);}
+
+  /* ── 1. 구조 그림 (고정) ───────────────────────────────── */
+  (function drawArc(){
+    var g=document.getElementById('arcG');
+    var boxes=[{x:60,w:130,lab:'단말',sub:'UE'},
+               {x:300,w:150,lab:'기지국',sub:'gNB'},
+               {x:590,w:150,lab:'사용자평면',sub:'UPF'},
+               {x:880,w:150,lab:'데이터망',sub:'DN'}];
+    var BY=118, BH=64;
+    boxes.forEach(function(b){
+      g.appendChild(el('rect',{x:b.x,y:BY,width:b.w,height:BH,fill:'var(--card)',
+        stroke:'var(--ink)','stroke-width':1.6,rx:4}));
+      g.appendChild(txt(b.x+b.w/2,BY+28,b.lab,'celllab','var(--ink)','middle'));
+      g.appendChild(txt(b.x+b.w/2,BY+48,b.sub,'dimlab','var(--ink-soft)','middle'));
+    });
+    /* 사용자 데이터 길 */
+    [[190,300],[450,590],[740,880]].forEach(function(s){
+      g.appendChild(el('line',{x1:s[0],y1:BY+BH/2,x2:s[1],y2:BY+BH/2,
+        stroke:'var(--dl)','stroke-width':3}));
+    });
+    /* 라벨은 상자 사이 빈 구간의 한가운데에 — 190~300 이 무선 구간이다 */
+    g.appendChild(txt(245,BY+BH/2-14,'무선 — DRB','celllab','var(--dl)','middle'));
+    g.appendChild(txt(520,BY+BH/2-14,'N3','celllab','var(--dl)','middle'));
+    g.appendChild(txt(810,BY+BH/2-14,'N6','celllab','var(--dl)','middle'));
+
+    /* PDU 세션 범위 자 */
+    var SY=52;
+    g.appendChild(el('line',{x1:125,y1:SY,x2:955,y2:SY,stroke:'var(--dl)','stroke-width':2}));
+    [125,955].forEach(function(x){
+      g.appendChild(el('line',{x1:x,y1:SY-7,x2:x,y2:SY+7,stroke:'var(--dl)','stroke-width':2}));
+    });
+    g.appendChild(txt(540,SY-14,'PDU 세션 — 단말에서 데이터망까지 한 가닥',
+      'celllab','var(--dl)','middle'));
+
+    /* QoS Flow 범위 자 — 세션 안쪽 */
+    var QY=90;
+    g.appendChild(el('line',{x1:125,y1:QY,x2:665,y2:QY,stroke:'var(--gp)','stroke-width':2,
+      'stroke-dasharray':'6 4'}));
+    g.appendChild(txt(395,QY-10,'QoS Flow — 세션 안에서 대접이 다른 갈래들',
+      'celllab','var(--gp)','middle'));
+
+    /* 제어 — 아래쪽 점선 */
+    var CY=250;
+    [{x:330,w:150,lab:'AMF',sub:'접속·이동성'},{x:590,w:150,lab:'SMF',sub:'세션 관리'}]
+      .forEach(function(b){
+      g.appendChild(el('rect',{x:b.x,y:CY,width:b.w,height:56,fill:'#fff',
+        stroke:'var(--ink-soft)','stroke-width':1.2,'stroke-dasharray':'5 4',rx:4}));
+      g.appendChild(txt(b.x+b.w/2,CY+24,b.lab,'celllab','var(--ink-soft)','middle'));
+      g.appendChild(txt(b.x+b.w/2,CY+42,b.sub,'dimlab','var(--ink-soft)','middle'));
+    });
+    g.appendChild(el('line',{x1:405,y1:BY+BH,x2:405,y2:CY,stroke:'var(--ink-soft)',
+      'stroke-width':1,'stroke-dasharray':'3 4'}));
+    g.appendChild(el('line',{x1:665,y1:BY+BH,x2:665,y2:CY,stroke:'var(--ink-soft)',
+      'stroke-width':1,'stroke-dasharray':'3 4'}));
+    g.appendChild(txt(60,CY+32,'제어','rowlab','var(--ink-soft)','start'));
+    g.appendChild(txt(540,336,'굵은 선 = 사용자 데이터 · 점선 = 제어',
+      'dimlab','var(--ink-soft)','middle'));
+  })();
+
+  /* ── 2. SDAP 헤더 (고정) ──────────────────────────────── */
+  (function drawHdr(){
+    var g=document.getElementById('hdrG');
+    var HX=150, CW=100, HY=64, HH=52;
+    /* 비트 7 이 왼쪽 */
+    var dl=[{n:'RDI',c:'gp'},{n:'RQI',c:'gp'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'},
+            {n:'QFI',c:'dl'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'}];
+    var ul=[{n:'D/C',c:'gp'},{n:'R',c:'gp'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'},
+            {n:'QFI',c:'dl'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'},{n:'QFI',c:'dl'}];
+    [['하향',dl,HY],['상향',ul,HY+72]].forEach(function(row){
+      g.appendChild(txt(HX-14,row[2]+32,row[0],'rowlab','var(--ink-soft)','end'));
+      row[1].forEach(function(b,i){
+        var c=b.c==='dl'?['var(--dl-bg)','var(--dl)']:['var(--gp-bg)','var(--gp)'];
+        g.appendChild(el('rect',{x:HX+i*CW,y:row[2],width:CW-2,height:HH,
+          fill:c[0],stroke:c[1],'stroke-width':1.4,rx:3}));
+        g.appendChild(txt(HX+i*CW+CW/2-1,row[2]+32,b.n,'celllab',c[1],'middle'));
+      });
+    });
+    /* 비트 번호 — 칸 위 */
+    for(var i=0;i<8;i++){
+      g.appendChild(txt(HX+i*CW+CW/2-1,HY-12,'비트 '+(7-i),'dimlab','var(--ink-soft)','middle'));
+    }
+    g.appendChild(txt(HX+4*CW,HY+72+HH+30,'QFI 6비트 + 나머지 2비트 = 1바이트',
+      'celllab','var(--ink)','middle'));
+  })();
+
+  /* ── 3. QoS Flow → DRB (인터랙션) ─────────────────────── */
+  /* OAI 가 TS 23.501 Table 5.7.4-1 에서 옮긴 표준 5QI 와 기본 우선순위 */
+  var FIVEQI=[1,2,3,4,65,66,67,71,72,73,74,76, 5,6,7,8,9,69,70,79,80, 82,83,84,85,86];
+  var PRIO  =[20,40,30,50,7,20,15,56,56,56,56,56, 10,60,70,80,90,5,55,65,68, 19,22,24,21,18];
+  var KIND=[];                                  /* 0 GBR · 1 비GBR · 2 지연확정 */
+  for(var i=0;i<26;i++) KIND.push(i<12?0:(i<21?1:2));
+  var MAXDRB=29;
+  var MODES=[{lab:'흐름마다 하나'},{lab:'우선순위 대역별'},{lab:'GBR·비GBR·지연확정'}];
+  var mpMode=0;
+
+  function assign(n,mode){
+    var g=[];                                   /* g[i] = 흐름 i 가 실릴 트럭의 키 */
+    for(var i=0;i<n;i++){
+      var k=i%26;
+      if(mode===0) g.push('f'+i);
+      else if(mode===1) g.push('p'+Math.floor(PRIO[k]/10));
+      else g.push('k'+KIND[k]);
+    }
+    var keys=[], map={};
+    g.forEach(function(k){ if(map[k]===undefined){ map[k]=keys.length; keys.push(k); } });
+    return {drb:g.map(function(k){return map[k];}),count:keys.length};
+  }
+
+  var mapG=document.getElementById('mapG');
+  var mpN=document.getElementById('mpN'), mpOut=document.getElementById('mpOut');
+  var mpBox=document.getElementById('mpBox'), mpTag=document.getElementById('mpTag');
+  var mpWhy=document.getElementById('mpWhy');
+  var MX=70, MW=960, FY=70, FH=44, DY=210, DH=44;
+
+  function drawMap(){
+    clear(mapG);
+    var n=+mpN.value, r=assign(n,mpMode);
+    /* 트럭 순서로 흐름을 다시 세운다 — 같은 트럭이 붙어 보이게 */
+    var idx=[];
+    for(var i=0;i<n;i++) idx.push(i);
+    idx.sort(function(a,b){ return r.drb[a]-r.drb[b] || a-b; });
+
+    var cw=MW/n;
+    mapG.appendChild(txt(MX-14,FY+28,'QoS Flow','rowlab','var(--ink-soft)','end'));
+    mapG.appendChild(txt(MX-14,DY+28,'무선 베어러','rowlab','var(--ink-soft)','end'));
+
+    var COL=[['var(--dl-bg)','var(--dl)'],['var(--gp-bg)','var(--gp)'],
+             ['var(--ul-bg)','var(--ul)']];
+    idx.forEach(function(f,pos){
+      var k=f%26, c=COL[KIND[k]];
+      mapG.appendChild(el('rect',{x:MX+pos*cw+0.5,y:FY,width:Math.max(cw-1.5,1),height:FH,
+        fill:c[0],stroke:c[1],'stroke-width':cw>10?1.2:0.5,rx:2}));
+      if(cw>=26)
+        mapG.appendChild(txt(MX+pos*cw+cw/2,FY+27,String(FIVEQI[k]),'celllab',c[1],'middle'));
+    });
+
+    /* 트럭 막대 — 같은 트럭에 실린 흐름 구간을 덮는다 */
+    var seen={}, bars=[];
+    idx.forEach(function(f,pos){
+      var d=r.drb[f];
+      if(seen[d]===undefined){ seen[d]={s:pos,e:pos,flows:[f]}; bars.push(d); }
+      else { seen[d].e=pos; seen[d].flows.push(f); }
+    });
+    var maxSpread=0, worst=0;
+    bars.forEach(function(d){
+      var b=seen[d];
+      var ps=b.flows.map(function(f){return PRIO[f%26];});
+      var sp=Math.max.apply(null,ps)-Math.min.apply(null,ps);
+      if(sp>maxSpread) maxSpread=sp;
+      if(b.flows.length>worst) worst=b.flows.length;
+      var x=MX+b.s*cw, w=(b.e-b.s+1)*cw;
+      var bad=sp>=40;
+      mapG.appendChild(el('rect',{x:x+0.5,y:DY,width:Math.max(w-1.5,1),height:DH,
+        fill:bad?'var(--alert-bg)':'var(--card)',
+        stroke:bad?'var(--alert)':'var(--ink)','stroke-width':w>10?1.4:0.6,rx:3}));
+      if(w>=52)
+        mapG.appendChild(txt(x+w/2,DY+27,b.flows.length+'개','celllab',
+          bad?'var(--alert)':'var(--ink)','middle'));
+      /* 잇는 선 */
+      mapG.appendChild(el('line',{x1:x+w/2,y1:FY+FH,x2:x+w/2,y2:DY,
+        stroke:bad?'var(--alert)':'var(--hair)','stroke-width':1}));
+    });
+
+    /* 상한 표시 — 격자 밖 */
+    var over=r.count>MAXDRB;
+    mapG.appendChild(txt(MX,DY+DH+34,'베어러 '+r.count+'대'+(over?' — maxDRB 29 초과':''),
+      'celllab',over?'var(--alert)':'var(--ink)','start'));
+
+    /* 범례 */
+    var ly=DY+DH+76;
+    [['var(--dl-bg)','var(--dl)','GBR'],['var(--gp-bg)','var(--gp)','비GBR'],
+     ['var(--ul-bg)','var(--ul)','지연확정 GBR'],
+     ['var(--alert-bg)','var(--alert)','우선순위가 40 이상 벌어진 베어러']]
+      .forEach(function(L,k){
+      var lx=MX+k*230;
+      mapG.appendChild(el('rect',{x:lx,y:ly-11,width:22,height:14,fill:L[0],
+        stroke:L[1],'stroke-width':1.2,rx:2}));
+      mapG.appendChild(txt(lx+30,ly,L[2],'dimlab','var(--ink-soft)','start'));
+    });
+
+    document.getElementById('mpDrb').textContent=r.count;
+    document.getElementById('mpSpread').textContent=maxSpread;
+    document.getElementById('mpWorst').textContent=worst;
+    mpOut.textContent='흐름 '+n+'개 · '+MODES[mpMode].lab;
+
+    mpBox.className='verdict '+(over?'bad':(maxSpread>=40?'bad':'ok'));
+    if(over){
+      mpTag.textContent='규격 위반';
+      mpWhy.textContent='베어러가 '+r.count+'대 필요한데 maxDRB는 29입니다 — 이 방식은 쓸 수 없습니다.';
+    }else if(maxSpread>=40){
+      mpTag.textContent='크게 섞였다';
+      mpWhy.textContent='한 베어러가 우선순위 '+maxSpread+'만큼 벌어진 흐름들을 함께 나릅니다 — '
+        +'RLC 설정은 하나뿐이라 둘 중 하나는 잘못 대접받습니다.';
+    }else{
+      mpTag.textContent='무리 없다';
+      mpWhy.textContent='베어러 '+r.count+'대로 상한 안이고, 한 베어러 안 우선순위 폭도 '
+        +maxSpread+'입니다.';
+    }
+  }
+
+  /* ── 4. 지연 예산 (인터랙션) ──────────────────────────── */
+  var Tc=1/(480e3*4096), KAPPA=64;
+  function tu(mu){ return 2048*KAPPA*Tc*1e6/Math.pow(2,mu); }
+  function cpl(mu){ return 144*KAPPA/Math.pow(2,mu)*Tc*1e6; }
+  function slotUs(mu){ return 1000/Math.pow(2,mu); }
+  /* 06 이 검산한 심볼 수 (처리 능력 1) */
+  var NSYM={0:[8,10],1:[10,12],2:[17,23],3:[20,36]};
+  function rttUs(mu){
+    var s=tu(mu)+cpl(mu);
+    return NSYM[mu][0]*s + NSYM[mu][1]*s + 2*slotUs(mu);
+  }
+  /* lab 은 버튼용 짧은 이름, full 은 그림 안에 쓸 온전한 이름 */
+  var MUS=[{mu:0,lab:'15 kHz',full:'15 kHz'},{mu:1,lab:'30',full:'30 kHz'},
+           {mu:2,lab:'60',full:'60 kHz'},{mu:3,lab:'120 kHz',full:'120 kHz'}];
+  var bdState=1;
+
+  var budG=document.getElementById('budG');
+  var bdPdb=document.getElementById('bdPdb'), bdCn=document.getElementById('bdCn');
+  var bdOut=document.getElementById('bdOut'), bdBox=document.getElementById('bdBox');
+  var bdTag=document.getElementById('bdTag'), bdWhy=document.getElementById('bdWhy');
+  var UX=70, UW=960, UY=92, UH=64;
+
+  function drawBud(){
+    clear(budG);
+    var pdb=+bdPdb.value, cn=Math.min(+bdCn.value,pdb), mu=MUS[bdState].mu;
+    var radio=pdb-cn, rtt=rttUs(mu)/1000, cnt=Math.floor(radio/rtt);
+    var px=function(ms){ return UX+ms/pdb*UW; };
+
+    /* 전체 예산 상자 */
+    budG.appendChild(el('rect',{x:UX,y:UY,width:UW,height:UH,fill:'#fff',
+      stroke:'var(--ink)','stroke-width':1.6,rx:3}));
+    /* 코어 몫 */
+    if(cn>0){
+      budG.appendChild(el('rect',{x:UX,y:UY,width:px(cn)-UX,height:UH,
+        fill:'var(--gp-bg)',stroke:'var(--gp)','stroke-width':1.4}));
+      if(px(cn)-UX>70)
+        budG.appendChild(txt((UX+px(cn))/2,UY+38,'코어 '+cn+' ms','celllab','var(--gp)','middle'));
+    }
+    /* 무선 몫에 왕복 칸 채우기 */
+    var drawn=Math.min(cnt,60);
+    for(var i=0;i<drawn;i++){
+      var a=cn+i*rtt, b=a+rtt;
+      budG.appendChild(el('rect',{x:px(a)+0.5,y:UY+6,width:Math.max(px(b)-px(a)-1.5,0.6),
+        height:UH-12,fill:'var(--ul-bg)',stroke:'var(--ul)',
+        'stroke-width':(px(b)-px(a))>6?1.2:0.4,rx:2}));
+    }
+    if(cnt>drawn)
+      budG.appendChild(txt(UX+UW-8,UY+38,'…'+cnt+'회','celllab','var(--ul)','end'));
+    /* 남는 시간 */
+    var used=cn+cnt*rtt;
+    if(pdb-used>0.001){
+      budG.appendChild(el('rect',{x:px(used),y:UY+6,width:UX+UW-px(used),height:UH-12,
+        fill:'none',stroke:'var(--hair)','stroke-width':1,'stroke-dasharray':'3 3'}));
+    }
+
+    /* 눈금 — 상자 아래 */
+    var step=pdb<=20?5:(pdb<=100?20:50);
+    for(var t=0;t<=pdb;t+=step){
+      budG.appendChild(el('line',{x1:px(t),y1:UY+UH,x2:px(t),y2:UY+UH+8,
+        stroke:'var(--ink-soft)','stroke-width':1}));
+      budG.appendChild(txt(px(t),UY+UH+26,t+' ms','dimlab','var(--ink-soft)','middle'));
+    }
+    budG.appendChild(txt(UX+UW/2,UY+UH+56,'지연 예산 '+pdb+' ms 전체','dimlab','var(--ink-soft)','middle'));
+    budG.appendChild(txt(UX,UY-16,'HARQ 왕복 하나 = '+rttUs(mu).toFixed(0)+' μs  ('+MUS[bdState].full+')',
+      'celllab','var(--ink-soft)','start'));
+
+    /* 범례 */
+    var ly=UY+UH+92;
+    [['var(--gp-bg)','var(--gp)','코어 몫'],['var(--ul-bg)','var(--ul)','HARQ 왕복 한 번']]
+      .forEach(function(L,k){
+      var lx=UX+k*260;
+      budG.appendChild(el('rect',{x:lx,y:ly-11,width:22,height:14,fill:L[0],
+        stroke:L[1],'stroke-width':1.2,rx:2}));
+      budG.appendChild(txt(lx+30,ly,L[2],'dimlab','var(--ink-soft)','start'));
+    });
+
+    document.getElementById('bdRadio').textContent=radio;
+    document.getElementById('bdRtt').textContent=rttUs(mu).toFixed(0);
+    document.getElementById('bdCnt').textContent=cnt;
+    document.getElementById('bdLeft').textContent=(pdb-used).toFixed(2);
+    bdOut.textContent='PDB '+pdb+' ms · 코어 '+cn+' ms · '+MUS[bdState].full;
+
+    bdBox.className='verdict '+(cnt>=1?'ok':'bad');
+    if(cnt===0){
+      bdTag.textContent='재전송 못 한다';
+      bdWhy.textContent='무선에 '+radio+' ms가 남았는데 왕복 하나가 '
+        +rttUs(mu).toFixed(0)+' μs입니다 — 한 번도 들어가지 않습니다.';
+    }else{
+      bdTag.textContent='왕복 '+cnt+'회';
+      bdWhy.textContent='무선 몫 '+radio+' ms 안에 '+cnt+'번 들어가고 '
+        +(pdb-used).toFixed(2)+' ms가 남습니다.';
+    }
+  }
+
+  function seg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.lab;
+      b.setAttribute('aria-pressed',get()===i?'true':'false');
+      b.addEventListener('click',function(){
+        set(i);
+        Array.prototype.forEach.call(host.children,function(c,j){
+          c.setAttribute('aria-pressed',j===i?'true':'false');
+        });
+        redraw();
+      });
+      host.appendChild(b);
+    });
+  }
+  seg(document.getElementById('mpMode'),MODES,
+      function(){return mpMode;},function(i){mpMode=i;},drawMap);
+  seg(document.getElementById('bdMu'),MUS,
+      function(){return bdState;},function(i){bdState=i;},drawBud);
+  mpN.addEventListener('input',drawMap);
+  [bdPdb,bdCn].forEach(function(e){ e.addEventListener('input',drawBud); });
+
+  drawMap();
+  drawBud();
+})();
+</script>
+
+</body>
+</html>

@@ -89,6 +89,7 @@ def main():
     ok &= check_dmrs()
     ok &= check_ho()
     ok &= check_coding()
+    ok &= check_core()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -665,6 +666,128 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 21 5G 코어와 세션 ────────────────────────────────────────
+# 근거: TS 23.501 §5.6·§5.7(PDU 세션·QoS Flow·5QI), TS 37.324 §6.2(SDAP 헤더),
+#       TS 38.413 ASN.1(NGAP), TS 38.331 ASN.1(RRC)
+# 범위와 개수는 ASN.1 원문에서 옮겼다. 5QI 의 지연 예산 값은 대조하지 못했다.
+
+# NGAP(TS 38.413) ASN.1 에서 옮긴 범위
+NGAP_RANGE = {
+    'FiveQI': (0, 255), 'PriorityLevelQos': (1, 127), 'PacketDelayBudget': (0, 1023),
+    'QosFlowIdentifier': (0, 63), 'PDUSessionID': (0, 255),
+    'AveragingWindow': (0, 4095), 'MaximumDataBurstVolume': (0, 4095),
+    'pERScalar': (0, 9), 'pERExponent': (0, 9),
+}
+# 목록 상한 — NGAP 과 RRC 양쪽
+MAXNOOF = {'QosFlows': 64, 'PDUSessions': 256, 'DRBs_ngap': 32,
+           'maxDRB_rrc': 29, 'maxNrofQFIs_rrc': 64}
+
+# OAI mac_rrc_dl_handler.c 가 TS 23.501 Table 5.7.4-1 에서 옮긴 표준 5QI 와 기본 우선순위
+FIVEQI = [1, 2, 3, 4, 65, 66, 67, 71, 72, 73, 74, 76,
+          5, 6, 7, 8, 9, 69, 70, 79, 80,
+          82, 83, 84, 85, 86]
+FIVEQI_PRIO = [20, 40, 30, 50, 7, 20, 15, 56, 56, 56, 56, 56,
+               10, 60, 70, 80, 90, 5, 55, 65, 68,
+               19, 22, 24, 21, 18]
+
+# 06 이 검산한 처리 시간 심볼 수 (처리 능력 1)
+HARQ_NSYM = {0: (8, 10), 1: (10, 12), 2: (17, 23), 3: (20, 36)}
+
+
+def harq_rtt_us(mu):
+    """최소 왕복 모형 = N1 + N2 + 슬롯 2개.
+    규격이 정하는 것은 N1·N2 뿐이고 슬롯 둘은 전송 자신의 시간이다 — 아래쪽 한계."""
+    sym = tu(mu) + cp(mu)
+    n1, n2 = HARQ_NSYM[mu]
+    return (n1 + n2) * sym + 2 * (1000.0 / 2 ** mu)
+
+
+def check_core():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[21] 폭과 개수가 맞물리는가 — NGAP·RRC ASN.1")
+    lo, hi = NGAP_RANGE['QosFlowIdentifier']
+    hit = (hi - lo + 1 == 64 == 2 ** 6 == MAXNOOF['QosFlows'] == MAXNOOF['maxNrofQFIs_rrc'])
+    ok &= hit
+    print(f"  QosFlowIdentifier {lo}..{hi} = {hi-lo+1}가지 = 2^6 = maxnoofQosFlows "
+          f"= maxNrofQFIs  {'✓' if hit else '✗'}")
+    lo, hi = NGAP_RANGE['PDUSessionID']
+    hit = hi - lo + 1 == 256 == 2 ** 8 == MAXNOOF['PDUSessions']
+    ok &= hit
+    print(f"  PDUSessionID {lo}..{hi} = {hi-lo+1}가지 = 2^8 = maxnoofPDUSessions"
+          f"  {'✓' if hit else '✗'}")
+    eq("SDAP 헤더 [비트]", 6 + 1 + 1, 8, 0.5)      # QFI 6 + RQI/R 1 + RDI/(D/C) 1
+    eq("SDAP 헤더 [바이트]", (6 + 1 + 1) / 8, 1, 0.01)
+
+    print("\n[21] 스티커는 64가지인데 트럭은 29대")
+    q, d = MAXNOOF['maxNrofQFIs_rrc'], MAXNOOF['maxDRB_rrc']
+    hit = q > d
+    ok &= hit
+    print(f"  QoS Flow {q} · maxDRB {d} → 흐름이 {d}개를 넘으면 반드시 섞인다"
+          f" (여유 {q-d})  {'✓' if hit else '✗'}")
+    eq("섞지 않고 버틸 수 있는 흐름 수", MAXNOOF['maxDRB_rrc'], 29, 0.5)
+
+    print("\n[21] 오류율은 계수와 자릿수로 나눠 보낸다")
+    s = NGAP_RANGE['pERScalar']
+    e = NGAP_RANGE['pERExponent']
+    n = (s[1] - s[0] + 1) * (e[1] - e[0] + 1)
+    eq("표현 가능한 조합 수", n, 100, 0.5)
+    ok &= abs(1 * 10 ** -2 - 0.01) < 1e-12      # 10^-2 = scalar 1 · exponent 2
+
+    print("\n[21] 표준 5QI — OAI 가 TS 23.501 Table 5.7.4-1 에서 옮긴 것")
+    hit = len(FIVEQI) == len(FIVEQI_PRIO) == 26
+    ok &= hit
+    print(f"  전체 {len(FIVEQI)}가지  {'✓' if hit else '✗'}")
+    gbr, nongbr, dc = FIVEQI[:12], FIVEQI[12:21], FIVEQI[21:]
+    hit = (len(gbr), len(nongbr), len(dc)) == (12, 9, 5) and 12 + 9 + 5 == 26
+    ok &= hit
+    print(f"  GBR {len(gbr)} + 비GBR {len(nongbr)} + 지연확정 {len(dc)} = 26"
+          f"  {'✓' if hit else '✗'}")
+    plo, phi = NGAP_RANGE['PriorityLevelQos']
+    hit = all(plo <= p <= phi for p in FIVEQI_PRIO)
+    ok &= hit
+    print(f"  우선순위가 전부 PriorityLevelQos({plo}..{phi}) 안 · "
+          f"실제 {min(FIVEQI_PRIO)}~{max(FIVEQI_PRIO)}  {'✓' if hit else '✗'}")
+    order = sorted(zip(FIVEQI_PRIO, FIVEQI))
+    hit = order[0] == (5, 69) and order[-1] == (90, 9)
+    ok &= hit
+    print(f"  가장 앞 5QI {order[0][1]}(우선순위 {order[0][0]}) · "
+          f"가장 뒤 5QI {order[-1][1]}({order[-1][0]})  게시 69 / 9  {'✓' if hit else '✗'}")
+    # 신호가 미디어보다 앞선다 — 5QI 69(신호) < 65(음성) < 5(신호) < 67(영상)
+    top4 = [f for _, f in order[:4]]
+    hit = top4 == [69, 65, 5, 67]
+    ok &= hit
+    print(f"  앞 넷 {top4}  게시 [69, 65, 5, 67]  {'✓' if hit else '✗'}")
+    same = sorted(f for p, f in zip(FIVEQI_PRIO, FIVEQI) if p == 56)
+    hit = same == [71, 72, 73, 74, 76]
+    ok &= hit
+    print(f"  우선순위 56 을 함께 쓰는 5QI {same}  {'✓' if hit else '✗'}")
+    dcp = sorted(p for p, f in zip(FIVEQI_PRIO, FIVEQI) if f in dc)
+    hit = dcp == [18, 19, 21, 22, 24]
+    ok &= hit
+    print(f"  지연확정 GBR 의 우선순위 {dcp} — 맨 앞이 아니다  게시 18~24"
+          f"  {'✓' if hit else '✗'}")
+
+    print("\n[21] 지연 예산 안에 HARQ 왕복이 몇 번 — 06 의 N1·N2 를 그대로 쓴다")
+    for mu, pub in ((0, 3284.4), (1, 1784.9), (2, 1213.5), (3, 749.5)):
+        eq(f"μ={mu} 왕복 [μs]", harq_rtt_us(mu), pub, 0.1)
+    for budget_ms, pub in ((80, [24, 44, 65, 106]), (8, [2, 4, 6, 10]), (3, [0, 1, 2, 4])):
+        got = [int(budget_ms * 1000 // harq_rtt_us(m)) for m in (0, 1, 2, 3)]
+        hit = got == pub
+        ok &= hit
+        print(f"  남은 예산 {budget_ms:3d} ms → μ별 왕복 {got}  게시 {pub}"
+              f"  {'✓' if hit else '✗'}")
+    print("  → 3 ms 에서는 μ=0 이 한 번도 못 한다 (자료의 주장)")
 
     return ok
 
