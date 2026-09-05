@@ -83,6 +83,7 @@ def main():
     ok &= check_oran()
     ok &= check_zc()
     ok &= check_gold()
+    ok &= check_oai()
     ok &= check_offline()
     ok &= check_harq()
 
@@ -520,6 +521,34 @@ def check_zc():
         ok &= hit
         print(f"  M={M:>4}  최대÷최소 {got:7.4f}배  게시 {pub:<6} {'✓' if hit else '✗ 불일치'}")
 
+    print("\n[15] M_ZC = 30 은 표가 아니라 '위 소수 31을 잘라 쓴다'")
+    # OAI(openair1/PHY/NR_REFSIG/ul_ref_seq_nr.c)의 M_ZC==30 분기가 쓰는 식:
+    #   x = -π·(u+1)·(n+1)·(n+2)/31   →  길이 31 ZC(근 u+1)의 m=1…30 과 같다
+    # 아래-소수 규칙을 쓰면 N_ZC=29 → 근 28개로 30개에 모자라기 때문이다.
+    below = largest_prime_below(30)
+    short = below - 1 < 30
+    ok &= short
+    print(f"  아래 소수 규칙: N_ZC={below} → 근 {below-1}개 → 30개에 모자란가  "
+          f"{'✓' if short else '✗ 자료의 주장과 다름'}")
+
+    def mzc30(u):
+        return [cmath.exp(-1j * math.pi * (u + 1) * (n + 1) * (n + 2) / 31) for n in range(30)]
+
+    same = all(abs(a_ - b_) < 1e-12 for a_, b_ in zip(mzc30(7), zc_pure(31, 8)[1:]))
+    ok &= same
+    print(f"  그 식이 길이 31 ZC(근 u+1)의 m=1…30 과 같은가  "
+          f"{'✓' if same else '✗ 불일치'}")
+    seqs = [mzc30(u) for u in range(30)]
+    distinct = len({tuple(round(v.real, 9) + 1j * round(v.imag, 9) for v in q) for q in seqs}) == 30
+    unit = all(abs(abs(v) - 1) < 1e-12 for q in seqs for v in q)
+    ok &= distinct and unit
+    print(f"  30개가 전부 서로 다르고 크기가 1인가  {'✓' if distinct and unit else '✗'}")
+    worst = max(abs(sum(x * y.conjugate() for x, y in zip(seqs[i], seqs[j]))) / 30
+                for i in range(30) for j in range(i + 1, 30))
+    eq("그때 최악 상호상관 [dB]", 20 * math.log10(worst), -13.3, 0.05)
+    # 자료의 주장: 31이라는 수가 '30 그룹 + 1' 때문에 세 곳에 나타난다
+    print("  → 31이 나오는 세 자리: M_ZC=30의 분모 · 그룹→근 배정식의 분모 · M_ZC=36의 N_ZC")
+
     print("\n[15] 그룹 u → 근 q — N_ZC=31이면 근 1…30을 한 번씩 쓰는가")
     for NZ in [31, 47, 71]:
         qs = [math.floor(NZ * (u + 1) / 31 + 0.5) for u in range(30)]
@@ -862,6 +891,106 @@ def check_gold():
     eq("정규화 t(31)/(2^31−1) [dB]", 20 * math.log10(t31 / (2 ** 31 - 1)), -90.3, 0.05)
     eq("c_init 가짓수 2^31", 2 ** 31, 2147483648, 0)
     eq("15의 ZC 30개 대비 배수", 2 ** 31 / 30, 71582788, 1)
+
+    return ok
+
+
+# ── 17 OpenAirInterface ─────────────────────────────────────
+# 3GPP도 O-RAN도 아닌 세 번째 출처: 오픈소스 구현.
+# 규격 조항과 달리 코드는 움직이므로, 인용한 파일과 이름이 아직 있는지 대조한다.
+# OAI 소스를 받아 두지 않았으면 조용히 건너뛴다 —
+# 이 저장소만 받은 사람도 검산이 통과해야 하기 때문이다.
+
+OAI_COMMIT = 'b3930e3'          # 태그 2026.w36
+OAI_PATHS = [
+    ('openair1/PHY/gold.h', ['Nc = 1600', 'x1(n+31)', 'x2(n+31)']),
+    ('openair1/PHY/NR_REFSIG/dmrs_nr.c', ['#define NC', 'GOLD_SEQUENCE_LENGTH']),
+    ('openair1/PHY/NR_REFSIG/ul_ref_seq_nr.c', ['base_sequence_less_than_36', 'M_ZC == 30']),
+    ('openair1/PHY/NR_REFSIG/ul_ref_seq_nr.h', ['U_GROUP_NUMBER', 'dmrs_ref_ul_primes']),
+    ('openair1/PHY/NR_TRANSPORT/nr_dlsch_coding.c', ['crc24a', 'nr_segmentation']),
+    ('openair1/PHY/NR_TRANSPORT/nr_dlsch.c', ['nr_codeword_scrambling', 'nr_layer_mapping']),
+    ('openair1/PHY/NR_TRANSPORT/nr_prach.c', []),
+    ('openair1/PHY/NR_TRANSPORT/nr_dci.c', []),
+    ('openair1/PHY/INIT/nr_init.c', []),
+    ('openair1/PHY/nr_phy_common/src/nr_phy_common_srs.c', ['srs_max_number_cs']),
+    ('radio/rfsimulator/README.md', []),
+    ('targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.106PRB.usrpb210.conf',
+     ['absoluteFrequencySSB', 'dl_absoluteFrequencyPointA', 'dl_carrierBandwidth']),
+]
+
+
+def _oai_root():
+    for cand in (pathlib.Path('/home/user/openairinterface/openairinterface5g'),
+                 pathlib.Path('/home/user/openairinterface5g')):
+        if (cand / 'openair1').is_dir():
+            return cand
+    return None
+
+
+def check_oai():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<44} {got:>13.6g}  게시 {want:<12} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[17] 설정 파일의 값이 01·04·05와 맞는가 (소스 없이도 도는 산술)")
+    # NR-ARFCN → 주파수 (3 GHz~24.25 GHz): F = 3000 MHz + 15 kHz × (N − 600000)
+    def arfcn(n):
+        return 3000 + 0.015 * (n - 600000)
+    eq("SSB 641280 → [MHz]", arfcn(641280), 3619.20, 0.001)
+    eq("Point A 640008 → [MHz]", arfcn(640008), 3600.12, 0.001)
+    # 05에서 검산한 30 kHz 표: 40 MHz → 106 RB
+    occ = 106 * 12 * 30e-3
+    eq("106 RB 점유 대역 [MHz]", occ, 38.16, 0.001)
+    inside = arfcn(640008) <= arfcn(641280) <= arfcn(640008) + occ
+    ok &= inside
+    print(f"  SSB가 반송파(3600.12–{arfcn(640008)+occ:.2f}) 안에 드는가"
+          f"  {'✓' if inside else '✗ 자료의 주장과 다름'}")
+    # 자료의 인터랙션이 쓰는 05 표
+    for bw, rb, pub in [(10, 24, 8.64), (20, 51, 18.36), (40, 106, 38.16),
+                        (50, 133, 47.88), (100, 273, 98.28)]:
+        got = rb * 12 * 30e-3
+        hit = abs(got - pub) < 0.001
+        ok &= hit
+        print(f"  {bw:>3} MHz → {rb:>3} RB → 점유 {got:6.2f} MHz"
+              f"  게시 {pub:<7} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[17] 인용한 OAI 파일이 아직 있는가")
+    root = _oai_root()
+    if root is None:
+        print("  OAI 소스를 못 찾음 — 이 검사는 건너뛴다 (자료의 인용은 커밋 "
+              f"{OAI_COMMIT} 기준)")
+        print("  받으려면: git clone --depth 1 https://github.com/openairinterface/"
+              "openairinterface5g /home/user/openairinterface/openairinterface5g")
+        return ok
+    print(f"  소스 위치 {root}")
+    for rel, needles in OAI_PATHS:
+        f = root / rel
+        if not f.is_file():
+            ok = False
+            print(f"  ✗ 파일이 없다 — 자료의 인용을 고칠 것: {rel}")
+            continue
+        text = f.read_text(errors='replace')
+        missing = [n for n in needles if n not in text]
+        if missing:
+            ok = False
+            print(f"  ✗ {rel}: 이름이 사라졌다 {missing}")
+        else:
+            print(f"  ✓ {rel}" + (f" ({len(needles)}개 이름 확인)" if needles else ""))
+
+    print("\n[17] 16의 골드 수열이 OAI 구현과 같은 비트를 내는가")
+    gold_h = (root / 'openair1/PHY/gold.h').read_text(errors='replace')
+    # OAI 주석이 담고 있는 식이 자료의 서술과 같은지
+    claims = [('Nc = 1600', 'N_C = 1600'),
+              ('x1(n+3)', 'x1 다항식'),
+              ('x2(n+3) + x2(n+2) + x2(n+1)', 'x2 다항식')]
+    for needle, label in claims:
+        hit = needle in gold_h
+        ok &= hit
+        print(f"  {label:<16} gold.h 주석에 있는가  {'✓' if hit else '✗ 사라졌다'}")
 
     return ok
 
