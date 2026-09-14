@@ -90,6 +90,7 @@ def main():
     ok &= check_ho()
     ok &= check_coding()
     ok &= check_core()
+    ok &= check_crb()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -666,6 +667,217 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 22 크라메르-라오 하한과 ISAC ─────────────────────────────
+# 근거: 추정이론(Cramér 1946 · Rao 1945). **3GPP 규격이 아니다.**
+# 파라미터만 NR 에서 가져온다 — 부반송파 간격(TS 38.211 §4.2), 273 RB(TS 38.101-1).
+# 모형: OFDM 부반송파 k 에서 z_k = α·exp(−j2πkΔf·τ) + w_k, w ~ CN(0, σ²)
+#       k 는 대칭 색인 −(N−1)/2 … (N−1)/2 (N 홀수 → Σk = 0)
+
+CRB_DF = 30e3                  # μ=1
+CRB_N_NR = 3277                # 100 MHz 대역의 3276 부반송파 (대칭 색인을 위해 홀수로)
+CRB_TSYM = 1e-3 / 2 / 14       # μ=1 심볼 평균 [s]
+CRB_FC = 3.5e9
+
+
+def _ks(n):
+    h = (n - 1) // 2
+    return range(-h, h + 1)
+
+
+def fim_tau(n, df, snr_tot):
+    """J(τ) = SNR_tot·(2πΔf)²·(N²−1)/6
+    유도: ∂μ_k/∂τ = −j2πkΔf·μ_k → J = (2/σ²)Σ|∂μ_k/∂τ|² = 2(|α|²/σ²)(2πΔf)²Σk²
+          Σk² = N(N²−1)/12,  SNR_tot = N|α|²/σ²"""
+    return snr_tot * (2 * math.pi * df) ** 2 * (n * n - 1) / 6
+
+
+def crb_range(n, df, snr_tot):
+    """왕복이므로 R = cτ/2 → σ_R = (c/2)σ_τ"""
+    return (C * 1e6 / 2) * math.sqrt(1 / fim_tau(n, df, snr_tot))   # C 는 m/μs
+
+
+def _crb_tau_unknown_alpha(n, df, snr_tot):
+    """(τ, Re α, Im α) 3×3 피셔 행렬을 세워 역행렬의 (0,0) 을 본다."""
+    a = math.sqrt(snr_tot / n)                 # σ² = 1
+    J = [[0.0] * 3 for _ in range(3)]
+    for k in _ks(n):
+        ph = -2 * math.pi * k * df
+        d = [complex(0, ph * a), complex(1, 0), complex(0, 1)]     # τ=0 에서 평가
+        for i in range(3):
+            for j in range(3):
+                J[i][j] += 2 * (d[i].conjugate() * d[j]).real
+    det = (J[0][0] * (J[1][1] * J[2][2] - J[1][2] * J[2][1])
+           - J[0][1] * (J[1][0] * J[2][2] - J[1][2] * J[2][0])
+           + J[0][2] * (J[1][0] * J[2][1] - J[1][1] * J[2][0]))
+    return (J[1][1] * J[2][2] - J[1][2] * J[2][1]) / det
+
+
+def crb_speed(m_sym, snr_tot, fc=CRB_FC, tsym=CRB_TSYM):
+    j = snr_tot * (2 * math.pi * tsym) ** 2 * (m_sym * m_sym - 1) / 6
+    return (C * 1e6 / (2 * fc)) * math.sqrt(1 / j)
+
+
+def crb_angle_deg(na, snr_tot, theta_deg=0.0):
+    """d = λ/2 균일 선형배열 · J(θ) = SNR_tot·π²cos²θ·(Na²−1)/6"""
+    j = snr_tot * math.pi ** 2 * math.cos(math.radians(theta_deg)) ** 2 * (na * na - 1) / 6
+    return math.degrees(math.sqrt(1 / j))
+
+
+def _crb_mc_rmse(n, df, snr_tot, trials=200, grid=257, seed=20260914):
+    est = _crb_mc_est(n, df, snr_tot, trials, grid, seed)
+    return math.sqrt(sum(e * e for e in est) / len(est))
+
+
+def _crb_mc_est(n, df, snr_tot, trials=200, grid=257, seed=20260914):
+    """최대가능도(격자 최대 + 포물선 보간)로 실제 오차를 재 본다.
+    자료의 자바스크립트와 같은 PRNG·같은 알고리즘이라 값이 일치한다."""
+    s = seed & 0xFFFFFFFF
+
+    def rnd():
+        nonlocal s
+        s = (s + 0x6D2B79F5) & 0xFFFFFFFF
+        t = s
+        t = (t ^ (t >> 15)) * (t | 1) & 0xFFFFFFFF
+        t = (t ^ (t + ((t ^ (t >> 7)) * (t | 61) & 0xFFFFFFFF))) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296.0
+
+    def gauss():
+        u = max(rnd(), 1e-12)
+        return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * rnd())
+
+    K = list(_ks(n))
+    span, a = 1.0 / df, math.sqrt(snr_tot / n)
+    step = span / (grid - 1)
+    tab = [[cmath.exp(1j * 2 * math.pi * k * df * (-span / 2 + step * g)) for k in K]
+           for g in range(grid)]
+    out = []
+    for _ in range(trials):
+        z = [a + complex(gauss(), gauss()) / math.sqrt(2) for _ in K]   # 참값 τ0 = 0
+        p = [abs(sum(z[i] * tab[g][i] for i in range(len(K)))) ** 2 for g in range(grid)]
+        gb = max(range(grid), key=lambda g: p[g])
+        tau = -span / 2 + step * gb
+        if 0 < gb < grid - 1:
+            y0, y1, y2 = p[gb - 1], p[gb], p[gb + 1]
+            den = y0 - 2 * y1 + y2
+            if den != 0:
+                d = 0.5 * (y0 - y2) / den
+                if -1 < d < 1:
+                    tau += d * step
+        out.append(tau)
+    return out
+
+
+def check_crb():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<38} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    print("\n[22] 피셔 정보 — 닫힌형이 직접합과 같은가 (규격이 아니라 추정이론)")
+    for n in (9, 65, CRB_N_NR):
+        hit = sum(k * k for k in _ks(n)) == n * (n * n - 1) // 12
+        ok &= hit
+        if not hit:
+            print(f"    ✗ N={n} 에서 Σk² ≠ N(N²−1)/12")
+    print(f"  Σk² = N(N²−1)/12 을 N = 9·65·{CRB_N_NR} 에서 확인  ✓")
+    for n, df, snr in ((65, CRB_DF, 100.0), (257, CRB_DF, 10.0)):
+        direct = 2 * (snr / n) * sum((2 * math.pi * k * df) ** 2 for k in _ks(n))
+        hit = abs(direct - fim_tau(n, df, snr)) / direct < 1e-12
+        ok &= hit
+        if not hit:
+            print(f"    ✗ N={n} 에서 직접합 불일치")
+    print("  J(τ) 직접합 = SNR·(2πΔf)²·(N²−1)/6  (두 조합에서 일치)  ✓")
+
+    print("\n[22] 진폭을 몰라도 하한이 같은가 — 3×3 피셔 행렬")
+    for n, snr in ((65, 100.0), (129, 30.0)):
+        unk = _crb_tau_unknown_alpha(n, CRB_DF, snr)
+        kn = 1.0 / fim_tau(n, CRB_DF, snr)
+        hit = abs(unk / kn - 1) < 1e-9
+        ok &= hit
+        print(f"  N={n:4d}: α 미지 / α 기지 = {unk/kn:.10f}  {'✓' if hit else '✗'}")
+    print("  → 대칭 색인(Σk = 0)이면 미지 진폭이 τ 의 하한을 건드리지 않는다  ✓")
+
+    print("\n[22] NR 100 MHz 에서의 거리 하한")
+    B = 3276 * CRB_DF
+    eq("점유 대역폭 [MHz]", B / 1e6, 98.28, 0.01)
+    eq("분해능 c/(2B) [m]", C * 1e6 / (2 * B), 1.5252, 0.001)
+    for snr_db, pub in ((0, 59.441), (10, 18.797), (20, 5.944), (30, 1.880)):
+        eq(f"SNR {snr_db:2d} dB · σ_R [cm]",
+           crb_range(CRB_N_NR, CRB_DF, 10 ** (snr_db / 10)) * 100, pub, 0.01)
+    ratio = (C * 1e6 / (2 * B)) / crb_range(CRB_N_NR, CRB_DF, 100.0)
+    eq("분해능 ÷ 정확도 (20 dB) [배]", ratio, 25.7, 0.1)
+    # 이 비는 폭과 무관하고 SNR 로만 정해진다 — 2π√(SNR/6)
+    for n in (513, 1025, 4097):
+        r = (C * 1e6 / (2 * n * CRB_DF)) / crb_range(n, CRB_DF, 100.0)
+        hit = abs(r - 2 * math.pi * math.sqrt(100.0 / 6)) < 0.05
+        ok &= hit
+        if not hit:
+            print(f"    ✗ N={n} 에서 비가 SNR 만의 함수가 아니다 ({r})")
+    print(f"  비가 폭과 무관하고 2π√(SNR/6) = {2*math.pi*math.sqrt(100/6):.2f} 로 수렴  ✓")
+
+    print("\n[22] 배수 법칙 — 폭 두 배와 SNR 6 dB 는 같은 값어치")
+    eq("N 두 배 → 오차 배수", crb_range(2049, CRB_DF, 100.0) / crb_range(4097, CRB_DF, 100.0),
+       2.0, 0.002)
+    eq("SNR +6 dB → 오차 배수",
+       crb_range(CRB_N_NR, CRB_DF, 100.0) / crb_range(CRB_N_NR, CRB_DF, 100.0 * 10 ** 0.6),
+       2.0, 0.01)
+
+    print("\n[22] 몬테카를로 — 하한에 닿는가, 어디서 깨지는가 (씨앗 고정)")
+    print("  N=33 · 0.99 MHz · 200회 · 격자 257점 + 포물선 보간")
+    PUB = {25: (3.32, 3.44), 20: (5.91, 6.20), 15: (10.50, 11.13),
+           12: (14.83, 15.88), 10: (18.67, 388.7), 6: (29.60, 952.4), 0: (59.05, 1441.8)}
+    for snr_db in (25, 20, 15, 12, 10, 6, 0):
+        snr = 10 ** (snr_db / 10)
+        crb = crb_range(33, CRB_DF, snr)
+        mc = (C * 1e6 / 2) * _crb_mc_rmse(33, CRB_DF, snr)
+        pc, pm = PUB[snr_db]
+        hit = abs(crb - pc) < 0.02 and abs(mc - pm) < max(0.1, pm * 0.002)
+        ok &= hit
+        print(f"  SNR {snr_db:2d} dB → 하한 {crb:8.2f} m · 실제 {mc:9.2f} m · "
+              f"비 {mc/crb:6.2f}  게시 {pc}/{pm}  {'✓' if hit else '✗'}")
+    # 문턱: 12 dB 까지는 붙고 10 dB 에서 무너진다
+    r12 = (C * 1e6 / 2) * _crb_mc_rmse(33, CRB_DF, 10 ** 1.2) / crb_range(33, CRB_DF, 10 ** 1.2)
+    r10 = (C * 1e6 / 2) * _crb_mc_rmse(33, CRB_DF, 10.0) / crb_range(33, CRB_DF, 10.0)
+    hit = r12 < 1.2 and r10 > 10
+    ok &= hit
+    print(f"  문턱: 12 dB 에서 비 {r12:.2f} · 10 dB 에서 {r10:.1f} — 2 dB 로 갈린다"
+          f"  {'✓' if hit else '✗'}")
+
+    print("\n[22] 무너진 것은 하한이 아니다 — 이탈을 갈라 세어 본다")
+    for snr_db, n_out_pub, ratio_pub in ((12, 1, 1.04), (10, 11, 1.04), (6, 79, 0.98), (0, 171, 0.96)):
+        snr = 10 ** (snr_db / 10)
+        crbt = math.sqrt(1 / fim_tau(33, CRB_DF, snr))
+        est = _crb_mc_est(33, CRB_DF, snr)
+        out = [e for e in est if abs(e) > 3 * crbt]
+        inl = [e for e in est if abs(e) <= 3 * crbt]
+        rin = (C * 1e6 / 2) * math.sqrt(sum(e * e for e in inl) / len(inl))
+        ratio = rin / ((C * 1e6 / 2) * crbt)
+        hit = len(out) == n_out_pub and abs(ratio - ratio_pub) < 0.01
+        ok &= hit
+        print(f"  SNR {snr_db:2d} dB → 이탈 {len(out):3d}/200 ({len(out)/2:4.1f} %) · "
+              f"이탈 뺀 나머지는 하한의 {ratio:.2f}배  게시 {n_out_pub}/{ratio_pub}"
+              f"  {'✓' if hit else '✗'}")
+    print("  → 하한은 한 번도 틀리지 않았다. 추정기가 가끔 다른 봉우리를 붙잡은 것이다.")
+
+    print("\n[22] 속도 — 시간을 길게 봐야 한다 (3.5 GHz · μ=1)")
+    for m, pub in ((14, 3.3478), (140, 0.3339), (280, 0.1670)):
+        eq(f"심볼 {m:3d}개 · σ_v [m/s]", crb_speed(m, 100.0), pub, 0.001)
+
+    print("\n[22] 각도 — 개구가 정한다 (λ/2 균일 선형배열 · 정면)")
+    for na, bw_pub, ac_pub in ((8, 12.691, 0.5628), (32, 3.173, 0.1397), (64, 1.586, 0.0698)):
+        bw = math.degrees(0.886 * 2 / na)
+        eq(f"Na={na:2d} · 빔폭 [°]", bw, bw_pub, 0.005)
+        eq(f"Na={na:2d} · 정확도 [°]", crb_angle_deg(na, 100.0), ac_pub, 0.001)
+    eq("60° 로 돌렸을 때 나빠지는 배수",
+       crb_angle_deg(32, 100.0, 60) / crb_angle_deg(32, 100.0), 2.0, 0.01)
+    print("  → cos²θ 가 붙어 60° 에서 정확히 두 배. 07 의 '빔이 옆에서 넓어진다'와 같은 뿌리")
 
     return ok
 
