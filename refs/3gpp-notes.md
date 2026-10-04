@@ -337,6 +337,91 @@ ASN.1 모듈은 규격의 **규범적 부속서**다. 아래는 전부 원문에
 
 ---
 
+## LTE 규격 (TS 36.xxx) — 23 LTE 초기 접속
+
+> **23의 수치는 원문 대조를 마치지 못했다.** 작성 시점에 3GPP·ETSI 사이트에 접근할 수 없어 규격을 열어 보지 못했고,
+> 아래 내용은 알고 있는 규격 내용과 식의 자기일관성(`tools/verify-numbers.py`)으로만 확인했다.
+> 그래서 "검증" 열에는 날짜를 하나도 적지 않았다. 확신이 낮은 항목은 ⚠️ 미검증으로, 아래 "확인이 필요한 것"에도 따로 올렸다.
+
+**LTE(TS 36.xxx)는 NR(TS 38.xxx)과 같은 3GPP 무선 계열이지만 세대가 다르다.** 이름이 같은 항목도 값이 다를 수 있으므로
+38.xxx 절과 섞어 적지 않고 이 절에만 모은다. 비교용 NR 값은 04·08의 절에서 가져온 것만 쓴다.
+
+### TS 36.211 — Physical channels and modulation
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| 기본 시간 단위 | §4 | T_s = 1/(15000 × 2048) s ≈ 32.552 ns<br>프레임 307200 T_s = 10 ms · 서브프레임 30720 T_s = 1 ms · 슬롯 15360 T_s = 0.5 ms | 23 | ⚠️ 미검증 (조항 위치) |
+| 심볼·CP 길이 | §6.2.3 Table 6.2.3-1 · §6.12 Table 6.12-1 | 일반 CP 슬롯당 7심볼, N_CP,l = 160 (슬롯 첫 심볼) / 144 (나머지) T_s<br>확장 CP 슬롯당 6심볼, N_CP,l = 512 T_s | 23 | ⚠️ 미검증 (표 번호) |
+| PRACH 포맷 | §5.7.1 Table 5.7.1-1 (T_CP · T_SEQ) · Figure 5.7.1-1 (서브프레임 수) | 포맷 0: T_CP 3168 T_s · T_SEQ 24576 T_s · 1 서브프레임<br>1: 21024 · 24576 · 2 · 2: 6240 · 2×24576 · 2 · 3: 21024 · 2×24576 · 3<br>4 (TDD, UpPTS): 짧은 포맷 — 숫자는 인용하지 않음<br>왕복 지연은 보호 구간뿐 아니라 CP도 덮어야 한다(RTD ≤ T_CP) | 23 | ⚠️ 미검증 (포맷 1–4 · CP 조건) |
+| PRACH 시퀀스 | §5.7.2 · §5.7.3 Table 5.7.3-1 | 셀마다 프리앰블 64개 · ZC N_ZC = 839 (포맷 0–3) / 139 (포맷 4)<br>Δf_RA = 1.25 kHz (포맷 0–3) · 루트가 모자라면 추가 루트를 쓴다 | 23 | ⚠️ 미검증 (Δf_RA 표 번호) |
+| N_CS 표 | §5.7.2 Table 5.7.2-2 | 제한 없는 집합, zeroCorrelationZoneConfig 0–15<br>0, 13, 15, 18, 22, 26, 32, 38, 46, 59, 76, 93, 119, 167, 279, 419 | 23 | ⚠️ 미검증 |
+| PBCH | §6.6 (§6.6.4 자원 매핑) | 서브프레임 0 슬롯 1의 처음 4심볼 · 가운데 72 부반송파 · QPSK<br>스크램블은 40 ms마다 처음부터 · CRS RE는 실제 포트 수와 무관하게 4포트 기준으로 비워 둔다 | 23 | ⚠️ 미검증 (RE 수 240) |
+| CRS | §6.10.1 (§6.10.1.2) | 부반송파 k = 6m + (v + v_shift) mod 6 · v_shift = N_ID^cell mod 6<br>포트 0은 심볼 0에서 v = 0, 포트 1은 심볼 0에서 v = 3 | 23 | ⚠️ 미검증 (v 값) |
+| PSS | §6.11.1 Table 6.11.1.1-1 | ZC 길이 63에서 가운데 원소를 빼 62개 · 루트 u = 25, 29, 34 ↔ N_ID^(2) = 0, 1, 2<br>FDD: 슬롯 0·10의 마지막 심볼 · TDD: 서브프레임 1·6의 세 번째 심볼 · 양 끝 5개 부반송파씩 비움 | 23 | |
+| SSS | §6.11.2 | 길이 31 m-시퀀스 두 개를 번갈아 배치 · 서브프레임 0과 5에서 두 시퀀스가 교환됨 → 10 ms 경계<br>N_ID^(1) = 0…167 · FDD: PSS 바로 앞 심볼 · TDD: 서브프레임 0·5의 마지막 심볼 | 23 | |
+| 물리 셀 ID | §6.11 | N_ID^cell = 3 · N_ID^(1) + N_ID^(2) → 0…503 | 23 | |
+
+### TS 36.212 — Multiplexing and channel coding
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| PBCH 부호화 | §5.3.1 | MIB 24비트 + CRC 16비트(CRC에 안테나 포트 수 1/2/4별 마스크)<br>tail-biting 길쌈 부호 R = 1/3 → 120비트 → 레이트 매칭 → 40 ms에 걸쳐 4조각 | 23 | ⚠️ 미검증 (레이트 매칭 절) |
+
+### TS 36.213 — Physical layer procedures
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| 타이밍 어드밴스 | §4.2.3 | T_A = 0, 1, …, 1282 · N_TA = T_A × 16 (단위 T_s) | 23 | |
+| PRACH · Msg3 타이밍 | §6.1.1 | RAR을 서브프레임 n에서 받으면 UL-SCH를 n + k1, k1 ≥ 6 에 전송 | 23 | ⚠️ 미검증 |
+| PRACH 송신 전력 | §6.1 | P_PRACH = min(P_CMAX, PREAMBLE_RECEIVED_TARGET_POWER + PL) | 23 | |
+
+### TS 36.321 — Medium Access Control
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| RA 절차 전반 | §5.1 (§5.1.2 자원 선택 · §5.1.3 프리앰블 전송 · §5.1.4 RAR 수신 · §5.1.5 경합 해소) | 프리앰블 그룹 A/B → 전송 → RAR → Msg3 → 경합 해소<br>그룹 B는 설정돼 있고 **Msg3 크기 > messageSizeGroupA 이면서** 경로 손실이 충분히 작을 때만 고른다(둘 다 만족) · 아니면 A | 23 | |
+| RA-RNTI | §5.1.4 | 1 + t_id + 10 · f_id (t_id 0–9, f_id 0–5) | 23 | |
+| RAR 창 | §5.1.4 | 프리앰블이 끝난 서브프레임 + 3 에서 시작, 길이 ra-ResponseWindowSize | 23 | ⚠️ 미검증 |
+| 전력 램핑 | §5.1.3 | PREAMBLE_RECEIVED_TARGET_POWER = preambleInitialReceivedTargetPower + DELTA_PREAMBLE + (PREAMBLE_TRANSMISSION_COUNTER − 1) × powerRampingStep | 23 | |
+| 백오프 | §5.1.4 | RAR의 Backoff Indicator → 0과 BI 사이 균등 분포로 무작위 대기 | 23 | ⚠️ 미검증 (BI 표 Table 7.2-1) |
+| 경합 해소 | §5.1.5 | UE Contention Resolution Identity MAC CE가 Msg3 CCCH SDU의 앞 48비트와 같으면 성공 · T-C-RNTI → C-RNTI | 23 | |
+| RAR 페이로드 | §6.2.3 | R(1) + Timing Advance Command(11) + UL Grant(20) + Temporary C-RNTI(16) = 48비트 | 23 | |
+| RNTI 값 | §7.1 Table 7.1-1 | RA-RNTI 0x0001–0x003C (1–60) · SI-RNTI 0xFFFF | 23 | ⚠️ 미검증 (표 번호) |
+
+### TS 36.331 — Radio Resource Control
+
+| 항목 | 필드 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| MIB | `MasterInformationBlock` (§6.2.2) | dl-Bandwidth(3) · phich-Config(3) · systemFrameNumber(8) · spare(10) = **24비트** | 23 | |
+| SI 스케줄링 | §5.2.1.2 | SIB1은 서브프레임 5 · SFN mod 8 = 0에서 첫 전송, SFN mod 2 = 0인 프레임마다 반복 (주기 80 ms) | 23 | |
+| 시스템 정보 변경 | §5.2.1.3 | 변경은 수정 주기(modification period) 경계에서만 — SIB1의 80 ms는 전송 주기일 뿐 변경 단위가 아니다 | 23 | ⚠️ 미검증 |
+| SIB1 | `SystemInformationBlockType1` (§6.3.1) | plmn-IdentityList(최대 6) · trackingAreaCode(16비트) · cellIdentity(28비트, PLMN 안에서 유일) · cellBarred<br>q-RxLevMin(−70…−22, ×2 dBm) · schedulingInfoList · si-WindowLength(1/2/5/10/15/20/40 ms) | 23 | ⚠️ 미검증 (열거값) |
+| SIB2 랜덤 액세스 | `SystemInformationBlockType2` (§6.3.1) | numberOfRA-Preambles(4…64, 4씩) · preambleInitialReceivedTargetPower(−120…−90 dBm, 2 dB씩) · powerRampingStep(0/2/4/6 dB)<br>preambleTransMax(3…200) · ra-ResponseWindowSize(2…8, 10) · mac-ContentionResolutionTimer(8…64, 8씩) · maxHARQ-Msg3Tx(1…8)<br>rootSequenceIndex(0…837) · prach-ConfigIndex(0…63) · zeroCorrelationZoneConfig(0…15) · highSpeedFlag(참 = 제한 집합, 거짓 = 제한 없는 집합) | 23 | ⚠️ 미검증 (열거값 전체) |
+| RRC 연결 설정 | §5.3.3 · §6.2.2 | RRCConnectionRequest(ue-Identity 40비트: S-TMSI 또는 난수, establishmentCause) → RRCConnectionSetup(SRB1) → RRCConnectionSetupComplete(NAS 메시지) | 23 | |
+
+### TS 36.101 — UE radio transmission and reception
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| 채널 대역폭과 N_RB | §5.6 Table 5.6-1 | 1.4 / 3 / 5 / 10 / 15 / 20 MHz ↔ N_RB 6 / 15 / 25 / 50 / 75 / 100 | 23 | |
+| 채널 래스터 | §5.7.2 | 반송파 중심 주파수는 100 kHz의 배수 | 23 | |
+| EARFCN | §5.7.3 Table 5.7.3-1 | F_DL = F_DL_low + 0.1 (N_DL − N_Offs-DL) MHz<br>밴드 3 하향 1805–1880 MHz · N_Offs-DL = 1200 · N_DL = 1200…1949 | 23 | ⚠️ 미검증 (밴드 3 값) |
+
+### TS 36.304 — UE procedures in idle mode
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| 셀 선택 | §5.2.3.1 (§5.2.1일 가능성) | 저장된 정보를 이용한 셀 선택 / 초기 셀 선택(지원 대역 전체를 훑고, 주파수마다 가장 센 셀만 찾는다) | 23 | ⚠️ 미검증 (절 번호) |
+| S-기준 | §5.2.3.2 | Srxlev = Qrxlevmeas − (Qrxlevmin + Qrxlevminoffset) − Pcompensation · Squal = Qqualmeas − (Qqualmin + Qqualminoffset)<br>Srxlev > 0 이고(Squal이 설정되면) Squal > 0 · Pcompensation = max(PEMAX − PPowerClass, 0) | 23 | ⚠️ 미검증 (Rel-10 이후 형태) |
+
+### TS 36.300 — E-UTRA and E-UTRAN overall description
+
+| 항목 | 조항 | 내용 | 사용처 | 검증 |
+|---|---|---|---|---|
+| 랜덤 액세스 사용처 | §10.1.5 | 초기 접속 · RRC 연결 재설정 · 핸드오버 · 하향/상향 데이터 도착(동기 상실) · 위치 측정<br>핸드오버·하향 데이터 도착(PDCCH order)·위치 측정은 전용 프리앰블로 경합 없이 | 23 | ⚠️ 미검증 (분류) |
+
+---
+
 ## O-RAN Alliance — 프론트홀 규격 (3GPP가 아니다)
 
 **14의 근거는 전부 이 절에 있다.** 3GPP 절과 섞어 적지 않는다 —
@@ -359,6 +444,94 @@ ASN.1 모듈은 규격의 **규범적 부속서**다. 아래는 전부 원문에
 | 실시간 BFW | O-RAN.WG4.CUS.0 Section Extension 1 | 빔포밍 웨이트 값을 C-plane에 실어 보낸다<br>PRB 묶음 단위로 보낼 수 있어 부담을 줄인다 | 14 | ⚠️ 미검증 (확장 번호 · 묶음 설정 필드명) |
 | Option 8 (CPRI) | CPRI Specification | **시간영역** IQ를 안테나마다 통째로. 실린 데이터와 무관하게 양이 일정하다 | 14 | ⚠️ 미검증 (버전·비트폭 관행) |
 | 시각 동기 | IEEE 1588 PTP · ITU-T G.8275.1 | O-RU와 O-DU의 시계를 맞춘다. 양이 아니라 **정확도**가 관건 | 14 | ⚠️ 미검증 (요구 정확도 수치) |
+
+---
+
+## 유도한 값 — 23 LTE 초기 접속 (계산 근거)
+
+```
+[시간 단위]  T_s = 1/(15000 × 2048) = 32.552 ns   (NR의 T_s와 같다 · κ = T_s/T_c = 64)
+  일반 CP 슬롯 = 160 + 6 × 144 + 7 × 2048 = 15360 T_s = 0.5 ms
+  확장 CP 슬롯 = 6 × (512 + 2048)           = 15360 T_s
+  CP 144 T_s = 4.6875 μs · 160 T_s = 5.2083 μs → 03·04의 NR μ=0 값과 같다 (verify-numbers.py 가 대조)
+
+[동기 창]  가운데 6 RB = 72 부반송파 = 72 × 15 kHz = 1.08 MHz
+  PSS·SSS 62개 = 31 + 31 (DC 양쪽), 양 끝 5개씩 비움 → 5 + 62 + 5 = 72
+  ZC 길이 63에서 가운데(DC) 원소 하나를 빼 62개.  63 − 29 = 34 → 루트 29와 34는 서로 켤레
+  창이 반송파에서 차지하는 비율 = 6 / N_RB:  6/6 100% · 6/15 40% · 6/25 24% · 6/50 12% · 6/75 8% · 6/100 6%
+  점유율 = N_RB × 180 kHz / 채널 대역폭:  1.08/1.4 = 77.1% · 나머지 90.0%
+
+[채널 래스터]  밴드 3 하향 1805–1880 MHz, 100 kHz 격자
+  후보 = (1880 − 1805) / 0.1 = 750 = EARFCN 1200…1949 의 개수 (가장자리 여유를 무시한 상한)
+  EARFCN 1949 → 1805 + 0.1 × 749 = 1879.9 MHz
+  04의 n78: 500 MHz / 1.44 MHz = 347.2 → "약 350".  대역 500/75 = 6.7배인데 후보는 350/750 = 0.47배
+  ※ 밴드 3의 EARFCN 값은 ⚠️ 미검증. 750은 (1880−1805)/0.1 에서 독립적으로 나온다.
+
+[PSS–SSS 간격]  SSS 시작 → PSS 시작 [T_s].  일반 CP 심볼: 슬롯 첫 심볼 2208, 나머지 2192 · 확장 CP 2560
+  FDD 일반  SSS = SF0 심볼 5, PSS = 심볼 6                       → 2192 T_s =  71.354 μs
+  FDD 확장  SSS = SF0 심볼 4, PSS = 심볼 5                       → 2560 T_s =  83.333 μs
+  TDD 일반  SSS = SF0 심볼 13, PSS = SF1 심볼 2 → 2192 + 2208 + 2192 = 6592 T_s = 214.583 μs
+  TDD 확장  SSS = SF0 심볼 11, PSS = SF1 심볼 2 → 3 × 2560      = 7680 T_s = 250.000 μs
+  네 값이 모두 달라 간격만으로 가려낼 수 있다. ※ 단말이 어떻게 시험하는지는 규격이 정하지 않는다(구현).
+
+[셀 ID]  3 × 168 = 504 (LTE) · 3 × 336 = 1008 (NR, 04)
+
+[CRS 겹침]  k = 6m + (v + v_shift) mod 6,  v_shift = PCI mod 6   ← 위치식은 ⚠️ 미검증
+  포트 0 → 6칸 주기 안의 자리 {v_shift},  포트 1 → {v_shift + 3}
+  1포트 셀 둘이 겹칠 조건 = PCI mod 6 이 같다
+  2포트 셀 둘이 겹칠 조건 = {a, a+3} ∩ {b, b+3} ≠ ∅ ⇔ (a − b) mod 3 = 0 ⇔ PCI mod 3 이 같다
+  PCI mod 6 이 같으면 mod 3 도 같다 (3 | 6).  PCI mod 3 이 같으면 PSS 루트도 같다
+  24 부반송파(6칸 × 4) 안에서 겹치는 자리: 1포트 4개 · 2포트 8개
+  verify-numbers.py 가 504² 쌍 전수로 위 조건을 확인한다. ※ 이웃 PCI 배치는 설계 관행이지 규격 요구가 아니다.
+
+[PBCH 자원]  서브프레임 0 슬롯 1의 처음 4심볼 × 72 부반송파 = 288 RE
+  CRS RE(4포트 기준): 심볼 0 = 포트 0·1 → 2 × 12 = 24 · 심볼 1 = 포트 2·3 → 24 · 심볼 2·3 = 0 → 48
+  PBCH RE = 288 − 48 = 240 → QPSK 2비트 → 480비트/프레임 → × 4프레임 = 1920비트
+  MIB 24 + CRC 16 = 40 → 1/3 → 120 → 반복 → 1920 (= 16회, 조각당 4회)
+  부호율 = 40/480 = 0.0833 (조각 하나) · 40/1920 = 0.0208 (네 조각)    ← 04의 NR 0.065와 비교
+  이상적 결합 이득 10·log10(k) = 0 · 3.01 · 4.77 · 6.02 dB (같은 반복을 잡음이 독립으로 합칠 때의 상한. 규격값 아님)
+  확장 CP: 심볼 0·3 포트 0·1 = 48, 심볼 1 포트 2·3 = 24 → CRS 72, PBCH RE = 216, 432비트, 합 1728비트  ← ⚠️ 미검증
+  SFN 10비트 = MIB 8 + 40 ms 위상 2 (2^2 = 4)  ·  PBCH 시도 가설 = 3(포트 수) × 4(40 ms 위상) = 12
+
+[시스템 정보 주기]  80 ms = 프레임 8개
+  PSS·SSS: 프레임마다 SF0·SF5 → 16쌍 (5 ms)  ·  PBCH: 프레임마다 SF0 → 8조각 (10 ms, 새 MIB는 40 ms)
+  SIB1: SFN mod 2 = 0 → 4번 (20 ms 간격, 첫 전송은 SFN mod 8 = 0 → 80 ms 주기. 내용 변경은 수정 주기 경계에서만)
+  LTE 5 ms vs NR 초기 접속 20 ms 가정 → 4배 성기다
+
+[S-기준 예]  q-RxLevMin = −64 → Qrxlevmin = −128 dBm.  RSRP −115 dBm, Pcompensation = 0
+  Srxlev = −115 − (−128) − 0 = 13 dB > 0 → 접속 가능
+
+[PRACH 포맷]  보호 구간 = 전체 − CP − 시퀀스,  반경 = c × 보호구간 / 2,  c = 299.792458 m/μs
+  포맷 0  CP  3168 T_s = 103.125 μs · 시퀀스  24576 T_s =  800 μs · 1 ms → 보호  2976 T_s =  96.875 μs →  14.52 km
+  포맷 1  CP 21024 T_s = 684.375 μs · 시퀀스  24576 T_s =  800 μs · 2 ms → 보호 15840 T_s = 515.625 μs →  77.29 km
+  포맷 2  CP  6240 T_s = 203.125 μs · 시퀀스 2×24576    = 1600 μs · 2 ms → 보호  6048 T_s = 196.875 μs →  29.51 km
+  포맷 3  CP 21024 T_s = 684.375 μs · 시퀀스 2×24576    = 1600 μs · 3 ms → 보호 21984 T_s = 715.625 μs → 107.27 km
+  CP도 왕복 지연을 덮어야 한다면(⚠️ 미검증) CP 기준 한도 c × T_CP / 2:  포맷 0 15.46 · 포맷 1·3 102.59 · 포맷 2 30.45 km
+  → 두 한도 중 작은 쪽:  포맷 0 14.52 · 포맷 1 77.29 · 포맷 2 29.51 · 포맷 3 102.59 km (포맷 3만 CP 쪽이 작다. TA 100.09 km 가 어차피 먼저 막는다)
+  ※ 포맷 0 = 08의 NR 포맷 0, 포맷 3 = NR 포맷 1 (CP · 시퀀스 · 전체가 같다. verify-numbers.py 가 대조)
+  ※ 08의 표에 적힌 103.12 μs 는 정확히 103.125 μs 의 반올림이다 (3168/30720 ms).
+  N_CS ↔ 루트 수 ↔ 반경은 08과 같은 식 (13 → 64개·루트 1·1.86 km, 119 → 7·10·17.01 km, 279 → 3·22·39.88 km, 419 → 2·32·59.89 km)
+
+[세 개의 벽]  반경 = min(보호 구간, 시프트 간격, TA 범위)
+  TA 한 눈금 = 16 T_s = 0.52083 μs → c × 0.52083 / 2 = 78.07 m
+  TA 상한 = 1282 × 16 = 20512 T_s = 667.71 μs (왕복 지연) → 편도 반경 = c × 667.71 μs / 2 = 100.09 km  (왕복 '거리'가 아니다)
+  포맷 3 보호 구간 107.27 km > TA 100.09 km → N_CS = 0 에서도 TA가 먼저 막는다
+  NR μ=0: 3846 × 0.52083 μs = 2.003 ms → 300 km (04).  3846 = 3 × 1282.  1282 → 11비트, 3846 → 12비트
+
+[RAR · RNTI]
+  RAR = 1 + 11 + 20 + 16 = 48비트  (NR 1 + 12 + 27 + 16 = 56)
+  UL grant 20비트 = 호핑 1 + RB 배정 10 + MCS 4 + TPC 3 + UL 지연 1 + CSI 요청 1
+  RA-RNTI = 1 + t_id + 10·f_id → 1…60 (60개 모두 다르다)
+  NR RA-RNTI 최대 = 1 + 13 + 14×79 + 14×80×7 + 14×80×8×1 = 17920
+
+[랜덤 액세스 지연 예산]  서브프레임 단위, Msg1 시작 = 0.   ← 창 시작 n+3 과 Msg3 ≥ RAR+6 은 ⚠️ 미검증
+  Msg1 [0, 1) · RAR 창 [3, 3+W) · RAR이 창 끝(2+W)에 도착 · Msg3 = (2+W) + 6 = 8+W · 경합 해소 타이머 T
+  총 예산 = 8 + W + T  (W = 2…10, T = 8…64)
+    W= 2, T= 8 → 18 ms (전송 2 ms · 기다림 89%)    W= 5, T=48 → 61 ms (97%)    W=10, T=64 → 82 ms (98%)
+  설정값이 정하는 상한 예산(프리앰블 1회 시도 · Msg3 재전송 없음 가정)이지 평균이 아니다 — 재시도·재전송이 있으면 타이머가 다시 시작한다. 캡션에 명시.  전송 시간 2 ms = Msg1 1 + Msg3 1
+
+[전력 램핑]  누적 = (시도 − 1) × 단계:  2 dB × 10 = 18 dB · 4 dB × 10 = 36 dB · 2 dB × 20 = 38 dB (08과 같은 식)
+```
 
 ---
 
@@ -1531,6 +1704,27 @@ ASN.1 모듈은 규격의 **규범적 부속서**다. 아래는 전부 원문에
 - [ ] 확장 CP의 실제 상용 적용 사례 — MBSFN 외에 쓰이는지
 - [ ] **Case C 비페어드(TDD) 기준의 2.4 GHz 경계** — TS 38.213 §4.1 원문 대조 필요. 04에 그대로 실림
 - [ ] **FR1 상한** — Rel-15는 6 GHz, Rel-16 이후 7.125 GHz. 04는 "FR1 > 3 GHz"로만 적어 회피했으나 표에 릴리즈 병기 검토
+- [ ] **23 LTE 초기 접속 전반 — 규격 원문 대조 전.** 3GPP·ETSI 사이트에 접근할 수 없어 TS 36.xxx를 열어 보지 못했다. 23의 수치는 알고 있는 규격 내용과 식의 자기일관성(`verify-numbers.py`)으로만 확인했고 "검증" 열에 날짜를 적지 않았다. 작성 뒤 별도 검토자가 기억에 기대어 한 번 훑어 오류 5건(그룹 B 선택 조건, highSpeedFlag 대응, CCCH 보안 서술, NR MIB 산술, 왕복 지연과 편도 거리 혼동)을 짚었고 반영했다 — 이것도 원문 대조가 아니므로 날짜를 쓰지 않았다. 아래가 우선순위 높은 항목
+- [ ] **밴드 3의 EARFCN 범위(1200–1949)와 N_Offs-DL = 1200** (TS 36.101 Table 5.7.3-1) — 23의 750은 (1880−1805)/0.1 에서도 나오므로 이 수 자체는 영향이 없다
+- [ ] **TS 36.211 Table 6.12-1 / Table 6.2.3-1 번호와 CP 길이 160 · 144 · 512** — 슬롯 길이 15360 T_s 합산으로 자기일관성은 확인됨
+- [ ] **PRACH 포맷 1–3의 N_CP · N_u · 서브프레임 수** (Table 5.7.1-1), **TDD 포맷 4**(UpPTS, N_ZC 139, Δf_RA 7.5 kHz) — 23는 포맷 4의 숫자를 인용하지 않았다. 포맷 0과 3은 08의 NR 포맷 0·1과 같은 값으로 나오는 것까지 검산했다
+- [ ] **LTE N_CS 표(Table 5.7.2-2)의 번호와 16개 값, "NR 표(08)와 같다"는 주장** — 두 표 모두 원문 대조 전이다
+- [ ] **PBCH RE 수 240(일반 CP) / 216(확장 CP)과 전송 비트 1920 / 1728** (TS 36.211 §6.6.4, TS 36.212 §5.3.1.3) — 23 본문은 일반 CP만 인용했다. 확장 CP 값은 같은 방식으로 직접 센 것
+- [ ] **CRS 위치식 k = 6m + (v + v_shift) mod 6와 포트별 v 값** (TS 36.211 §6.10.1.2) — 23의 "1포트는 PCI mod 6, 2포트는 mod 3" 겹침 규칙이 이 식에서 유도된 것이라 식이 틀리면 규칙도 틀린다
+- [ ] **PSS·SSS의 심볼 위치**(FDD 슬롯 0·10 마지막 심볼과 그 앞 심볼 / TDD 서브프레임 1·6의 세 번째 심볼과 서브프레임 0·5의 마지막 심볼)와 SSS 쌍이 서브프레임 0과 5에서 교환된다는 서술 — TS 36.211 §6.11.1.2 · §6.11.2 대조 필요. 단말이 네 가설을 시험하는 방식은 규격이 정하지 않으며 본문에 그렇게 적었다
+- [ ] **RAR 창 시작 = 프리앰블 끝 서브프레임 + 3** (TS 36.321 §5.1.4)과 **Msg3 ≥ RAR 수신 + 6 서브프레임** (TS 36.213 §6.1.1) — 23의 최악 지연 예산 "8 + W + T"가 이 두 규칙에 기댄다
+- [ ] **SIB1의 필드 · 열거값** — si-WindowLength(1/2/5/10/15/20/40 ms), plmn-IdentityList 최대 6, TAC 16비트, cellIdentity 28비트, q-RxLevMin −70…−22 (TS 36.331 §6.3.1)
+- [ ] **SIB2 랜덤 액세스 열거값 전체** — numberOfRA-Preambles(4씩), preambleInitialReceivedTargetPower(−120…−90), preambleTransMax 목록, ra-ResponseWindowSize(2…8, 10), mac-ContentionResolutionTimer(8씩), maxHARQ-Msg3Tx, rootSequenceIndex 0…837, prach-ConfigIndex 0…63
+- [ ] **RNTI 값 표**(TS 36.321 Table 7.1-1)의 번호와 RA-RNTI 0x0001–0x003C · SI-RNTI 0xFFFF
+- [ ] **P_compensation 식의 Rel-10 이후 형태, Qrxlevminoffset, Qoffset_temp** (TS 36.304 §5.2.3.2) — 23는 Rel-8/9 형태만 인용하고 나머지는 생략했다
+- [ ] **백오프 지시자 표**(TS 36.321 Table 7.2-1)와 **DELTA_PREAMBLE 값**(Table 7.6-1) — 23는 값을 인용하지 않았다
+- [ ] **TS 36.300 §10.1.5의 RA 사용처 목록과 경합 기반 / 경합 없음 분류** — PDCCH order에서 프리앰블 인덱스를 0으로 주면 경합 기반으로 고르는 예외가 있다
+- [ ] **"NR에는 CRS가 없다"** — TS 38.211 §7.4.1의 하향 기준신호 목록에 CRS가 없다는 것과 설계 원칙 문서(TR 38.913 등)의 출처 조항. 04·08에 실려 있지 않은 서술이라 23 표에 ※로 표시했다
+- [ ] **TS 36.304 절 번호** — 초기 셀 선택 / 저장된 정보 셀 선택의 정의가 §5.2.3.1인지 §5.2.1인지. 23는 §5.2.3.1로 적었다
+- [ ] **PRACH Δf_RA의 표 번호(Table 5.7.3-1)와 서브프레임 수의 출처(§5.7.1 Figure 5.7.1-1)** — 23 주석은 이렇게 적었으나 확인하지 못했다
+- [ ] **"CP도 왕복 지연을 덮어야 한다(RTD ≤ T_CP)"는 반경 조건** — 23는 CP 기준 한도(c × T_CP / 2)를 보조 설명으로만 실었다(포맷 3: 102.59 km). TA 범위(100.09 km)가 먼저 막는 결론은 어느 쪽이든 같다
+- [ ] **시스템 정보 변경은 수정 주기(modification period) 경계에서만** (TS 36.331 §5.2.1.3) — 23는 "SIB1 80 ms = 전송 주기"로만 적고 변경 단위로 쓰지 않았다
+- [ ] **루트 29·34가 서로 켤레**(63 − 29 = 34)인 것은 수학적 사실이다. 규격이 이 루트를 고른 이유는 확인하지 못했으므로 본문은 "구현 쪽 이야기"로만 적었다
 - [ ] **18의 §7.4.1.1.2 표 넷** (자원 매핑식·포트별 w_f/w_t·심볼 위치·l_0 제약) — OAI 소스와는 전부 일치하나 3GPP 원문 대조는 아직. 원문을 보면 위 표의 "원문 미대조 · OAI와 일치"를 지우고 검증일을 남길 것
 - [ ] **22의 ISAC 관련 3GPP 문서 번호** — Rel-19 연구 항목이 있다는 것만 적었고 TR 번호를 확인하지 못했다. 자료에 ⚠️를 달아 두었다
 - [ ] **22는 나머지가 전부 유도다** — 원문 대조가 필요한 항목이 없다. 파라미터(Δf, 273 RB, 심볼 길이)만 앞의 자료에서 왔고 그것들은 이미 검증됐다
@@ -1747,3 +1941,15 @@ ASN.1 모듈은 규격의 **규범적 부속서**다. 아래는 전부 원문에
 | Digital Pre-Distortion | 디지털 사전 왜곡 | DPD |
 | Low Noise Amplifier | 저잡음 증폭기 | LNA |
 | Precision Time Protocol | 정밀 시각 프로토콜 | PTP |
+| Evolved UTRA Absolute Radio Frequency Channel Number | E-UTRA 절대 무선 주파수 채널 번호 | EARFCN |
+| Channel Raster | 채널 래스터 | — |
+| Physical Cell ID | 물리 셀 ID | PCI |
+| Cell-specific Reference Signal | 셀 고유 기준신호 | CRS |
+| Reference Signal Received Power | 기준신호 수신 전력 | RSRP |
+| Reference Signal Received Quality | 기준신호 수신 품질 | RSRQ |
+| System Information Block | 시스템 정보 블록 | SIB |
+| Tracking Area Code | 트래킹 영역 코드 | TAC |
+| Public Land Mobile Network | 공중 육상 이동통신망 | PLMN |
+| Radio Resource Control | 무선 자원 제어 | RRC |
+| Non-Access Stratum | 비접속 계층 | NAS |
+| Temporary C-RNTI | 임시 C-RNTI | T-C-RNTI |

@@ -91,6 +91,7 @@ def main():
     ok &= check_coding()
     ok &= check_core()
     ok &= check_crb()
+    ok &= check_lte()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -667,6 +668,265 @@ def check_offline():
     print(f"  VERSION 이 박혀 있는가  {ver.group(1) if ver else '✗ 없다'}"
           f"  {'✓' if ver else ''}")
     print("  ※ 자료를 고치면 이 값을 올려야 단말이 새로 받는다")
+
+    return ok
+
+
+# ── 23 LTE 초기 접속 ─────────────────────────────
+# 근거: TS 36.211 §4(T_s) · §6.12(심볼·CP) · §6.6(PBCH) · §6.10.1(CRS) · §6.11(PSS·SSS) · §5.7(PRACH)
+#       TS 36.212 §5.3.1(PBCH 부호화) · TS 36.213 §4.2.3(TA) · TS 36.321 §5.1(RA) · §6.2.3(RAR)
+#       TS 36.331(MIB·SIB1·SIB2) · TS 36.101 §5.6·§5.7(대역폭·래스터) · TS 36.304 §5.2.3.2(S-기준)
+# 이 함수가 보는 것은 둘뿐이다 — (1) 자료에 실린 수가 식에서 다시 나오는가, (2) 04·08과 어긋나지 않는가.
+# 규격 원문과 대조한 것이 아니다. 대조가 안 된 값은 refs/3gpp-notes.md 의 ⚠️ 미검증 항목과 같다.
+
+TS_LTE = 1 / (15000 * 2048)             # TS 36.211 §4  ≈ 32.552 ns  (NR의 T_s와 같다)
+
+# TS 36.211 Table 5.7.1-1 (포맷 0–3) — (N_CP[T_s], 시퀀스 반복, N_u[T_s], 전체 서브프레임 수)
+LTE_PREAMBLE_FMT = {
+    '0': (3168, 1, 24576, 1),
+    '1': (21024, 1, 24576, 2),
+    '2': (6240, 2, 24576, 2),
+    '3': (21024, 2, 24576, 3),
+}
+# TS 36.211 Table 5.7.2-2 — 제한 없는 집합, zeroCorrelationZoneConfig 0 … 15  (08의 NR 표와 같은 값이라고 본 자료가 주장)
+LTE_NCS_TABLE = [0, 13, 15, 18, 22, 26, 32, 38, 46, 59, 76, 93, 119, 167, 279, 419]
+
+
+def lte_symbols(ext):
+    """한 서브프레임의 OFDM 심볼 [(시작, 길이, CP)] — T_s 단위. 일반 CP 슬롯 첫 심볼 160, 나머지 144 · 확장 CP 512"""
+    out, t = [], 0
+    for _slot in range(2):
+        for i in range(6 if ext else 7):
+            cp_len = 512 if ext else (160 if i == 0 else 144)
+            out.append((t, 2048 + cp_len, cp_len))
+            t += 2048 + cp_len
+    return out
+
+
+def crs_slots(pci, ports):
+    """한 OFDM 심볼 안에서 CRS가 앉는 6칸 주기 안의 자리. 포트 0은 v_shift, 포트 1은 v_shift + 3"""
+    v = pci % 6
+    return {v} if ports == 1 else {v, (v + 3) % 6}
+
+
+def check_lte():
+    ok = True
+
+    def eq(label, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) <= tol
+        ok &= hit
+        print(f"  {label:<46} {got:>10.6g}  게시 {want:<9} {'✓' if hit else '✗ 불일치'}")
+
+    def yes(label, cond):
+        nonlocal ok
+        ok &= bool(cond)
+        print(f"  {label:<62} {'✓' if cond else '✗ 자료의 주장과 다름'}")
+
+    print("\n[23] 시간 단위와 심볼 — TS 36.211 §4, §6.12")
+    eq("T_s [ns]", TS_LTE * 1e9, 32.552, 0.001)
+    slot_n, slot_e = 160 + 6 * 144 + 7 * 2048, 6 * (2048 + 512)
+    eq("일반 CP 슬롯 [T_s]", slot_n, 15360, 0)
+    eq("확장 CP 슬롯 [T_s]", slot_e, 15360, 0)
+    eq("슬롯 [ms]", slot_n * TS_LTE * 1e3, 0.5, 1e-9)
+    eq("프레임 · 슬롯 20개 [ms]", 20 * slot_n * TS_LTE * 1e3, 10, 1e-9)
+    # NR μ=0과 같은 CP — 03·04에서 검산한 값과 어긋나지 않아야 한다
+    eq("CP 144 T_s [μs] = NR μ=0 일반 CP", 144 * TS_LTE * 1e6, round(cp(0), 4), 5e-5)
+    eq("CP 160 T_s [μs] = NR μ=0 첫 심볼 CP", 160 * TS_LTE * 1e6, round(cp(0, first=True), 4), 5e-5)
+    eq("확장 CP 512 T_s [μs]", 512 * TS_LTE * 1e6, 16.667, 0.001)
+    for ext in (False, True):
+        g = lte_symbols(ext)
+        yes(f"{'확장' if ext else '일반'} CP 서브프레임 심볼 {len(g)}개의 합 = 30720 T_s (1 ms)",
+            g[-1][0] + g[-1][1] == 30720)
+
+    print("\n[23] 채널 대역폭 · 동기 창 — TS 36.101 §5.6 Table 5.6-1 · TS 36.211 §6.11")
+    print(f"  {'채널':>8} {'N_RB':>5} {'전송':>10} {'점유율':>7} {'6/N_RB':>8}   게시값")
+    for bw, n, tx_pub, occ_pub, share_pub in [(1.4, 6, 1.08, 77, 100), (3, 15, 2.7, 90, 40), (5, 25, 4.5, 90, 24),
+                                              (10, 50, 9.0, 90, 12), (15, 75, 13.5, 90, 8), (20, 100, 18.0, 90, 6)]:
+        tx = n * 12 * 15 / 1000                              # MHz
+        occ, share = tx / bw * 100, 6 / n * 100
+        hit = abs(tx - tx_pub) < 1e-9 and round(occ) == occ_pub and abs(share - share_pub) < 1e-9
+        ok &= hit
+        print(f"  {bw:>6} MHz {n:>5} {tx:>7.2f} MHz {occ:>6.1f}% {share:>7.1f}%   {'✓' if hit else '✗ 불일치'}")
+    eq("가운데 6 RB = 72 부반송파", 6 * 12, 72, 0)
+    eq("72 × 15 kHz [MHz]", 72 * 15 / 1000, 1.08, 1e-9)
+    eq("PSS·SSS 62 + 양 끝 5 + 5", 62 + 5 + 5, 72, 0)
+    eq("DC 양쪽 31 + 31", 31 + 31, 62, 0)
+    eq("ZC 길이 63에서 가운데 하나를 비움", 63 - 1, 62, 0)
+    eq("SSS: m-시퀀스 길이 2^5 − 1", 2**5 - 1, 31, 0)
+    yes("PRACH 839 × 1.25 kHz = 1.04875 MHz 가 6 RB(1.08 MHz)에 들어간다", 839 * 1.25 / 1000 <= 1.08)
+
+    print("\n[23] 채널 래스터 — TS 36.101 §5.7  (밴드 3 값은 ⚠️ 미검증)")
+    eq("밴드 3 래스터 자리 · (1880−1805)/0.1", (1880 - 1805) / 0.1, 750, 1e-9)
+    eq("밴드 3 EARFCN 1200 … 1949 의 개수", 1949 - 1200 + 1, 750, 0)
+    eq("EARFCN 1949 의 주파수 [MHz]", 1805 + 0.1 * (1949 - 1200), 1879.9, 1e-9)
+    eq("04의 n78 후보 · 500/1.44", 500 / 1.44, 350, 5)
+    yes("n78 후보는 밴드 3 후보의 절반도 안 된다 (≈350 < 750/2)", 350 < 750 / 2)
+    eq("대역 폭 비 · 500/75", 500 / 75, 6.7, 0.05)
+
+    print("\n[23] PSS–SSS 간격 — TS 36.211 §6.11.1.2 · §6.11.2.2")
+    print(f"  {'조합':<10} {'간격 [T_s]':>11} {'[μs]':>9}   게시값")
+    gaps = []
+    for name, ext, sss, pss, gap_pub, us_pub in [('FDD 일반', False, (0, 5), (0, 6), 2192, 71.35),
+                                                 ('FDD 확장', True, (0, 4), (0, 5), 2560, 83.33),
+                                                 ('TDD 일반', False, (0, 13), (1, 2), 6592, 214.58),
+                                                 ('TDD 확장', True, (0, 11), (1, 2), 7680, 250.00)]:
+        g = lte_symbols(ext)
+        gap = (pss[0] * 30720 + g[pss[1]][0]) - (sss[0] * 30720 + g[sss[1]][0])
+        us = gap * TS_LTE * 1e6
+        hit = gap == gap_pub and abs(us - us_pub) < 0.005
+        ok &= hit
+        gaps.append(gap)
+        print(f"  {name:<10} {gap:>11} {us:>8.2f}μs   {'✓' if hit else '✗ 불일치'}")
+    yes("네 조합의 간격이 모두 다르다 (그래서 간격만으로 가려낸다)", len(set(gaps)) == 4)
+    yes("PSS 루트 29 + 34 = 63 (서로 켤레)", 29 + 34 == 63)
+
+    print("\n[23] 셀 ID — TS 36.211 §6.11")
+    eq("3 × 168", 3 * 168, 504, 0)
+    eq("04의 3 × 336", 3 * 336, 1008, 0)
+
+    print("\n[23] CRS 겹침 — TS 36.211 §6.10.1.2 (위치식은 ⚠️ 미검증, 아래는 식에서 유도한 주장 전수 검사)")
+    claim6 = claim3 = implies = True
+    cnt = {1: set(), 2: set()}
+    for a in range(504):
+        for b in range(504):
+            for ports in (1, 2):
+                ov = crs_slots(a, ports) & crs_slots(b, ports)
+                cnt[ports].add(len(ov) * 4)                 # 24 부반송파 = 6칸 × 4
+                if ports == 1 and bool(ov) != (a % 6 == b % 6):
+                    claim6 = False
+                if ports == 2 and bool(ov) != (a % 3 == b % 3):
+                    claim3 = False
+            if a % 6 == b % 6 and a % 3 != b % 3:
+                implies = False
+    yes("1포트: CRS가 겹칠 조건 = PCI mod 6 이 같다 (504² 쌍 전수)", claim6)
+    yes("2포트: CRS가 겹칠 조건 = PCI mod 3 이 같다 (504² 쌍 전수)", claim3)
+    yes("PCI mod 6 이 같으면 mod 3 도 같다", implies)
+    yes(f"겹치는 자리 수(24 부반송파 중) 1포트 {sorted(cnt[1])} · 2포트 {sorted(cnt[2])} = 게시 4 / 8",
+        cnt[1] == {0, 4} and cnt[2] == {0, 8})
+    yes("PCI mod 3 에서 PSS 루트가 정해진다 (25·29·34 가 서로 다르다)", len({25, 29, 34}) == 3)
+
+    print("\n[23] PBCH — TS 36.211 §6.6 · TS 36.212 §5.3.1  (확장 CP는 ⚠️ 미검증)")
+    eq("MIB 비트 합 3 + 3 + 8 + 10", 3 + 3 + 8 + 10, 24, 0)
+    eq("PBCH 페이로드 + CRC16", 24 + 16, 40, 0)
+    eq("1/3 길쌈 부호 후", 40 * 3, 120, 0)
+    # 72 부반송파 × 4심볼 − CRS(4포트 가정). 부반송파 72개 / 6칸 = 12개씩
+    crs_n = 2 * 12 + 2 * 12                                  # 심볼 0: 포트 0·1, 심볼 1: 포트 2·3
+    re_n = 4 * 72 - crs_n
+    eq("PBCH RE · 일반 CP", re_n, 240, 0)
+    eq("프레임당 비트 · QPSK", re_n * 2, 480, 0)
+    eq("40 ms 전체 비트", 4 * re_n * 2, 1920, 0)
+    eq("조각당 반복 횟수 480/120", 480 / 120, 4, 0)
+    eq("전체 반복 횟수 1920/120", 1920 / 120, 16, 0)
+    crs_e = 2 * 12 + 2 * 12 + 2 * 12                         # 확장 CP: 심볼 0·3 포트 0·1, 심볼 1 포트 2·3
+    eq("PBCH RE · 확장 CP", 4 * 72 - crs_e, 216, 0)
+    eq("40 ms 전체 비트 · 확장 CP", 4 * (4 * 72 - crs_e) * 2, 1728, 0)
+    eq("부호율 · 조각 하나 40/480", 40 / 480, 0.0833, 0.00005)
+    eq("부호율 · 네 조각 40/1920", 40 / 1920, 0.0208, 0.00005)
+    eq("04의 NR PBCH 부호율 56/864 (비교)", 56 / 864, 0.065, 0.0005)
+    for k, g_pub in [(1, 0.00), (2, 3.01), (3, 4.77), (4, 6.02)]:
+        eq(f"이상적 결합 이득 10·log10({k}) [dB]", 10 * math.log10(k), g_pub, 0.005)
+    eq("SFN 10비트 = MIB 8 + 40 ms 위상 2", 8 + 2, 10, 0)
+    eq("40 ms 위상 4가지 = 2^2", 2**2, 4, 0)
+    eq("PBCH 시도 가설 3(포트 수) × 4(40 ms 위상)", 3 * 4, 12, 0)
+
+    print("\n[23] 시스템 정보 주기 — TS 36.331 §5.2.1.2")
+    frames80 = range(8)
+    sib1 = [f for f in frames80 if f % 2 == 0]
+    eq("80 ms 안의 SIB1 횟수 (SFN mod 2 = 0)", len(sib1), 4, 0)
+    eq("SIB1 반복 간격 [ms]", (sib1[1] - sib1[0]) * 10, 20, 0)
+    eq("80 ms 안의 PBCH 조각", len(list(frames80)), 8, 0)
+    eq("80 ms 안의 PSS·SSS 쌍 (SF0·SF5)", 2 * len(list(frames80)), 16, 0)
+    eq("LTE 동기 신호 5 ms vs NR 20 ms 가정 → 배", 20 / 5, 4, 0)
+    eq("q-RxLevMin 하한 [dBm] · −70 × 2", -70 * 2, -140, 0)
+    eq("q-RxLevMin 상한 [dBm] · −22 × 2", -22 * 2, -44, 0)
+    eq("S-기준 예 Srxlev [dB] · −115 − (−64×2) − 0", -115 - (-64 * 2) - 0, 13, 0)
+
+    print("\n[23] PRACH 포맷 — TS 36.211 §5.7.1 Table 5.7.1-1 (포맷 1–3 값은 ⚠️ 미검증)")
+    print(f"  {'포맷':>4} {'CP':>11} {'시퀀스':>10} {'보호':>11} {'반경':>9}   게시값")
+    for name, cp_pub, seq_pub, gt_pub, r_pub in [('0', 103.125, 800.0, 96.875, 14.52), ('1', 684.375, 800.0, 515.625, 77.29),
+                                                 ('2', 203.125, 1600.0, 196.875, 29.51), ('3', 684.375, 1600.0, 715.625, 107.27)]:
+        ncp, rep, nu, n_sf = LTE_PREAMBLE_FMT[name]
+        cp_us, seq_us = ncp * TS_LTE * 1e6, rep * nu * TS_LTE * 1e6
+        gt = n_sf * 1000 - cp_us - seq_us
+        r = C * gt / 2 / 1000
+        hit = (abs(cp_us - cp_pub) < 1e-6 and abs(seq_us - seq_pub) < 1e-6
+               and abs(gt - gt_pub) < 1e-6 and abs(r - r_pub) < 0.005)
+        ok &= hit
+        print(f"  {name:>4} {cp_us:8.3f} μs {seq_us:7.1f} μs {gt:8.3f} μs {r:6.2f} km   {'✓' if hit else '✗ 불일치'}")
+    # CP도 왕복 지연을 덮어야 한다 → 반경 한도 = min(CP 기준 c·T_CP/2, 보호 구간 기준)  (이 조건은 ⚠️ 미검증)
+    print("  CP 기준 한도 · 두 한도 중 작은 쪽")
+    for name, rcp_pub, lim_pub, who in [('0', 15.46, 14.52, '보호 구간'), ('1', 102.59, 77.29, '보호 구간'),
+                                        ('2', 30.45, 29.51, '보호 구간'), ('3', 102.59, 102.59, 'CP')]:
+        ncp, rep, nu, n_sf = LTE_PREAMBLE_FMT[name]
+        cp_us = ncp * TS_LTE * 1e6
+        r_cp = C * cp_us / 2 / 1000
+        r_gt = C * (n_sf * 1000 - cp_us - rep * nu * TS_LTE * 1e6) / 2 / 1000
+        lim, binds = min(r_cp, r_gt), ('CP' if r_cp < r_gt else '보호 구간')
+        hit = abs(r_cp - rcp_pub) < 0.005 and abs(lim - lim_pub) < 0.005 and binds == who
+        ok &= hit
+        print(f"  {name:>4} CP 한도 {r_cp:7.2f} km · 보호 구간 한도 {r_gt:7.2f} km → {lim:7.2f} km ({binds})   "
+              f"{'✓' if hit else '✗ 불일치'}")
+    # 08의 NR 표와 겹치는 포맷이 있다고 본 자료가 말한다: LTE 0 = NR 0, LTE 3 = NR 1
+    for lte_f, nr_f in (('0', '0'), ('3', '1')):
+        ncp, rep, nu, n_sf = LTE_PREAMBLE_FMT[lte_f]
+        nncp, nrep, nnu, ntot = PREAMBLE_FMT[nr_f]
+        same = (ncp == nncp and rep * nu == nrep * nnu and n_sf * 1000 == ntot)
+        yes(f"LTE 포맷 {lte_f} = 08의 NR 포맷 {nr_f} (CP · 시퀀스 · 전체)", same)
+    yes("LTE N_CS 16개 값 = 08의 NR 표 (자기일관성만 — 원문 대조 전)", LTE_NCS_TABLE == NCS_TABLE)
+
+    print("\n[23] 세 개의 벽 — 반경 = min(보호 구간, 시프트 간격, TA 범위)")
+    ta_us = 1282 * 16 * TS_LTE * 1e6
+    ta_km = C * ta_us / 2 / 1000
+    eq("TA 한 눈금 16 T_s [μs]", 16 * TS_LTE * 1e6, 0.5208, 0.00005)
+    eq("TA 한 눈금의 거리 해상도 [m]", C * 16 * TS_LTE * 1e6 / 2, 78.1, 0.05)
+    eq("TA 상한 1282 × 16 T_s [μs]", ta_us, 667.7, 0.05)
+    eq("TA 상한이 허용하는 반경 [km]", ta_km, 100.1, 0.05)
+    eq("04의 NR μ=0 한 눈금과 같다 [μs]", 16 * 64 * Tc * 1e6, round(16 * TS_LTE * 1e6, 4), 5e-5)
+    eq("NR T_A 상한 3846 = 3 × 1282", 3 * 1282, 3846, 0)
+    yes("1282 는 11비트로 표현된다 (1024 ≤ 1282 < 2048)", 1024 <= 1282 < 2048)
+    yes("3846 은 12비트가 필요하다 (2048 ≤ 3846 < 4096)", 2048 <= 3846 < 4096)
+    rg3 = C * (92160 - 21024 - 2 * 24576) * TS_LTE * 1e6 / 2 / 1000
+    yes(f"포맷 3 보호 구간 {rg3:.2f} km > TA {ta_km:.2f} km → TA가 먼저 막는다", rg3 > ta_km)
+    rcp3 = C * 21024 * TS_LTE * 1e6 / 2 / 1000
+    yes(f"포맷 3의 CP 기준 한도 {rcp3:.2f} km 도 TA {ta_km:.2f} km 보다 크다 → 어느 쪽이든 TA가 먼저 막는다", rcp3 > ta_km)
+    yes("N_CS = 0 이면 시프트 벽이 사라진다", shift_radius_km(0) == float('inf'))
+    for ncs, per_pub, root_pub, r_pub in [(13, 64, 1, 1.86), (119, 7, 10, 17.01), (279, 3, 22, 39.88), (419, 2, 32, 59.89)]:
+        per = preambles_per_root(ncs)
+        roots = math.ceil(64 / per)
+        r = shift_radius_km(ncs)
+        hit = per == per_pub and roots == root_pub and abs(r - r_pub) < 0.01
+        ok &= hit
+        print(f"  N_CS {ncs:>3}  루트당 {per:>2}개  필요 루트 {roots:>2}개  반경 {r:6.2f} km   {'✓' if hit else '✗ 불일치'}")
+    eq("다른 루트끼리 교차상관 [dB] · 1/√839", 20 * math.log10(1 / math.sqrt(839)), -29.24, 0.005)
+
+    print("\n[23] 랜덤 액세스 메시지 — TS 36.321 §5.1 · §6.2.3 · TS 36.213 §4.2.3")
+    eq("RAR 비트 1 + 11 + 20 + 16", 1 + 11 + 20 + 16, 48, 0)
+    eq("상향 그랜트 비트 1 + 10 + 4 + 3 + 1 + 1", 1 + 10 + 4 + 3 + 1 + 1, 20, 0)
+    eq("04의 NR RAR 비트 (비교)", 1 + 12 + 27 + 16, 56, 0)
+    ra_rnti = [1 + t + 10 * f for t in range(10) for f in range(6)]
+    eq("RA-RNTI 최솟값", min(ra_rnti), 1, 0)
+    eq("RA-RNTI 최댓값 (t_id 0–9, f_id 0–5)", max(ra_rnti), 60, 0)
+    yes("RA-RNTI 60 개가 모두 서로 다르다", len(set(ra_rnti)) == 60)
+    nr_max = 1 + 13 + 14 * 79 + 14 * 80 * 7 + 14 * 80 * 8 * 1
+    eq("NR RA-RNTI 최댓값 (04의 식)", nr_max, 17920, 0)
+    eq("numberOfRA-Preambles 선택지 수 (4 … 64, 4씩)", len(range(4, 65, 4)), 16, 0)
+    for step, n, pub in [(2, 10, 18), (4, 10, 36), (2, 20, 38)]:
+        eq(f"램핑 누적 {step} dB × {n}회 [dB]", (n - 1) * step, pub, 0)
+
+    print("\n[23] 랜덤 액세스 지연 예산 — 창 시작 n+3 · Msg3 ≥ RAR+6 (규칙은 ⚠️ 미검증 · 1회 시도·Msg3 재전송 없음 가정)")
+    def budget(w, t):
+        # 서브프레임 단위. Msg1 [0,1) · RAR 창 [3, 3+w) · RAR이 창 끝(2+w)에 도착 · Msg3 = RAR + 6 · 타이머 t
+        rar_worst = 3 + w - 1
+        msg3 = rar_worst + 6
+        return msg3 + t
+    for w, t, pub, wait_pub in [(2, 8, 18, 89), (5, 48, 61, 97), (10, 64, 82, 98)]:
+        tot = budget(w, t)
+        wait = round((tot - 2) / tot * 100)
+        hit = tot == pub == 8 + w + t and wait == wait_pub
+        ok &= hit
+        print(f"  창 {w:>2} ms · 타이머 {t:>2} ms → 예산 {tot:>3} ms (8 + 창 + 타이머)  전송 2 ms · 기다림 {wait}%   "
+              f"{'✓' if hit else '✗ 불일치'}")
 
     return ok
 
