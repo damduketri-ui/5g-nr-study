@@ -1,0 +1,17 @@
+{
+  "name": "5G NR 통신 이해",
+  "short_name": "5G NR",
+  "description": "3GPP 5G NR 규격을 직관으로 이해하기 위한 시각 자료 모음",
+  "lang": "ko",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EDEFEE",
+  "theme_color": "#111618",
+  "icons": [
+    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

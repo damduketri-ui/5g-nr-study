@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>22 크라메르-라오 하한과 ISAC — 5G NR 통신 이해</title>
+<link rel="stylesheet" href="../../assets/base.css">
+<link rel="manifest" href="../../manifest.json">
+<link rel="apple-touch-icon" href="../../assets/icon-180.png">
+<meta name="theme-color" content="#111618">
+<!-- 아이폰에서 홈 화면에 추가했을 때 Safari 껍데기 없이 앱처럼 뜨게 한다 -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="5G NR">
+<script src="../../assets/app.js" defer></script>
+</head>
+<body>
+
+<nav class="topbar wrap">
+  <a href="../../index.html">← 5G NR 통신 이해</a>
+  <span>22 / 크라메르-라오 하한</span>
+</nav>
+
+<header class="hero wrap">
+  <p class="eyebrow">22 · cramér–rao bound · isac</p>
+  <h1>얼마나 정확히<br><em>짚을 수 있는가</em>의 천장</h1>
+  <p class="lead">기지국이 통신을 하면서 동시에 <strong>물체까지의 거리를 재려는 것</strong>이 ISAC입니다. 그러면 곧바로 질문이 생깁니다 — <strong>얼마나 정확할 수 있는가.</strong> 이 질문에는 <strong>어떤 방법을 쓰든 넘을 수 없는 답</strong>이 있습니다. 그것이 크라메르-라오 하한이고, 놀랍게도 <strong>세 줄짜리 식</strong>으로 끝납니다.</p>
+</header>
+
+<section class="wrap">
+  <h2>먼저 — 이것은 규격이 아니다</h2>
+  <p>지금까지의 자료는 3GPP 문서(38.xxx, 23.xxx)나 O-RAN 규격, 아니면 오픈소스 구현을 근거로 삼았습니다. 이 자료의 뼈대는 <strong>그 어느 것도 아닙니다.</strong> <strong>추정이론(estimation theory)</strong>의 정리입니다.</p>
+
+  <div class="note">
+    <strong>1945년과 1946년에 따로 나왔다.</strong> 인도의 <strong>C. R. 라오</strong>와 스웨덴의
+    <strong>하랄드 크라메르</strong>가 거의 같은 시기에 같은 결론에 이르렀습니다.
+    <strong>통신과 아무 상관 없이</strong> 나온 수학이고, 지금은 레이더·측위·천문·의료영상에서 똑같이 쓰입니다.
+    그래서 이 자료에는 <strong>인용할 3GPP 조항이 거의 없습니다</strong> — 대신
+    <strong>모든 식을 유도하고 몬테카를로로 확인</strong>했습니다.
+    3GPP가 ISAC을 다루기 시작한 것은 Rel-19의 연구 항목입니다. <span class="src">⚠️ 미검증 — 문서 번호 확인 필요</span>
+  </div>
+
+  <p>대신 이 자료가 쓰는 <strong>파라미터</strong>는 전부 앞의 자료에서 왔습니다 — <a href="../01-frame-numerology/index.html">01의 부반송파 간격</a>, <a href="../05-bandwidth-part/index.html">05의 대역폭</a>, <a href="../07-beamforming/index.html">07의 배열 안테나</a>입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>분해능과 정확도는 다른 질문이다</h2>
+  <p>레이더를 조금 아는 사람이면 <strong>거리 분해능은 c/(2B)</strong>라는 것을 압니다. 100 MHz면 약 1.5 m입니다. 그래서 "5G로 재면 1.5 m쯤 정확하겠구나" 하고 넘어가기 쉽습니다.</p>
+
+  <p><strong>그것이 이 자료가 바로잡으려는 오해입니다.</strong></p>
+
+  <!-- 유도: NR 100 MHz · μ=1 → 273 RB × 12 = 3276 부반송파, B = 3276 × 30 kHz = 98.28 MHz
+       분해능 = c/(2B) = 299792458/(2×98.28e6) = 1.5252 m
+       정확도(CRB, SNR_tot = 20 dB) = 5.944 cm  — 아래 절에서 유도
+       비 = 25.7배 -->
+  <div class="stats">
+    <div><span class="n">1.53</span><span class="t">분해능 c/(2B) [m]</span></div>
+    <div><span class="n">5.94</span><span class="t">정확도 하한 · 20 dB [cm]</span></div>
+    <div><span class="n">25.7</span><span class="t">둘의 차이 [배]</span></div>
+    <div><span class="n">98.28</span><span class="t">NR 100 MHz의 실제 점유폭 [MHz]</span></div>
+  </div>
+  <p class="caption">100 MHz 대역 · μ = 1이면 <a href="../05-bandwidth-part/index.html">05에서 본</a> 273 자원블록 × 12 = <strong>3,276 부반송파</strong>, 실제 점유폭 98.28 MHz입니다. 같은 대역폭에서 두 값이 <strong>25.7배</strong> 다릅니다.</p>
+
+  <div class="note">
+    <strong>둘은 서로 다른 질문에 답한다.</strong><br>
+    <strong>분해능</strong>은 "<strong>두 물체를 따로 볼 수 있는가</strong>"입니다 —
+    1.5 m보다 가까이 붙은 둘은 봉우리가 하나로 뭉쳐 구별되지 않습니다.<br>
+    <strong>정확도</strong>는 "<strong>하나짜리 물체를 얼마나 정확히 짚는가</strong>"입니다 —
+    봉우리가 하나라면 그 꼭대기를 아주 정밀하게 찾을 수 있습니다.<br>
+    <strong>봉우리의 폭</strong>과 <strong>꼭대기를 짚는 정밀도</strong>는 같은 것이 아닙니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>봉우리의 뾰족함 — 이 자료의 비유</h2>
+  <p>거리를 재는 일은 결국 <strong>기준 신호를 조금씩 밀어 보며 가장 잘 맞는 지점을 찾는 것</strong>입니다. 잘 맞는 정도를 그리면 <strong>봉우리</strong>가 생기고, 우리는 그 <strong>꼭대기</strong>를 답으로 씁니다.</p>
+
+  <p>여기에 잡음이 있습니다. 잡음은 봉우리를 흔듭니다. <strong>꼭대기에 공을 하나 올려놓았다고 생각해 보세요.</strong> 바람이 불면 공이 밀려납니다. 얼마나 밀리는가는 두 가지가 정합니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>공이 얼마나 밀리는가</caption>
+    <thead><tr><th>무엇이</th><th>어떻게</th><th>수식에서는</th></tr></thead>
+    <tbody>
+      <tr><td><strong>봉우리의 뾰족함</strong></td>
+          <td>뾰족할수록 덜 밀린다 — 벽이 가파르니까</td>
+          <td><strong>피셔 정보</strong> = 로그가능도의 <strong>휘어짐</strong></td></tr>
+      <tr><td><strong>바람의 세기</strong></td>
+          <td>약할수록 덜 밀린다</td>
+          <td><strong>SNR</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>크라메르-라오 하한은 이 한 줄이다.</strong>
+    <strong>분산 ≥ 1 / 피셔 정보.</strong>
+    "밀리는 정도는 <strong>휘어짐의 역수</strong>보다 작을 수 없다"는 뜻입니다.
+    <strong>어떤 영리한 추정기를 만들어도</strong> 이보다 잘할 수 없습니다 —
+    그래서 <strong>하한(bound)</strong>이고, 성능을 논할 때 <strong>맨 먼저 계산하는 값</strong>입니다.
+  </div>
+
+  <p>아래에서 대역폭과 SNR을 바꿔 보세요. 파란 곡선이 <strong>봉우리</strong>, 아래 점들이 <strong>잡음을 넣고 200번 재본 결과</strong>입니다.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 470" role="img" aria-labelledby="tPk dPk">
+      <title id="tPk">상관 봉우리의 뾰족함과 추정값이 흩어지는 정도</title>
+      <desc id="dPk">위쪽 곡선은 지연을 바꿔 가며 잰 정합 정도이고 가운데가 참값이다. 부반송파를 늘리면 봉우리가 좁고 뾰족해진다. 아래쪽에는 잡음을 넣고 이백 번 추정한 결과가 점으로 흩어져 있고, 그 위에 크라메르-라오 하한이 정하는 폭이 띠로 겹쳐져 있다. 신호대잡음비가 문턱 아래로 내려가면 점들이 갑자기 구간 전체로 퍼진다.</desc>
+      <g id="pkG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="pkN">부반송파 수</label>
+    <input type="range" id="pkN" min="0" max="2" step="1" value="1" aria-describedby="pkOut">
+    <label for="pkSnr">SNR</label>
+    <input type="range" id="pkSnr" min="0" max="30" step="1" value="20" aria-describedby="pkOut">
+    <span class="readout" id="pkOut"></span>
+  </div>
+
+  <div class="verdict" id="pkBox">
+    <span class="tag" id="pkTag"></span>
+    <span class="why" id="pkWhy"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="pkB">—</span><span class="t">대역폭 [MHz]</span></div>
+    <div><span class="n" id="pkCrb">—</span><span class="t">하한 σ_R [m]</span></div>
+    <div><span class="n" id="pkMc">—</span><span class="t">200번 재본 실제 오차 [m]</span></div>
+    <div><span class="n" id="pkRatio">—</span><span class="t">하한 대비 [배]</span></div>
+  </div>
+  <p class="caption">설명용으로 <strong>아주 작은 대역폭</strong>(부반송파 17·33·65개)을 썼습니다 — 실제 NR은 3,276개입니다. 추정기는 <strong>최대가능도</strong>(봉우리가 가장 높은 자리)이고, 격자 257점에서 찾은 뒤 <strong>포물선으로 꼭짓점을 보간</strong>합니다. 난수는 씨앗을 고정했으므로 <strong>같은 설정이면 언제나 같은 값</strong>이 나옵니다. 초록 띠(하한 ±σ)는 모호구간 전체에 견주면 <strong>선보다 가늘어 거의 안 보입니다</strong> — 그 자체가 이 자료의 요점입니다.</p>
+</section>
+
+<section class="wrap">
+  <h2>하한은 정말 닿는가 — 그리고 어디서 깨지는가</h2>
+  <p>위에서 SNR을 내리다 보면 <strong>어느 지점에서 갑자기</strong> 점들이 구간 전체로 퍼집니다. 하한은 그대로인데 실제 오차만 수십 배로 뜁니다.</p>
+
+  <!-- 몬테카를로: N=33 · Δf=30 kHz · B=0.99 MHz · 시행 200회 · 격자 257점 + 포물선 보간
+       씨앗 20260914 · tools/verify-numbers.py 의 check_crb() 가 같은 값을 낸다 -->
+  <div class="table-scroll">
+  <table>
+    <caption>부반송파 33개(0.99 MHz) · 200번 재본 결과 <span class="src">씨앗 고정 · 검산 스크립트와 같은 값</span></caption>
+    <thead><tr><th class="num">SNR</th><th class="num">하한 σ_R</th><th class="num">실제 오차</th><th class="num">비</th><th>무슨 일이</th></tr></thead>
+    <tbody>
+      <tr><td class="num">25 dB</td><td class="num">3.32 m</td><td class="num">3.44 m</td><td class="num">1.04</td><td>하한에 붙는다</td></tr>
+      <tr><td class="num">20 dB</td><td class="num">5.91 m</td><td class="num">6.20 m</td><td class="num">1.05</td><td>하한에 붙는다</td></tr>
+      <tr><td class="num">15 dB</td><td class="num">10.50 m</td><td class="num">11.13 m</td><td class="num">1.06</td><td>하한에 붙는다</td></tr>
+      <tr><td class="num"><strong>12 dB</strong></td><td class="num">14.83 m</td><td class="num">15.88 m</td><td class="num"><strong>1.07</strong></td><td><strong>여기까지는 멀쩡하다</strong></td></tr>
+      <tr><td class="num"><strong>10 dB</strong></td><td class="num">18.67 m</td><td class="num">388.7 m</td><td class="num"><strong>20.8</strong></td><td><strong>여기서 무너진다</strong></td></tr>
+      <tr><td class="num">6 dB</td><td class="num">29.60 m</td><td class="num">952.4 m</td><td class="num">32.2</td><td>사실상 무작위</td></tr>
+      <tr><td class="num">0 dB</td><td class="num">59.05 m</td><td class="num">1,442 m</td><td class="num">24.4</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">12 dB와 10 dB 사이에서 <strong>20배가 뜁니다.</strong> 2 dB 차이로 갈리는 이 지점을 <strong>문턱 효과(threshold effect)</strong>라 부릅니다.</p>
+
+  <!-- 이탈(3σ 밖) 개수와, 이탈을 뺀 나머지의 RMSE — 같은 몬테카를로에서 셌다
+       25 dB  1/200 (0.5 %) · 이탈 뺀 것은 하한의 1.02배
+       20 dB  1/200 (0.5 %) · 1.03배
+       15 dB  1/200 (0.5 %) · 1.04배
+       12 dB  1/200 (0.5 %) · 1.04배
+       10 dB 11/200 (5.5 %) · 1.04배   ← 전체 RMSE 는 20.8배인데 나머지는 멀쩡하다
+        6 dB 79/200 (39.5 %) · 0.98배
+        0 dB 171/200 (85.5 %) · 0.96배 -->
+  <div class="table-scroll">
+  <table>
+    <caption>무너진 것은 하한이 아니다 — 같은 200번을 이탈한 것과 아닌 것으로 갈라 보면</caption>
+    <thead><tr><th class="num">SNR</th><th class="num">엉뚱한 곳을 짚은 횟수</th>
+      <th class="num">그것을 뺀 나머지의 오차</th><th class="num">하한 대비</th></tr></thead>
+    <tbody>
+      <tr><td class="num">12 dB</td><td class="num">1 / 200 <span class="src">0.5 %</span></td>
+          <td class="num">15.48 m</td><td class="num">1.04배</td></tr>
+      <tr><td class="num"><strong>10 dB</strong></td>
+          <td class="num"><strong>11 / 200</strong> <span class="src">5.5 %</span></td>
+          <td class="num">19.37 m</td><td class="num"><strong>1.04배</strong></td></tr>
+      <tr><td class="num">6 dB</td><td class="num">79 / 200 <span class="src">39.5 %</span></td>
+          <td class="num">29.05 m</td><td class="num">0.98배</td></tr>
+      <tr><td class="num">0 dB</td><td class="num">171 / 200 <span class="src">85.5 %</span></td>
+          <td class="num">56.52 m</td><td class="num">0.96배</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">이탈은 <strong>참값에서 3σ보다 멀리 간 것</strong>으로 셌습니다. 위 그림에서 붉은 점이 그것입니다.</p>
+
+  <div class="note">
+    <strong>이 표가 문턱 효과의 정체다.</strong> 10 dB에서 오차가 20배로 뛰는데,
+    <strong>200번 중 11번만 엉뚱한 곳을 짚었습니다.</strong> 나머지 189번은 여전히
+    <strong>하한의 1.04배</strong>입니다 — 12 dB일 때와 똑같습니다.
+    0 dB에서 85 %가 이탈해도, <strong>살아남은 것들은 하한의 0.96배</strong>입니다.<br>
+    <strong>하한은 한 번도 틀리지 않았습니다.</strong> 추정기가 가끔
+    <strong>다른 봉우리를 붙잡아 아예 다른 문제를 푼 것</strong>입니다.
+    평균 제곱 오차 하나로 성능을 말하면 이 구분이 지워집니다 —
+    <strong>문턱 근처에서는 "얼마나 틀리나"가 아니라 "얼마나 자주 놓치나"를 따로 세야 합니다.</strong>
+  </div>
+
+  <div class="note">
+    <strong>왜 무너지는가.</strong> 하한은 <strong>참봉우리 근처에서 조금씩 미끄러지는 것</strong>만 셉니다.
+    그런데 잡음이 커지면 <strong>엉뚱한 자리에 가짜 봉우리</strong>가 서고, 그것이 참봉우리보다 높아지는 일이 생깁니다.
+    그러면 추정값은 <strong>조금 미끄러지는 것이 아니라 통째로 다른 곳</strong>을 짚습니다.
+    <strong>하한은 이런 대형 사고를 예측하지 못합니다</strong> — 참값 근처의 휘어짐만 보기 때문입니다.
+    <strong>CRB를 성능 지표로 쓸 때 반드시 함께 확인해야 하는 것이 이 문턱입니다.</strong>
+  </div>
+
+  <div class="note">
+    <strong>그래서 하한은 두 가지 의미에서 하한이다.</strong>
+    첫째, <strong>어떤 추정기도 이보다 잘할 수 없습니다</strong>(정의상).
+    둘째, <strong>문턱 위에서만 도달합니다</strong> — 아래에서는 하한이 낙관적으로 거짓말을 합니다.
+    위 표의 비가 1.04~1.07인 것은 <strong>최대가능도 추정기가 문턱 위에서 사실상 최적</strong>이라는 뜻이고,
+    이것이 CRB가 <strong>설계 지표로 쓸모 있는 이유</strong>입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>하한의 꼴 — 1 / (SNR × 폭²)</h2>
+  <p>세 가지를 재는데 <strong>식의 모양이 전부 같습니다.</strong></p>
+
+  <!-- 유도 (OFDM 부반송파 k 에서 z_k = α·e^{−j2πkΔf·τ} + w, w~CN(0,σ²), k 대칭색인):
+       ∂μ_k/∂τ = −j2πkΔf·μ_k  →  |∂μ_k/∂τ|² = (2πkΔf)²|α|²
+       J(τ) = (2/σ²)Σ|∂μ_k/∂τ|² = 2(|α|²/σ²)(2πΔf)²·Σk²,  Σk² = N(N²−1)/12
+       SNR_tot = N|α|²/σ² 로 두면  J(τ) = SNR_tot·(2πΔf)²·(N²−1)/6
+       CRB(τ) = 1/J,  거리는 왕복이므로 σ_R = (c/2)·σ_τ
+       큰 N 근사(B = NΔf):  σ_R ≈ (c/2)·√(3/(2π²·SNR_tot)) / B
+       → NR 100 MHz(N=3276), SNR 20 dB: 5.944 cm (정확식), 5.946 cm (근사) — 차 0.03 %
+       α(진폭)를 몰라도 대칭색인이면 Σk=0 이라 τ 의 하한이 바뀌지 않는다 (3×3 FIM 으로 확인) -->
+  <div class="stage">
+    <svg viewBox="0 0 1100 150" role="img" aria-labelledby="tFm dFm">
+      <title id="tFm">지연 추정의 피셔 정보와 하한</title>
+      <desc id="dFm">피셔 정보는 신호대잡음비 곱하기 이파이델타에프의 제곱 곱하기 부반송파 수 제곱 빼기 일을 육으로 나눈 것이고, 거리 오차의 하한은 빛의 속도의 절반에 피셔 정보의 역수의 제곱근을 곱한 것이다.</desc>
+      <text x="550" y="58" text-anchor="middle" class="celllab" fill="var(--ink)" style="font-size:21px">
+        J(τ) = SNR · (2πΔf)² · (N² − 1) / 6
+      </text>
+      <text x="550" y="104" text-anchor="middle" class="celllab" fill="var(--dl)" style="font-size:21px">
+        σ<tspan baseline-shift="sub" style="font-size:14px">R</tspan> ≥ (c / 2) · √(1 / J)
+      </text>
+      <text x="550" y="134" text-anchor="middle" class="dimlab" fill="var(--ink-soft)">
+        N = 부반송파 수 · Δf = 부반송파 간격 · SNR = 다 모은 뒤의 값
+      </text>
+    </svg>
+  </div>
+  <p class="caption">유도는 HTML 주석에 남겼습니다. <strong>진폭 α를 몰라도 결과가 같습니다</strong> — 부반송파를 0 기준 대칭으로 색인하면 Σk = 0이 되어 미지 진폭과 지연이 서로 간섭하지 않기 때문입니다(3 × 3 피셔 행렬로 확인했습니다).</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>세 축 · 같은 꼴, 다른 "폭"</caption>
+    <thead><tr><th>무엇을 재나</th><th>"폭"이 무엇인가</th><th class="num">NR에서</th><th>늘리려면</th></tr></thead>
+    <tbody>
+      <tr><td><strong>거리</strong></td><td>대역폭 B = NΔf</td><td class="num">98.28 MHz <span class="src">100 MHz 대역</span></td>
+          <td>대역을 넓힌다 — <a href="../05-bandwidth-part/index.html">05</a></td></tr>
+      <tr><td><strong>속도</strong></td><td>관측 시간 = M · T<sub>심볼</sub></td><td class="num">0.5 ms ~ 10 ms</td>
+          <td>오래 본다 — <a href="../01-frame-numerology/index.html">01</a></td></tr>
+      <tr><td><strong>각도</strong></td><td>배열 개구 = N<sub>a</sub> · d</td><td class="num">32 소자 · λ/2</td>
+          <td>안테나를 늘린다 — <a href="../07-beamforming/index.html">07</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- 배수 법칙 검산:
+       N 을 두 배로 → σ_R 이 1/1.9995 (N=2049 → 4097 에서 확인)
+       SNR 을 6 dB 올림 → σ_R 이 1/1.9953
+       → 폭 두 배와 SNR 6 dB 는 같은 값어치다 -->
+  <div class="note">
+    <strong>외울 것은 두 줄이다.</strong>
+    <strong>폭을 두 배로 하면 오차가 절반</strong>(σ ∝ 1/폭),
+    <strong>SNR을 6 dB 올려도 오차가 절반</strong>(σ ∝ 1/√SNR).
+    즉 <strong>대역폭 두 배와 SNR 6 dB는 같은 값어치</strong>입니다.
+    셋 중 어디에 투자할지를 이 두 줄로 견줄 수 있습니다.
+  </div>
+
+  <p>아래에서 NR 파라미터를 넣어 세 축을 함께 보세요.</p>
+
+  <div class="stage stage--scroll">
+    <svg viewBox="0 0 1100 340" role="img" aria-labelledby="tAx dAx">
+      <title id="tAx">거리·속도·각도 세 축의 정확도 하한과 분해능의 비교</title>
+      <desc id="dAx">세 개의 가로 막대가 거리, 속도, 각도 각각에 대해 분해능과 정확도 하한을 길이로 나란히 보여준다. 어느 축에서나 정확도 하한이 분해능보다 훨씬 짧고, 그 비는 신호대잡음비에만 달려 있다.</desc>
+      <g id="axG"></g>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <label for="axSnr">SNR</label>
+    <input type="range" id="axSnr" min="0" max="40" step="1" value="20" aria-describedby="axOut">
+    <span class="segmented" id="axBw" role="group" aria-label="대역폭 선택"></span>
+    <span class="segmented" id="axObs" role="group" aria-label="관측 시간 선택"></span>
+    <span class="segmented" id="axNa" role="group" aria-label="배열 소자 수 선택"></span>
+    <span class="readout" id="axOut"></span>
+  </div>
+
+  <div class="stats">
+    <div><span class="n" id="axR">—</span><span class="t">거리 정확도 [cm]</span></div>
+    <div><span class="n" id="axV">—</span><span class="t">속도 정확도 [km/h]</span></div>
+    <div><span class="n" id="axA">—</span><span class="t">각도 정확도 [°]</span></div>
+    <div><span class="n" id="axK">—</span><span class="t">분해능 ÷ 정확도 [배]</span></div>
+  </div>
+  <p class="caption">속도는 3.5 GHz, 각도는 정면(θ = 0°) 기준입니다. <strong>맨 오른쪽 값이 세 축에서 거의 같다는 것</strong>을 눈여겨보세요 — 분해능과 정확도의 비는 <strong>SNR만으로 정해지고 폭과는 무관합니다</strong>. <span class="src">2π√(SNR/6) · 빔폭 정의의 계수 차이만큼만 다르다</span></p>
+
+  <div class="note">
+    <strong>정면을 벗어나면 각도가 나빠진다.</strong> 각도의 피셔 정보에는 <strong>cos²θ</strong>가 붙습니다 —
+    빔을 옆으로 돌릴수록 배열이 <strong>짧아 보이기</strong> 때문입니다.
+    정면에서 <strong>60°</strong> 돌리면 cos 60° = 0.5이므로 오차가 <strong>정확히 두 배</strong>가 됩니다.
+    <a href="../07-beamforming/index.html">07에서 본 빔이 옆으로 갈수록 넓어지는 현상</a>과 같은 뿌리입니다.
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>그래서 ISAC이 어려운 이유</h2>
+  <p>여기까지 오면 ISAC의 어려움이 <strong>수식에서 바로 읽힙니다.</strong> 센싱이 요구하는 세 가지 — <strong>대역폭, 관측 시간, 안테나 개구</strong> — 는 <strong>통신이 쓰는 바로 그 자원</strong>입니다.</p>
+
+  <div class="table-scroll">
+  <table>
+    <caption>같은 자원을 두고 요구가 어긋나는 곳</caption>
+    <thead><tr><th>자원</th><th>통신은</th><th>센싱은</th><th>어긋나는 지점</th></tr></thead>
+    <tbody>
+      <tr><td><strong>대역폭</strong></td>
+          <td>데이터를 실을 만큼만 — 남으면 다른 단말에게</td>
+          <td><strong>넓을수록 무조건 좋다</strong></td>
+          <td>센싱에 폭을 주면 그만큼 용량이 준다</td></tr>
+      <tr><td><strong>시간</strong></td>
+          <td>짧게 — <a href="../21-core-pdu-session/index.html">21에서 본</a> 지연 예산이 있다</td>
+          <td><strong>길게 — 속도를 재려면</strong></td>
+          <td>속도 정확도와 지연은 정면으로 충돌한다</td></tr>
+      <tr><td><strong>안테나</strong></td>
+          <td>단말 쪽으로 빔을 모은다</td>
+          <td><strong>물체 쪽을 훑어야 한다</strong></td>
+          <td>빔이 두 곳을 동시에 볼 수 없다</td></tr>
+      <tr><td><strong>SNR</strong></td>
+          <td>복호되는 만큼이면 충분 <span class="src">→ <a href="../20-channel-coding/index.html">20</a></span></td>
+          <td><strong>항상 더 필요하다</strong> — 문턱이 있다</td>
+          <td>통신에 충분한 SNR이 센싱에는 문턱 아래일 수 있다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <strong>가장 날카로운 충돌은 SNR이다.</strong> 통신은 <strong>복호만 되면 그만</strong>이라
+    <a href="../06-harq-timing/index.html">06에서 봤듯</a> 일부러 10 %쯤 틀리게 두고 재전송으로 메웁니다.
+    그런데 센싱에는 <strong>재전송이 없고 문턱이 있습니다.</strong>
+    위 표에서 봤듯 <strong>2 dB 차이로 오차가 20배</strong>가 됩니다.
+    <strong>통신에 딱 맞게 맞춘 링크가 센싱에는 이미 무너진 링크일 수 있습니다.</strong>
+  </div>
+
+  <div class="note">
+    <strong>그런데 반사파는 왕복이다.</strong> 통신은 기지국에서 단말까지 <strong>한 번</strong> 가지만,
+    센싱은 <strong>갔다가 돌아옵니다.</strong> 같은 거리라도 받는 전력이 훨씬 작습니다.
+    <strong>이 자료는 그 전력 수지를 다루지 않았습니다</strong> — 레이더 방정식은 물체의 반사 단면적처럼
+    규격 밖의 값에 달려 있어서, 숫자를 쓰면 근거 없는 값이 됩니다.
+    <strong>여기서 계산한 것은 "SNR이 이만큼일 때 얼마나 정확한가"까지</strong>이고,
+    <strong>"그 SNR이 나오는가"는 다른 문제</strong>입니다.
+    <!-- VERIFY: 레이더 방정식과 RCS 는 의도적으로 다루지 않았다.
+         물체별 RCS 값은 규격에도 없고 이 저장소가 검산할 수 있는 것도 아니다. -->
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>남는 것</h2>
+  <ul>
+    <li><strong>분해능과 정확도는 다른 질문이다.</strong> 100 MHz의 분해능은 1.53 m이지만 정확도 하한은 20 dB에서 <strong>5.94 cm</strong>입니다. 봉우리의 <strong>폭</strong>과 꼭대기를 <strong>짚는 정밀도</strong>는 같은 것이 아닙니다.</li>
+    <li><strong>하한의 꼴은 1/(SNR × 폭²) 하나다.</strong> 거리는 대역폭이, 속도는 관측 시간이, 각도는 배열 개구가 "폭"입니다. <strong>폭 두 배와 SNR 6 dB는 같은 값어치</strong>입니다.</li>
+    <li><strong>문턱 아래에서 무너지는 것은 하한이 아니라 추정기다.</strong> 10 dB에서 오차가 20배로 뛰지만 <strong>200번 중 11번만 엉뚱한 곳을 짚었고</strong> 나머지는 여전히 하한의 1.04배입니다. 문턱 근처에서는 <strong>"얼마나 틀리나"와 "얼마나 자주 놓치나"를 따로 세야</strong> 합니다.</li>
+  </ul>
+</section>
+
+<nav class="pager wrap">
+  <a href="../21-core-pdu-session/index.html">← 21 5G 코어와 세션</a>
+  <span>22 / 22</span>
+</nav>
+
+<script>
+(function(){
+  'use strict';
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,cls,fill,anchor){
+    var t=el('text',{x:x,y:y});
+    if(cls)t.setAttribute('class',cls);
+    if(fill)t.setAttribute('fill',fill);
+    if(anchor)t.setAttribute('text-anchor',anchor);
+    t.textContent=s;return t;
+  }
+  function clear(g){while(g.firstChild)g.removeChild(g.firstChild);}
+  var C=299792458;
+
+  /* 자바스크립트와 파이썬이 비트까지 같은 값을 내도록 uint32 산술로 쓴 PRNG */
+  function mulberry32(seed){
+    var s=seed>>>0;
+    return function(){
+      s=(s+0x6D2B79F5)>>>0;
+      var t=s;
+      t=Math.imul(t^(t>>>15),t|1)>>>0;
+      t=(t^(t+Math.imul(t^(t>>>7),t|61)))>>>0;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
+  }
+  function gauss(rnd){
+    var u=Math.max(rnd(),1e-12);
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*rnd());
+  }
+
+  /* ── 하한 ──────────────────────────────────────────────
+     J(τ) = SNR_tot·(2πΔf)²·(N²−1)/6,  σ_R = (c/2)·√(1/J) */
+  function fimTau(n,df,snr){ return snr*Math.pow(2*Math.PI*df,2)*(n*n-1)/6; }
+  function crbRange(n,df,snr){ return (C/2)*Math.sqrt(1/fimTau(n,df,snr)); }
+
+  /* ── 1. 봉우리와 흩어짐 ───────────────────────────────── */
+  var NOPT=[17,33,65], DF=30e3, TRIALS=200, GRID=257;
+  var pkG=document.getElementById('pkG');
+  var pkN=document.getElementById('pkN'), pkSnr=document.getElementById('pkSnr');
+  var pkOut=document.getElementById('pkOut'), pkBox=document.getElementById('pkBox');
+  var pkTag=document.getElementById('pkTag'), pkWhy=document.getElementById('pkWhy');
+  var PX=80, PW=940, PY=48, PH=190;            /* 봉우리 */
+  var SY=300, SH=92;                           /* 흩어짐 */
+  var TABS={};                                 /* 격자×부반송파 지수표 (N 마다) */
+
+  function table(n){
+    if(TABS[n]) return TABS[n];
+    var span=1/DF, step=span/(GRID-1), h=(n-1)/2;
+    var re=new Float64Array(GRID*n), im=new Float64Array(GRID*n);
+    for(var g=0;g<GRID;g++){
+      var tau=-span/2+step*g;
+      for(var i=0;i<n;i++){
+        var k=-h+i, ph=2*Math.PI*k*DF*tau;
+        re[g*n+i]=Math.cos(ph); im[g*n+i]=Math.sin(ph);
+      }
+    }
+    TABS[n]={re:re,im:im,step:step,span:span};
+    return TABS[n];
+  }
+
+  /* 최대가능도 — 격자에서 최대를 찾고 포물선으로 꼭짓점을 보간한다 */
+  function estimate(zr,zi,n,T){
+    var best=-1,gb=0,p=new Float64Array(GRID);
+    for(var g=0;g<GRID;g++){
+      var sr=0,si=0,o=g*n;
+      for(var i=0;i<n;i++){
+        var a=zr[i],b=zi[i],cr=T.re[o+i],ci=T.im[o+i];
+        sr+=a*cr-b*ci; si+=a*ci+b*cr;
+      }
+      var m=sr*sr+si*si; p[g]=m;
+      if(m>best){best=m;gb=g;}
+    }
+    var tau=-T.span/2+T.step*gb;
+    if(gb>0&&gb<GRID-1){
+      var y0=p[gb-1],y1=p[gb],y2=p[gb+1],den=y0-2*y1+y2;
+      if(den!==0){ var d=0.5*(y0-y2)/den; if(d>-1&&d<1) tau+=d*T.step; }
+    }
+    return tau;
+  }
+
+  function runMC(n,snr){
+    var T=table(n), rnd=mulberry32(20260914), a=Math.sqrt(snr/n);
+    var zr=new Float64Array(n), zi=new Float64Array(n);
+    var out=[], acc=0;
+    for(var t=0;t<TRIALS;t++){
+      for(var i=0;i<n;i++){                    /* 참값 τ0 = 0 */
+        zr[i]=a+gauss(rnd)/Math.SQRT2;
+        zi[i]=gauss(rnd)/Math.SQRT2;
+      }
+      var e=estimate(zr,zi,n,T);
+      out.push(e); acc+=e*e;
+    }
+    return {est:out,rmse:Math.sqrt(acc/TRIALS)};
+  }
+
+  function drawPeak(){
+    clear(pkG);
+    var n=NOPT[+pkN.value], snrDb=+pkSnr.value, snr=Math.pow(10,snrDb/10);
+    var span=1/DF, B=n*DF;
+    var r=runMC(n,snr);
+    var crbT=Math.sqrt(1/fimTau(n,DF,snr));
+    var crbR=(C/2)*crbT, mcR=(C/2)*r.rmse;
+
+    /* 가로축은 지연(거리로 표시). 보이는 범위는 모호구간 전체 */
+    var toR=function(tau){ return C/2*tau; };
+    var Rmax=toR(span/2);
+    var xx=function(tau){ return PX+(tau+span/2)/span*PW; };
+
+    /* 봉우리 — |Σ e^{j2πkΔfΔτ}|² 정규화 */
+    var d='';
+    for(var px=0;px<=PW;px++){
+      var tau=-span/2+span*px/PW;
+      var x=Math.PI*DF*tau, v;
+      if(Math.abs(Math.sin(x))<1e-12) v=1;
+      else { var s=Math.sin(n*x)/(n*Math.sin(x)); v=s*s; }
+      d+=(px?'L':'M')+(PX+px).toFixed(1)+' '+(PY+(1-v)*PH).toFixed(1)+' ';
+    }
+    for(var q=0;q<=1.0001;q+=0.5){
+      var y=PY+(1-q)*PH;
+      pkG.appendChild(el('line',{x1:PX,y1:y,x2:PX+PW,y2:y,stroke:'var(--hair)','stroke-width':1}));
+      pkG.appendChild(txt(PX-12,y+4,q.toFixed(1),'dimlab','var(--ink-soft)','end'));
+    }
+    pkG.appendChild(el('path',{d:d,fill:'none',stroke:'var(--dl)','stroke-width':2.2}));
+    pkG.appendChild(txt(PX-12,PY-14,'정합','rowlab','var(--ink-soft)','end'));
+
+    /* 하한이 정하는 폭 — 참값 좌우 ±σ */
+    /* 하한 폭은 모호구간에 견주면 대개 선보다 가늘다 — 최소 두께를 주어 보이게 한다 */
+    var bw=Math.max(xx(crbT)-xx(0),1.3);
+    pkG.appendChild(el('rect',{x:xx(0)-bw,y:PY,width:2*bw,height:PH,
+      fill:'var(--ul-bg)',opacity:0.8}));
+    pkG.appendChild(el('line',{x1:xx(0),y1:PY,x2:xx(0),y2:SY+SH,
+      stroke:'var(--ink)','stroke-width':1.2,'stroke-dasharray':'4 4'}));
+    pkG.appendChild(txt(xx(0),PY-14,'참값','celllab','var(--ink)','middle'));
+
+    /* 흩어짐 — 200번의 추정값 */
+    pkG.appendChild(el('rect',{x:PX,y:SY,width:PW,height:SH,fill:'#fff',
+      stroke:'var(--hair)','stroke-width':1}));
+    pkG.appendChild(el('rect',{x:xx(0)-bw,y:SY,width:2*bw,height:SH,
+      fill:'var(--ul-bg)',opacity:0.8}));
+    var rnd2=mulberry32(7);
+    r.est.forEach(function(e){
+      var out=Math.abs(e)>3*crbT;
+      pkG.appendChild(el('circle',{cx:xx(e),cy:SY+8+rnd2()*(SH-16),r:2,
+        fill:out?'var(--alert)':'var(--dl)',opacity:0.75}));
+    });
+    pkG.appendChild(txt(PX-12,SY+SH/2+4,'200번','rowlab','var(--ink-soft)','end'));
+
+    /* 눈금 */
+    for(var t2=-2;t2<=2;t2++){
+      var tau2=t2*span/4, x2=xx(tau2);
+      pkG.appendChild(el('line',{x1:x2,y1:SY+SH,x2:x2,y2:SY+SH+8,
+        stroke:'var(--ink-soft)','stroke-width':1}));
+      pkG.appendChild(txt(x2,SY+SH+26,(toR(tau2)/1000).toFixed(1)+' km',
+        'dimlab','var(--ink-soft)','middle'));
+    }
+    pkG.appendChild(txt(PX+PW/2,SY+SH+52,'지연을 거리로 바꾼 것 — 모호구간 전체',
+      'dimlab','var(--ink-soft)','middle'));
+
+    /* 범례 — 격자 밖 */
+    var ly=SY+SH+86;
+    pkG.appendChild(el('rect',{x:PX,y:ly-11,width:22,height:14,fill:'var(--ul-bg)',
+      stroke:'var(--ul)','stroke-width':1.2,rx:2}));
+    pkG.appendChild(txt(PX+30,ly,'하한이 정하는 폭 ±σ','dimlab','var(--ink-soft)','start'));
+    pkG.appendChild(el('circle',{cx:PX+266,cy:ly-4,r:2.4,fill:'var(--dl)'}));
+    pkG.appendChild(txt(PX+276,ly,'참봉우리를 짚음','dimlab','var(--ink-soft)','start'));
+    pkG.appendChild(el('circle',{cx:PX+436,cy:ly-4,r:2.4,fill:'var(--alert)'}));
+    pkG.appendChild(txt(PX+446,ly,'가짜 봉우리를 짚음 (3σ 밖)','dimlab','var(--ink-soft)','start'));
+
+    document.getElementById('pkB').textContent=(B/1e6).toFixed(2);
+    document.getElementById('pkCrb').textContent=crbR.toFixed(2);
+    document.getElementById('pkMc').textContent=mcR.toFixed(2);
+    document.getElementById('pkRatio').textContent=(mcR/crbR).toFixed(2);
+    pkOut.textContent='부반송파 '+n+'개 · '+(B/1e6).toFixed(2)+' MHz · SNR '+snrDb+' dB';
+
+    var bad=mcR/crbR>2;
+    pkBox.className='verdict '+(bad?'bad':'ok');
+    if(bad){
+      pkTag.textContent='문턱 아래';
+      pkWhy.textContent='가짜 봉우리를 짚는 일이 생겨 실제 오차가 하한의 '
+        +(mcR/crbR).toFixed(0)+'배입니다 — 하한이 더 이상 참이 아닙니다.';
+    }else{
+      pkTag.textContent='하한에 붙는다';
+      pkWhy.textContent='200번 재본 오차가 하한의 '+(mcR/crbR).toFixed(2)
+        +'배입니다 — 최대가능도 추정기가 사실상 최적입니다.';
+    }
+  }
+
+  /* ── 2. 세 축 ─────────────────────────────────────────── */
+  var BWS=[{n:1651,lab:'50 MHz'},{n:3277,lab:'100'},{n:6553,lab:'200 MHz'}];
+  var OBS=[{m:14,lab:'0.5 ms'},{m:140,lab:'5'},{m:280,lab:'10 ms'}];
+  var NAS=[{a:8,lab:'8 소자'},{a:32,lab:'32'},{a:64,lab:'64 소자'}];
+  var ax={bw:1,obs:0,na:1};
+  var TSYM=1e-3/2/14, FC=3.5e9;
+
+  function crbSpeed(m,snr){
+    var j=snr*Math.pow(2*Math.PI*TSYM,2)*(m*m-1)/6;
+    return (C/(2*FC))*Math.sqrt(1/j);
+  }
+  function crbAngleDeg(na,snr){
+    var j=snr*Math.PI*Math.PI*(na*na-1)/6;      /* θ = 0 (정면) */
+    return Math.sqrt(1/j)*180/Math.PI;
+  }
+
+  var axG=document.getElementById('axG');
+  var axSnr=document.getElementById('axSnr'), axOut=document.getElementById('axOut');
+  var AX=180, AW=760;
+
+  function drawAx(){
+    clear(axG);
+    var snrDb=+axSnr.value, snr=Math.pow(10,snrDb/10);
+    var n=BWS[ax.bw].n, m=OBS[ax.obs].m, na=NAS[ax.na].a;
+    var B=n*DF;
+    var rows=[
+      {lab:'거리', res:C/(2*B), acc:crbRange(n,DF,snr), unit:'m', fmt:function(v){
+        return v<1?(v*100).toFixed(2)+' cm':v.toFixed(2)+' m'; }},
+      {lab:'속도', res:(C/(2*FC))/(m*TSYM), acc:crbSpeed(m,snr), unit:'m/s', fmt:function(v){
+        return v.toFixed(3)+' m/s'; }},
+      {lab:'각도', res:0.886*2/na*180/Math.PI, acc:crbAngleDeg(na,snr), unit:'°', fmt:function(v){
+        return v.toFixed(3)+'°'; }}
+    ];
+    var RY=54, RH=62;
+    rows.forEach(function(r,i){
+      var y=RY+i*RH*1.5;
+      axG.appendChild(txt(AX-16,y+22,r.lab,'rowlab','var(--ink-soft)','end'));
+      /* 분해능 막대를 가득 채우고, 정확도를 그 비율만큼 */
+      var ratio=r.acc/r.res;
+      axG.appendChild(el('rect',{x:AX,y:y,width:AW,height:26,fill:'var(--gp-bg)',
+        stroke:'var(--gp)','stroke-width':1.2,rx:2}));
+      axG.appendChild(txt(AX+AW+10,y+18,'분해능 '+r.fmt(r.res),'dimlab','var(--gp)','start'));
+      var w=Math.max(AW*ratio,1.5);
+      axG.appendChild(el('rect',{x:AX,y:y+32,width:w,height:26,fill:'var(--dl-bg)',
+        stroke:'var(--dl)','stroke-width':1.2,rx:2}));
+      axG.appendChild(txt(AX+AW+10,y+50,'정확도 '+r.fmt(r.acc),'dimlab','var(--dl)','start'));
+      axG.appendChild(txt(AX-16,y+50,'1/'+(1/ratio).toFixed(0),'dimlab','var(--ink-soft)','end'));
+    });
+    axG.appendChild(txt(AX,RY-18,'위 = 둘을 가르는 폭(분해능) · 아래 = 하나를 짚는 정밀도(정확도)',
+      'dimlab','var(--ink-soft)','start'));
+
+    var k=rows[0].res/rows[0].acc;
+    document.getElementById('axR').textContent=(crbRange(n,DF,snr)*100).toFixed(2);
+    document.getElementById('axV').textContent=(crbSpeed(m,snr)*3.6).toFixed(3);
+    document.getElementById('axA').textContent=crbAngleDeg(na,snr).toFixed(3);
+    document.getElementById('axK').textContent=k.toFixed(1);
+    axOut.textContent='SNR '+snrDb+' dB · '+BWS[ax.bw].lab+' · '+OBS[ax.obs].lab
+      +' · '+NAS[ax.na].lab;
+  }
+
+  function seg(host,items,get,set,redraw){
+    items.forEach(function(it,i){
+      var b=document.createElement('button');
+      b.type='button'; b.textContent=it.lab;
+      b.setAttribute('aria-pressed',get()===i?'true':'false');
+      b.addEventListener('click',function(){
+        set(i);
+        Array.prototype.forEach.call(host.children,function(c,j){
+          c.setAttribute('aria-pressed',j===i?'true':'false');
+        });
+        redraw();
+      });
+      host.appendChild(b);
+    });
+  }
+  seg(document.getElementById('axBw'),BWS,function(){return ax.bw;},function(i){ax.bw=i;},drawAx);
+  seg(document.getElementById('axObs'),OBS,function(){return ax.obs;},function(i){ax.obs=i;},drawAx);
+  seg(document.getElementById('axNa'),NAS,function(){return ax.na;},function(i){ax.na=i;},drawAx);
+  [pkN,pkSnr].forEach(function(e){ e.addEventListener('input',drawPeak); });
+  axSnr.addEventListener('input',drawAx);
+
+  drawPeak();
+  drawAx();
+})();
+</script>
+
+</body>
+</html>
