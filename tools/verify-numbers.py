@@ -92,6 +92,7 @@ def main():
     ok &= check_core()
     ok &= check_crb()
     ok &= check_lte()
+    ok &= check_ambiguity()
     ok &= check_harq()
 
     print("\n전체:", "통과" if ok else "실패 — 자료의 표를 확인할 것")
@@ -927,6 +928,376 @@ def check_lte():
         ok &= hit
         print(f"  창 {w:>2} ms · 타이머 {t:>2} ms → 예산 {tot:>3} ms (8 + 창 + 타이머)  전송 2 ms · 기다림 {wait}%   "
               f"{'✓' if hit else '✗ 불일치'}")
+
+    return ok
+
+
+# ── 24 모호 함수와 ISAC ─────────────────────────────────────
+# 근거: 레이더 이론(Woodward 1953). **3GPP 규격이 아니다.** 22 와 같은 "규격 밖의 수학" 계통.
+# 3GPP 에서 온 것은 PRACH 시퀀스의 꼴(TS 38.211 §6.3.3.1)과 파라미터(§4.2 SCS · §5.3.1 CP)뿐이다.
+# 정의(주기 · 이산): χ(k, m) = Σ_n s[n]·s*[(n−k) mod N]·e^{j2πmn/N}
+# 자료의 자바스크립트와 같은 수열 · 같은 PRNG · 같은 순서라 브라우저 값과 일치한다.
+
+AMB_N = 31
+AMB_SEED = 20261015
+AMB_DS_N, AMB_DS_L, AMB_DS_B1, AMB_DS_B2, AMB_DS_WEAK = 256, 16, 6, 15, -35
+AMB_GN, AMB_GM, AMB_GR0, AMB_GV0 = 48, 12, 2, 0     # 콤 유령 지도 (설명용 격자)
+
+
+def _amb_af(s, k, nu):
+    """|χ(k, ν)|² / N² — ν 는 칸 사이 값도 된다"""
+    n = len(s)
+    acc = 0j
+    for i in range(n):
+        acc += s[i] * s[(i - k) % n].conjugate() * cmath.exp(2j * math.pi * nu * i / n)
+    return abs(acc) ** 2 / (n * n)
+
+
+def _amb_table(s):
+    """정수 (k, m) 전체 — 트위들을 미리 깔아 빠르게"""
+    n = len(s)
+    W = [cmath.exp(2j * math.pi * i / n) for i in range(n)]
+    tab = {}
+    for k in range(n):
+        g = [s[i] * s[(i - k) % n].conjugate() for i in range(n)]
+        for m in range(n):
+            acc = 0j
+            for i in range(n):
+                acc += g[i] * W[(m * i) % n]
+            tab[(k, m)] = abs(acc) ** 2 / (n * n)
+    return tab
+
+
+def _amb_qpsk(seed, n=AMB_N):
+    r = _mulberry32(seed)
+    out = []
+    for _ in range(n):
+        a = 1 if r() < 0.5 else -1
+        b = 1 if r() < 0.5 else -1
+        out.append(complex(a, b) / math.sqrt(2))
+    return out
+
+
+def _amb_ofdm(X):
+    n = len(X)
+    return [sum(X[f] * cmath.exp(2j * math.pi * f * t / n) for f in range(n)) / math.sqrt(n)
+            for t in range(n)]
+
+
+def _amb_waves():
+    n = AMB_N
+    cw = [1 + 0j] * n
+    zc = [cmath.exp(-1j * math.pi * 1 * i * (i + 1) / n) for i in range(n)]
+    ms = [1 - 2 * b + 0j for b in _lfsr([0, 2], [1, 0, 0, 0, 0], n)]    # 16 의 규칙 A
+    qx = _amb_qpsk(AMB_SEED)
+    return {'한 음': cw, 'ZC': zc, 'm-수열': ms, 'QPSK 칩': qx, 'OFDM': _amb_ofdm(qx)}
+
+
+def _amb_qam_pts(M):
+    L = int(round(math.sqrt(M)))
+    lv = [2 * i - (L - 1) for i in range(L)]
+    return [complex(a, b) for a in lv for b in lv]
+
+
+def _amb_qam_stats(M):
+    """κ = E|x|⁴/(E|x|²)²,  E[1/|x|²] (평균 에너지 1 로 정규화)"""
+    p = _amb_qam_pts(M)
+    e2 = sum(abs(x) ** 2 for x in p) / len(p)
+    kap = sum(abs(x) ** 4 for x in p) / len(p) / e2 ** 2
+    inv = sum(e2 / abs(x) ** 2 for x in p) / len(p)
+    return kap, inv
+
+
+def _amb_ds_profile(M, snr_db, recip):
+    """데이터를 실은 OFDM 의 거리 단면 — 자료의 dsProfile() 과 같은 순서로 난수를 쓴다"""
+    N = AMB_DS_N
+    COS = [math.cos(2 * math.pi * i / N) for i in range(N)]
+    SIN = [math.sin(2 * math.pi * i / N) for i in range(N)]
+    r = _mulberry32(AMB_SEED)
+    Lq = int(round(math.sqrt(M)))
+    nrm = math.sqrt(2 * (M - 1) / 3)
+    sig = math.sqrt(10 ** (-snr_db / 10) / 2)
+    a2 = 10 ** (AMB_DS_WEAK / 20)
+    acc = [0.0] * N
+    for _ in range(AMB_DS_L):
+        zr = [0.0] * N
+        zi = [0.0] * N
+        for n in range(N):
+            xr = (2 * math.floor(r() * Lq) - (Lq - 1)) / nrm
+            xi = (2 * math.floor(r() * Lq) - (Lq - 1)) / nrm
+            wr = _gauss(r) * sig
+            wi = _gauss(r) * sig
+            i1, i2 = (n * AMB_DS_B1) % N, (n * AMB_DS_B2) % N
+            hr = COS[i1] + a2 * COS[i2]
+            hi = -SIN[i1] - a2 * SIN[i2]
+            yr, yi = hr * xr - hi * xi + wr, hr * xi + hi * xr + wi
+            pr, pi = yr * xr + yi * xi, yi * xr - yr * xi
+            if recip:
+                pw = xr * xr + xi * xi
+                pr /= pw
+                pi /= pw
+            zr[n], zi[n] = pr, pi
+        for k in range(N):
+            sr = si = 0.0
+            for n in range(N):
+                j = (n * k) % N
+                c, s = COS[j], SIN[j]
+                sr += zr[n] * c - zi[n] * s
+                si += zr[n] * s + zi[n] * c
+            acc[k] += (sr * sr + si * si) / (N * N)
+    return [v / AMB_DS_L for v in acc]
+
+
+def _amb_ds_floor(p):
+    N = AMB_DS_N
+    near = {(b + d) % N for b in (AMB_DS_B1, AMB_DS_B2) for d in range(-2, 3)}
+    vals = [p[k] for k in range(N) if k not in near]
+    return sum(vals) / len(vals)
+
+
+def _amb_ds_theory(M, snr_db, recip):
+    kap, inv = _amb_qam_stats(M)
+    s2 = 10 ** (-snr_db / 10)
+    if recip:
+        return s2 * inv / AMB_DS_N
+    return ((kap - 1) * (1 + 10 ** (AMB_DS_WEAK / 10)) + s2) / AMB_DS_N
+
+
+def _amb_rd_map(K, stagger, gn=AMB_GN, gm=AMB_GM, r0=AMB_GR0, v0=AMB_GV0):
+    """파일럿 (n, l) 위의 2D 푸리에 합 |·|²/P² — 키는 (거리 칸, 속도 칸 −gm/2 … gm/2−1)"""
+    pil = [(n, l) for n in range(gn) for l in range(gm) if (n - (l if stagger else 0)) % K == 0]
+    P = len(pil)
+    out = {}
+    for r in range(gn):
+        for v in range(-gm // 2, gm // 2):
+            acc = 0j
+            for n, l in pil:
+                acc += cmath.exp(2j * math.pi * (n * (r - r0) / gn - l * (v - v0) / gm))
+            out[(r, v)] = abs(acc) ** 2 / (P * P)
+    return out, P
+
+
+def check_ambiguity():
+    ok = True
+
+    def eq(name, got, want, tol):
+        nonlocal ok
+        hit = abs(got - want) < tol
+        ok &= hit
+        print(f"  {name:<40} {got:>12.4f}   게시 {want:<10} {'✓' if hit else '✗ 불일치'}")
+
+    def yes(name, cond):
+        nonlocal ok
+        ok &= bool(cond)
+        print(f"  {name:<56} {'✓' if cond else '✗'}")
+
+    N = AMB_N
+    db = lambda v: 10 * math.log10(v) if v > 1e-15 else float('-inf')   # noqa: E731
+
+    print("\n[24] 모래의 양 — Σ|χ|² = N·봉우리² (규격이 아니라 레이더 이론)")
+    waves = _amb_waves()
+    tabs = {name: _amb_table(s) for name, s in waves.items()}
+    for name, tab in tabs.items():
+        vol = sum(tab.values())
+        yes(f"{name:7s} 총량 ÷ N·봉우리 = {vol / N:.12f} · 봉우리 {tab[(0, 0)]:.12f}",
+            abs(vol / N - 1) < 1e-9 and abs(tab[(0, 0)] - 1) < 1e-9)
+    eq("봉우리 몫 1/N [%]", 100 / N, 3.23, 0.005)
+    eq("어딘가에 놓이는 몫 [%]", 100 * (N - 1) / N, 96.77, 0.005)
+
+    print("\n[24] 모래가 놓이는 곳 — 파형마다")
+    cw = tabs['한 음']
+    yes("한 음: m=0 줄 전부 0 dB, 정수 m≠0 은 0",
+        all(abs(cw[(k, 0)] - 1) < 1e-9 for k in range(N))
+        and all(cw[(k, m)] < 1e-20 for k in range(N) for m in range(1, N)))
+    for q in (1, 2, 5):
+        s = [cmath.exp(-1j * math.pi * q * i * (i + 1) / N) for i in range(N)]
+        t = _amb_table(s)
+        exact = all(abs(t[(k, m)] - (1.0 if (m - q * k) % N == 0 else 0.0)) < 1e-9
+                    for k in range(N) for m in range(N))
+        yes(f"ZC q={q}: |χ| = N  ⇔  m ≡ q·k (mod {N}) — 961칸 전부", exact)
+    ms = tabs['m-수열']
+    vals = sorted({round(ms[(k, m)] * N * N, 6) for k in range(1, N) for m in range(N)})
+    yes(f"m-수열: k≠0 에서 |χ|² ∈ {vals} (= {{1, N+1}})", vals == [1.0, float(N + 1)])
+    eq("m-수열 ν=0 줄 곁막대 [dB]  1/N²", db(1 / N ** 2), -29.83, 0.005)
+    eq("m-수열 축 밖 [dB]  (N+1)/N²", db((N + 1) / N ** 2), -14.78, 0.005)
+    qc = tabs['QPSK 칩']
+    side = max(v for km, v in qc.items() if km != (0, 0))
+    eq("QPSK 칩 가장 높은 곁막대 [dB] (씨앗 20261015)", db(side), -5.94, 0.005)
+    yes("  그 자리는 (k, m) = (±1, 0)",
+        abs(qc[(1, 0)] - side) < 1e-12 and abs(qc[(N - 1, 0)] - side) < 1e-12)
+    yes("QPSK 칩 k=0 세로줄은 깨끗하다 (시간 크기가 일정)",
+        all(qc[(0, m)] < 1e-20 for m in range(1, N)))
+    sides = []
+    for sd in range(1, 101):
+        t = _amb_table(_amb_qpsk(sd))
+        sides.append(db(max(v for km, v in t.items() if km != (0, 0))))
+    sides.sort()
+    eq("씨앗 1…100 곁막대 최저 [dB]", sides[0], -8.91, 0.005)
+    eq("씨앗 1…100 곁막대 최고 [dB]", sides[-1], -4.61, 0.005)
+    eq("씨앗 1…100 곁막대 가운데값 [dB]", (sides[49] + sides[50]) / 2, -7.12, 0.005)
+    eq("평균 바닥 1/N [dB]", db(1 / N), -14.91, 0.005)
+
+    print("\n[24] OFDM 은 같은 모래를 90° 돌린 것")
+    of = tabs['OFDM']
+    err = max(abs(math.sqrt(of[(k, m)]) - math.sqrt(qc[(m % N, (-k) % N)]))
+              for k in range(N) for m in range(N))
+    yes(f"|χ_OFDM(k, m)| = |χ_칩(m, −k)| — 961칸 최대 차 {err:.1e}", err < 1e-9)
+    yes("OFDM m=0 가로줄은 깨끗하다 (주파수 크기가 일정)",
+        all(of[(k, 0)] < 1e-20 for k in range(1, N)))
+    so = waves['OFDM']
+    papr = max(abs(x) ** 2 for x in so) / (sum(abs(x) ** 2 for x in so) / N)
+    eq("이 OFDM 수열의 PAPR [dB]", db(papr), 8.38, 0.005)
+
+    print("\n[24] 반 칸 어긋나면 ZC 봉우리가 둘로")
+    zc = waves['ZC']
+    eq("ZC ν=0.5 · k=0 [dB]", db(_amb_af(zc, 0, 0.5)), -3.92, 0.005)
+    eq("ZC ν=0.5 · k=1 [dB]", db(_amb_af(zc, 1, 0.5)), -3.92, 0.005)
+    eq("닫힌꼴 1/(N·sin(π/2N))", 1 / (N * math.sin(math.pi / (2 * N))), 0.6369, 0.0001)
+
+    print("\n[24] PRACH 제한 집합 — 능선이 떨어질 자리 d_u = u⁻¹ mod 839 (TS 38.211 §6.3.3.1, ⚠️ 원문 미대조)")
+    L = 839
+    for u, q_pub, du_pub in ((1, 1, 1), (2, 420, 419), (3, 280, 280), (838, 838, 1)):
+        q = next(q for q in range(L) if (q * u) % L == 1)
+        du = q if q < L / 2 else L - q
+        hit = q == q_pub and du == du_pub
+        ok &= hit
+        print(f"  u={u:3d} → q={q:3d} · d_u={du:3d}   게시 {q_pub}/{du_pub}  {'✓' if hit else '✗'}")
+    eq("데이터 SCS ÷ PRACH 포맷 0 SCS", 30 / 1.25, 24, 1e-9)
+
+    print("\n[24] OFDM 격자의 다섯 숫자 (μ=1 · 3.5 GHz)")
+    c = C * 1e6
+    df, fc, tsym = 30e3, 3.5e9, 0.5e-3 / 14
+    rmax = c / (2 * df)
+    tcp = cp(1) * 1e-6
+    vmax = c / (4 * fc * tsym)
+    eq("거리 분해능 (3276) [m]", c / (2 * 3276 * df), 1.5252, 0.0001)
+    eq("거리 모호 한계 R_max [m]", rmax, 4996.5, 0.05)
+    eq("T_CP [μs]", tcp * 1e6, 2.344, 0.0005)
+    eq("ISI 없는 한계 c·T_CP/2 [m]", c * tcp / 2, 351.3, 0.05)
+    eq("CP 한계 ÷ R_max = 144/2048 [%]", c * tcp / 2 / rmax * 100, 7.03, 0.005)
+    eq("1/(Δf·T_CP) = 2048/144", 1 / (df * tcp), 14.2, 0.05)
+    yes("  1/(Δf·T_CP) 는 μ 와 무관",
+        all(abs(1 / (15e3 * 2 ** mu * cp(mu) * 1e-6) - 2048 / 144) < 1e-6 for mu in range(5)))
+    eq("속도 모호 한계 [m/s]", vmax, 599.6, 0.05)
+    eq("  [km/h]", vmax * 3.6, 2158, 0.6)
+    eq("속도 분해능 M=280 [m/s]", c / (2 * fc * 280 * tsym), 4.28, 0.005)
+    eq("속도 분해능 M=14 [m/s]", c / (2 * fc * 14 * tsym), 85.7, 0.05)
+    eq("30 m/s 왕복 도플러 [Hz]", 2 * 30 * fc / c, 700.5, 0.05)
+    eq("  ÷ 부반송파 간격 [%]", 2 * 30 * fc / c / df * 100, 2.3, 0.05)
+
+    print("\n[24] 콤 파일럿의 유령 — 높이가 참표적과 같은 복제")
+    for K, r_pub, v_pub in ((2, 2498, 599.6), (4, 1249, 299.8), (6, 833, 199.9), (8, 625, None), (12, 416, 99.9)):
+        eq(f"콤 {K:2d} 유령 거리 간격 R_max/K [m]", rmax / K, r_pub, 0.6)
+        if v_pub is not None:
+            eq(f"  엇갈림 유령 속도 간격 2v_max/K [m/s]", 2 * vmax / K, v_pub, 0.05)
+        yes(f"  콤 {K} < 14.2 → 유령이 CP 한계 밖", rmax / K > c * tcp / 2)
+    eq("콤 4 첫 유령 속도 [km/h]", 2 * vmax / 4 * 3.6, 1079, 0.6)
+    gn, gm = AMB_GN, AMB_GM
+    eq("설명용 격자 한 칸 · 거리 [m]", rmax / gn, 104.1, 0.05)
+    eq("설명용 격자 한 칸 · 속도 [m/s]", 2 * vmax / gm, 99.9, 0.05)
+    eq("참표적 거리 [m]", AMB_GR0 * rmax / gn, 208, 0.5)
+    for K in (2, 4, 6, 12):
+        for st in (False, True):
+            mp, P = _amb_rd_map(K, st)
+            want = set()
+            for p in range(K):
+                r = (AMB_GR0 + p * gn // K) % gn
+                v = AMB_GV0 + (p * gm // K if st else 0)
+                v = (v + gm // 2) % gm - gm // 2
+                want.add((r, v))
+            got = {rv for rv, x in mp.items() if x > 0.5}
+            same_h = all(abs(mp[rv] - 1) < 1e-9 for rv in want)
+            rest = max((x for rv, x in mp.items() if rv not in want), default=0)
+            tot = sum(mp.values()) * P * P
+            cut = sum(1 for (r, v) in got if v == AMB_GV0) - 1
+            hit = got == want and same_h and rest < 1e-20 and abs(tot - gn * gm * P) < 1e-6 * tot
+            ok &= hit
+            print(f"  콤 {K:2d} {'엇갈림' if st else '같은 자리':5s}: 유령 {len(got) - 1:2d}개 (높이 1.000) · "
+                  f"속도 0 줄 {cut:2d}개 · 나머지 ≤ {rest:.0e} · 총량 = N·M·P  {'✓' if hit else '✗'}")
+
+    print("\n[24] 데이터의 흔들림 κ 와 역필터의 값 (별자리 점 전수)")
+    PUB = {16: (1.320, 1.889, 2.76, 4.4, -40.1), 64: (1.381, 2.685, 4.29, 6.5, -39.3),
+           256: (1.395, 3.437, 5.36, 7.9, -39.2)}
+    k4, i4 = _amb_qam_stats(4)
+    yes("QPSK: κ = 1 · E[1/|x|²] = 1 → 두 필터가 같다", abs(k4 - 1) < 1e-12 and abs(i4 - 1) < 1e-12)
+    for M, (kp, ip, lp, cp_, fp) in PUB.items():
+        kap, inv = _amb_qam_stats(M)
+        eq(f"{M:3d}QAM κ", kap, kp, 0.0005)
+        yes(f"  κ = (7M − 13)/(5(M − 1)) = {(7 * M - 13) / (5 * (M - 1)):.6f}",
+            abs(kap - (7 * M - 13) / (5 * (M - 1))) < 1e-12)
+        eq(f"  E[1/|x|²]", inv, ip, 0.0005)
+        eq(f"  역필터 손해 [dB]", db(inv), lp, 0.005)
+        eq(f"  교차 SNR (E[1/|x|²]−1)/(κ−1) [dB]", db((inv - 1) / (kap - 1)), cp_, 0.05)
+        eq(f"  바닥 (κ−1)/3276 [dB]", db((kap - 1) / 3276), fp, 0.05)
+    eq("16QAM 교차 SNR [dB] (정밀)", db((1.888889 - 1) / 0.32), 4.437, 0.001)
+    eq("정사각 QAM κ 의 극한 7/5", (7 * 4096 - 13) / (5 * 4095), 1.4, 0.001)
+    k16, i16 = _amb_qam_stats(16)
+    k256, i256 = _amb_qam_stats(256)
+    eq("16 → 256QAM 바닥이 오르는 양 [dB]", db((k256 - 1) / (k16 - 1)), 0.92, 0.005)
+    eq("16 → 256QAM 역필터 손해가 커지는 양 [dB]", db(i256) - db(i16), 2.60, 0.005)
+    r = _mulberry32(1)
+    a2 = a4 = 0.0
+    for _ in range(200000):
+        t = -math.log(max(r(), 1e-12))          # |z|² ~ 지수분포(1)
+        a2 += t
+        a4 += t * t
+    eq("가우스 κ (몬테카를로 20만)", a4 / 200000 / (a2 / 200000) ** 2, 2.0, 0.03)
+    eq("가우스 바닥 1/3276 [dB]", db(1 / 3276), -35.2, 0.05)
+
+    print("\n[24] 몬테카를로 — 256 부반송파 · 16 심볼 · 씨앗 고정 (자료와 같은 값)")
+    PUB_MC = {(4, False): (-24.06, -28.06, -34.06, -44.06, -54.06),
+              (16, False): (-22.88, -25.53, -27.83, -28.83, -28.93),
+              (16, True): (-21.37, -25.37, -31.37, -41.37, -51.37)}
+    meas = {}
+    for (M, rc), pubs in PUB_MC.items():
+        for snr, pub in zip((0, 4, 10, 20, 30), pubs):
+            fl = db(_amb_ds_floor(_amb_ds_profile(M, snr, rc)))
+            th = db(_amb_ds_theory(M, snr, rc))
+            meas[(M, rc, snr)] = fl
+            hit = abs(fl - pub) < 0.006 and abs(fl - th) < 0.15
+            ok &= hit
+            print(f"  {('QPSK' if M == 4 else f'{M}QAM'):6s} {'역' if rc else '정합'} SNR {snr:2d} dB → "
+                  f"바닥 {fl:7.2f} (이론 {th:7.2f}, 차 {fl - th:+.2f})  게시 {pub}  {'✓' if hit else '✗'}")
+    # 표의 두 값(−25.53, −25.37)을 빼면 0.16 이지만 반올림 전 차는 0.152 — 자료에는 0.15 로 쓴다
+    eq("4 dB 에서 정합이 낮은 폭 [dB]", meas[(16, True, 4)] - meas[(16, False, 4)], 0.15, 0.006)
+    yes("10 dB 부터는 역필터가 낮다 (교차점 4.4 dB 와 맞는다)",
+        all(meas[(16, True, s)] < meas[(16, False, s)] for s in (10, 20, 30))
+        and meas[(16, False, 0)] < meas[(16, True, 0)])
+    eq("16QAM 정합 20 → 30 dB 에서 내려간 양 [dB]", meas[(16, False, 20)] - meas[(16, False, 30)], 0.10, 0.006)
+    eq("16QAM 정합 바닥 이론 하한 (κ−1)/256 [dB]", db((k16 - 1) / 256), -29.03, 0.005)
+    eq("센 반사 117 m · 약한 물체 293 m", AMB_DS_B1 * rmax / AMB_DS_N, 117, 0.5)
+    eq("  약한 물체 거리 [m]", AMB_DS_B2 * rmax / AMB_DS_N, 293, 0.5)
+    eq("CP 가 덮는 칸 수 (256 칸 중)", c * tcp / 2 / (rmax / AMB_DS_N), 18, 1e-6)
+
+    print("\n[24] 2D 로 펴면 바닥이 N·M 분의 1 — (κ−1)/(N·M)")
+    for nm, pub in ((256, -29.0), (3276, -40.1), (3276 * 14, -51.6), (3276 * 280, -64.6)):
+        eq(f"16QAM N·M = {nm:>7,}", db((k16 - 1) / nm), pub, 0.05)
+    # 작은 2D 몬테카를로: 정적 물체 하나 · 잡음 없음 · 심볼마다 독립 데이터
+    n2, m2, trials = 32, 8, 30
+    r = _mulberry32(AMB_SEED)
+    pts = _amb_qam_pts(16)
+    e2 = sum(abs(x) ** 2 for x in pts) / len(pts)
+    Wn = [cmath.exp(2j * math.pi * i / n2) for i in range(n2)]
+    Wm = [cmath.exp(-2j * math.pi * i / m2) for i in range(m2)]
+    floor_acc, cnt = 0.0, 0
+    for _ in range(trials):
+        Z = [[0j] * m2 for _ in range(n2)]
+        for n in range(n2):
+            for l in range(m2):
+                x = pts[int(r() * 16)] / math.sqrt(e2)
+                Z[n][l] = abs(x) ** 2              # 정합 필터, H = 1 (지연 0 · 속도 0)
+        for rr in range(n2):
+            for vv in range(m2):
+                if rr == 0 and vv == 0:
+                    continue
+                acc = 0j
+                for n in range(n2):
+                    for l in range(m2):
+                        acc += Z[n][l] * Wn[(n * rr) % n2] * Wm[(l * vv) % m2]
+                floor_acc += abs(acc) ** 2 / (n2 * m2) ** 2
+                cnt += 1
+    got = db(floor_acc / cnt)
+    eq(f"2D 몬테카를로 바닥 (N=32 · M=8) [dB]", got, round(db((k16 - 1) / (n2 * m2)), 2), 0.3)
 
     return ok
 
